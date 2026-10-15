@@ -4,9 +4,21 @@ A small, local canvas for trying things. A **Tinka Board** holds experiments, im
 
 Each project gets its own instance. You can run `Tinka / Atlas` and `Tinka / Orchard` at the same time, with separate boards, notes, configuration, processes, and saved URLs. There is no master service or shared port allocator.
 
-Tinka uses **Node.js 22 or newer**, has **no runtime npm dependencies**, and binds only to `127.0.0.1`. Managed start/stop uses `ps`, so use macOS or Linux. The package is internally named `board-room` for compatibility with the original installer; the product is Tinka.
-
 ## Quick start
+
+Tell the agent you already use for your project:
+
+```text
+Add Tinka to this project: https://github.com/bladnman/tinka
+```
+
+Your agent can read the setup instructions, install Tinka and start this project's
+local canvas. No separate agent skill is required. Agents should read the
+[agent guide](docs/AGENT.md) and the manual setup below.
+
+### Manual setup
+
+Tinka uses **Node.js 22 or newer**, has **no runtime npm dependencies**, and binds only to `127.0.0.1`. Managed start/stop uses `ps`, so use macOS or Linux. The package is internally named `board-room` for compatibility with the original installer; the product is Tinka.
 
 No agent skill is required. Use a visible `tinka/` folder for project tooling and
 `design/boards/` for durable design work. Existing `.tinka` or external layouts
