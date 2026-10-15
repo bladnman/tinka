@@ -32,13 +32,87 @@ try{
     assert.equal(await instance.page.title(),`Tinka / ${label}`);
   }
   const [a,b]=instances;assert.notEqual(a.url,b.url);
+  await main(['board','create','keyboard','--config',a.config,'--title','Keyboard navigation']);
+  const keyboardBoard=path.join(a.boards,'keyboard');
+  const keyboardManifest={rounds:['first','second','third'].map((id,index)=>({id,number:String(index+1),title:`Round ${index+1}`,concepts:[{id:'pages',name:`Pages ${index+1}`,path:'pages.html'}]})),revisions:{}};
+  await writeFile(path.join(keyboardBoard,'rounds.json'),JSON.stringify(keyboardManifest));
+  await writeFile(path.join(keyboardBoard,'pages.html'),'<!doctype html><title>Keyboard pages</title><h1>Keyboard pages</h1><output>0</output><input aria-label="Draft"><script>let page=0;addEventListener("keydown",event=>{if(event.target.tagName!=="INPUT"&&event.key==="ArrowRight"){event.preventDefault();document.querySelector("output").textContent=++page;}});</script>');
+  for(const round of keyboardManifest.rounds)await main(['status','--config',a.config,'--board','keyboard',`${round.id}/pages`,'ready','Keyboard test fixture']);
   await a.page.screenshot({path:path.join(evidence,'home-wide.png')});
   await a.page.locator('.new-board').first().click();
   assert((await a.page.locator('#agent-prompt').inputValue()).includes(a.config));
   assert((await a.page.locator('#agent-prompt').inputValue()).includes(a.url));
+  const agentConfig=await (await fetch(`${a.url}api/config`)).json();
+  const creationPrompt=await a.page.locator('#agent-prompt').inputValue();
+  assert(creationPrompt.includes(agentConfig.appPath)&&creationPrompt.includes(agentConfig.agentGuidePath)&&creationPrompt.includes(agentConfig.protocolPath));
+  assert(!creationPrompt.includes('Use the tinka skill'));
+  assert((await a.page.locator('#agent-prompt').inputValue()).includes('Do not add a reference board'));
   await a.page.locator('.close').click();
+  // Source files can update while an older managed server is still running.
+  // Its config response has no app/instruction fields; prompts must stay useful.
+  await a.page.route('**/api/config',async route=>{
+    const response=await route.fetch();const config=await response.json();
+    delete config.appPath;delete config.agentGuidePath;delete config.protocolPath;
+    await route.fulfill({response,json:config});
+  });
+  await a.page.reload();
+  await a.page.getByRole('heading',{name:'A better first step'}).waitFor();
+  await a.page.locator('.new-board').first().click();
+  const legacyPrompt=await a.page.locator('#agent-prompt').inputValue();
+  assert(legacyPrompt.includes('.pid.json')&&!legacyPrompt.includes('undefined')&&!legacyPrompt.includes('Use the tinka skill'));
+  await a.page.locator('.close').click();
+  await a.page.locator('[data-remove-board="first-steps"]').click();
+  assert((await a.page.locator('#agent-prompt-text').inputValue()).includes('.pid.json'));
+  await a.page.keyboard.press('Escape');
+  await a.page.unroute('**/api/config');
+  await a.page.reload();
+  await a.page.getByRole('heading',{name:'A better first step'}).waitFor();
   await main(['board','create','newly-added','--config',a.config,'--title','Newly added']);
   await a.page.getByRole('heading',{name:'Newly added'}).waitFor();
+  assert.deepEqual((await (await fetch(`${a.url}api/boards/newly-added`)).json()).rounds,[]);
+  // Copying a removal request stays local to this browser. Never touch the OS clipboard in QA.
+  await a.page.evaluate(()=>Object.defineProperty(navigator,'clipboard',{configurable:true,value:{writeText:async text=>{window.copiedPrompt=text;}}}));
+  await a.page.locator('[data-remove-board="newly-added"]').click();
+  let prompt=await a.page.locator('#agent-prompt-text').inputValue();
+  assert(prompt.includes(a.config)&&prompt.includes(a.boards)&&prompt.includes('"id": "newly-added"'));
+  assert(prompt.includes(agentConfig.agentGuidePath)&&prompt.includes(agentConfig.protocolPath)&&!prompt.includes('Use the tinka skill'));
+  assert(prompt.includes('recoverable archive')&&!prompt.includes(b.config));
+  await a.page.locator('#copy-agent-prompt').click();
+  await a.page.waitForFunction(()=>document.querySelector('#agent-prompt-status').textContent.startsWith('Copied.'));
+  assert.equal(await a.page.evaluate(()=>window.copiedPrompt),prompt);
+  await a.page.screenshot({path:path.join(evidence,'board-removal-prompt.png')});
+  await a.page.keyboard.press('Escape');
+  assert.equal((await (await fetch(`${a.url}api/boards`)).json()).boards.some(board=>board.id==='newly-added'),true);
+  await a.page.locator('[data-cover-board="newly-added"]').click();
+  prompt=await a.page.locator('#agent-prompt-text').inputValue();
+  assert(prompt.includes(a.config)&&prompt.includes('"id": "newly-added"')&&prompt.includes('1200 × 600')&&prompt.includes('assets/cover.svg'));
+  await a.page.locator('#copy-agent-prompt').click();
+  await a.page.waitForFunction(()=>document.querySelector('#agent-prompt-status').textContent.startsWith('Copied.'));
+  assert.equal(await a.page.evaluate(()=>window.copiedPrompt),prompt);
+  await a.page.screenshot({path:path.join(evidence,'cover-image-prompt.png')});
+  await a.page.locator('.agent-dialog-close').click();
+  // Simulate an agent adding and then updating a cover outside the usual assets folder.
+  const coverBoard=path.join(a.boards,'newly-added');
+  const coverMetadata=await saved(path.join(coverBoard,'board.json'));
+  await mkdir(path.join(coverBoard,'art'));
+  const coverSvg='<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="600" viewBox="0 0 1200 600"><rect width="1200" height="600" fill="#254cd1"/><circle cx="600" cy="300" r="140" fill="#faf9f3"/></svg>';
+  await writeFile(path.join(coverBoard,'art/cover.svg'),coverSvg);
+  await writeFile(path.join(coverBoard,'board.json'),JSON.stringify({...coverMetadata,cover:'art/cover.svg'}));
+  const coverCard=a.page.locator('.board-card').filter({has:a.page.getByRole('heading',{name:'Newly added',exact:true})});
+  await coverCard.locator('img').waitFor();
+  await coverCard.locator('img').evaluate(img=>new Promise((resolve,reject)=>{if(img.complete&&img.naturalWidth)resolve();else{img.onload=resolve;img.onerror=reject;}}));
+  await coverCard.scrollIntoViewIfNeeded();
+  assert.equal(await coverCard.locator('.board-art').evaluate(el=>Math.abs(el.clientWidth/el.clientHeight-2)<.02),true);
+  await a.page.screenshot({path:path.join(evidence,'custom-board-cover.png')});
+  await coverCard.locator('img').evaluate(img=>{window.previousCover=img;});
+  await writeFile(path.join(coverBoard,'art/cover.svg'),coverSvg.replace('#254cd1','#526739'));
+  await a.page.waitForFunction(()=>{
+    const img=document.querySelector('img[src*="/boards/newly-added/files/art/cover.svg"]');
+    return img&&img!==window.previousCover&&img.complete&&img.naturalWidth>0;
+  });
+  await writeFile(path.join(coverBoard,'board.json'),JSON.stringify({...coverMetadata,cover:'art/missing.svg'}));
+  await coverCard.locator('.sheet').first().waitFor();
+  assert.equal(await coverCard.locator('img').count(),0);
   for(const instance of instances){
     await instance.page.goto(`${instance.url}boards/first-steps/`);
     await instance.page.waitForFunction(()=>document.querySelectorAll('.concept-card').length===2);
@@ -50,12 +124,36 @@ try{
       return notes['first/one-step']?.note===(instance===a?'Glade only':'Runway only');
     },'Note persisted to its own instance');
   }
+  const manifestBefore=await readFile(path.join(a.boards,'first-steps/rounds.json'),'utf8');
+  const notesBefore=await readFile(path.join(a.boards,'first-steps/.state/notes.json'),'utf8');
+  await a.page.evaluate(()=>Object.defineProperty(navigator,'clipboard',{configurable:true,value:{writeText:async text=>{window.copiedPrompt=text;}}}));
+  await a.page.locator('[data-remove-experiment="first/one-step"]').click();
+  prompt=await a.page.locator('#agent-prompt-text').inputValue();
+  assert(prompt.includes(a.config)&&prompt.includes('"key": "first/one-step"')&&prompt.includes('experiments/one-step/index.html'));
+  assert(prompt.includes('Keep the source files, shared assets, notes')&&!prompt.includes(b.config));
+  await a.page.locator('#copy-agent-prompt').click();
+  await a.page.waitForFunction(()=>document.querySelector('#agent-prompt-status').textContent.startsWith('Copied.'));
+  assert.equal(await a.page.evaluate(()=>window.copiedPrompt),prompt);
+  await a.page.screenshot({path:path.join(evidence,'experiment-removal-prompt.png')});
+  // A denied Clipboard API still leaves a selected, copyable prompt.
+  await a.page.evaluate(()=>{navigator.clipboard.writeText=async()=>{throw new Error('Clipboard denied');};});
+  await a.page.locator('#copy-agent-prompt').click();
+  await a.page.waitForFunction(()=>document.querySelector('#agent-prompt-status').textContent.startsWith('Select and copy'));
+  assert.deepEqual(await a.page.locator('#agent-prompt-text').evaluate(el=>[el.selectionStart,el.selectionEnd]),[0,prompt.length]);
+  await a.page.locator('.agent-dialog-close').click();
+  assert.equal(await a.page.evaluate(()=>document.activeElement.dataset.removeExperiment),'first/one-step');
+  assert.equal(await readFile(path.join(a.boards,'first-steps/rounds.json'),'utf8'),manifestBefore);
+  assert.equal(await readFile(path.join(a.boards,'first-steps/.state/notes.json'),'utf8'),notesBefore);
   await a.page.screenshot({path:path.join(evidence,'board-collapsed-wide.png')});
   await a.page.locator('#toggle-header').click();
   await a.page.screenshot({path:path.join(evidence,'board-expanded-wide.png')});
   await a.page.locator('#toggle-header').click();
   await a.page.setViewportSize({width:400,height:800});
   await a.page.screenshot({path:path.join(evidence,'board-collapsed-narrow.png')});
+  await a.page.locator('[data-remove-experiment="first/one-step"]').click();
+  await a.page.screenshot({path:path.join(evidence,'removal-prompt-narrow.png')});
+  assert.equal(await a.page.locator('#agent-prompt-dialog').evaluate(el=>el.scrollWidth<=el.clientWidth),true);
+  await a.page.locator('.agent-dialog-close').click();
   assert(await a.page.locator('#canvas-header').evaluate(el=>el.getBoundingClientRect().height<90));
   assert.equal(await a.page.locator('#project-label').textContent(),'Glade');
   await a.page.locator('#overview').click();
@@ -82,6 +180,110 @@ try{
   await a.page.locator('#reader-update').click();
   await frame.getByRole('heading',{name:'A fresh version.'}).waitFor();
   await a.page.locator('#close-reader').click();
+  // Tall and zoomed-out canvases must still align the last exploration.
+  await a.page.setViewportSize({width:1440,height:1200});
+  await a.page.goto(`${a.url}boards/keyboard/`);
+  await a.page.waitForFunction(()=>document.activeElement.id==='viewport');
+  const settledRound=async index=>a.page.waitForFunction(index=>{
+    const viewport=document.querySelector('#viewport');
+    const zoom=Number(document.querySelector('#zoom-level').textContent.replace('%',''))/100;
+    return document.querySelector('#round-picker').value===String(index)&&Math.abs(viewport.scrollTop-index*1220*zoom)<2;
+  },index);
+  for(const index of [0,1,2,0,2]){
+    await a.page.locator('#round-picker').selectOption(String(index));
+    await settledRound(index);
+  }
+  await a.page.screenshot({path:path.join(evidence,'round-three-tall.png')});
+  // Manual scrolling still updates the menu; arrow keys belong to the canvas.
+  await a.page.locator('#viewport').evaluate(el=>el.scrollTo({top:0,behavior:'instant'}));
+  await settledRound(0);
+  await a.page.keyboard.press('ArrowDown');
+  await a.page.waitForFunction(()=>document.querySelector('#viewport').scrollTop>0);
+  assert.equal(await a.page.locator('#round-picker').inputValue(),'0');
+  for(let i=0;i<3;i++)await a.page.locator('#zoom-out').click();
+  await a.page.locator('#round-picker').selectOption('2');
+  await settledRound(2);
+  await a.page.emulateMedia({reducedMotion:'reduce'});
+  await a.page.locator('#round-picker').selectOption('0');
+  await settledRound(0);
+  await a.page.locator('#round-picker').selectOption('2');
+  await settledRound(2);
+  await a.page.emulateMedia({reducedMotion:'no-preference'});
+  // Opening, deep links, and explicit reloads route keys into the experiment body.
+  await a.page.locator('.card-actions [data-open="third/pages"]').click();
+  const keyboardFrame=a.page.frameLocator('#active-reader');
+  const readerFocused=()=>a.page.waitForFunction(()=>document.activeElement.id==='active-reader'&&document.querySelector('#active-reader').contentDocument?.activeElement?.tagName==='BODY');
+  await keyboardFrame.locator('h1').waitFor();
+  await readerFocused();
+  await a.page.keyboard.press('ArrowRight');
+  assert.equal(await keyboardFrame.locator('output').textContent(),'1');
+  assert.equal(await a.page.locator('#reader-size').inputValue(),'fit');
+  await a.page.screenshot({path:path.join(evidence,'reader-keyboard-focus.png')});
+  await a.page.locator('#reader-size').focus();
+  await a.page.keyboard.press('Tab');
+  assert.equal(await a.page.evaluate(()=>document.activeElement.id),'reader-theme');
+  await keyboardFrame.locator('input').fill('Keep my draft');
+  keyboardManifest.rounds[2].title='Updated third round';
+  await writeFile(path.join(keyboardBoard,'rounds.json'),JSON.stringify(keyboardManifest));
+  await a.page.locator('#round-third').filter({hasText:'Updated third round'}).waitFor({state:'attached'});
+  assert.equal(await keyboardFrame.locator('input').inputValue(),'Keep my draft');
+  assert.equal(await keyboardFrame.locator('input').evaluate(el=>el===document.activeElement),true);
+  await a.page.locator('#close-reader').click();
+  await a.page.waitForFunction(()=>document.activeElement.id==='viewport');
+  const keyboardNote=a.page.locator('[data-note="third/pages"]');
+  await keyboardNote.fill('Keep this note');
+  await keyboardNote.evaluate(el=>el.setSelectionRange(3,7));
+  keyboardManifest.rounds[2].title='Third round with notes';
+  await writeFile(path.join(keyboardBoard,'rounds.json'),JSON.stringify(keyboardManifest));
+  await a.page.locator('#round-third').filter({hasText:'Third round with notes'}).waitFor();
+  assert.deepEqual(await keyboardNote.evaluate(el=>[el===document.activeElement,el.value,el.selectionStart,el.selectionEnd]),[true,'Keep this note',3,7]);
+  await a.page.goto(`${a.url}boards/keyboard/#first/pages`);
+  await keyboardFrame.locator('h1').waitFor();
+  await readerFocused();
+  await a.page.keyboard.press('ArrowRight');
+  assert.equal(await keyboardFrame.locator('output').textContent(),'1');
+  await writeFile(path.join(keyboardBoard,'pages.html'),(await readFile(path.join(keyboardBoard,'pages.html'),'utf8')).replace('Keyboard pages</h1>','Updated keyboard pages</h1>'));
+  await a.page.locator('#reader-update').waitFor({state:'visible'});
+  await a.page.locator('#reader-update').click();
+  await keyboardFrame.getByRole('heading',{name:'Updated keyboard pages'}).waitFor();
+  await readerFocused();
+  await a.page.keyboard.press('ArrowRight');
+  assert.equal(await keyboardFrame.locator('output').textContent(),'1');
+  await a.page.keyboard.press('Escape');
+  await a.page.locator('#reader-dialog').waitFor({state:'hidden'});
+  await a.page.waitForFunction(()=>document.activeElement.id==='viewport');
+  // Simulate a shell update only in this browser; the user's running app is untouched.
+  await a.page.locator('#round-picker').selectOption('2');
+  await settledRound(2);
+  await a.page.waitForFunction(()=>document.querySelector('#live-status').textContent.startsWith('Live ·'));
+  const shellReload=a.page.waitForEvent('load');
+  // Click the visible scaled card directly, without Playwright scrolling its transformed ancestors.
+  const promptButton=await a.page.locator('[data-remove-experiment="third/pages"]').boundingBox();
+  const beforePrompt=await a.page.locator('#viewport').evaluate(el=>({top:el.scrollTop}));
+  await a.page.mouse.click(promptButton.x+promptButton.width/2,promptButton.y+promptButton.height/2);
+  await a.page.locator('#agent-prompt-dialog').waitFor();
+  const viewBeforeReload=await a.page.locator('#viewport').evaluate(el=>({left:el.scrollLeft,top:el.scrollTop}));
+  await a.page.locator('.agent-dialog-close').focus();
+  await a.page.route('**/api/boards/keyboard/live',async route=>{
+    const response=await route.fetch();
+    const snapshot=await response.json();
+    await route.fulfill({response,json:{...snapshot,shellRevision:'browser-fixture-shell',revision:`browser-fixture-${snapshot.revision}`}});
+  });
+  await a.page.locator('#live-refresh').waitFor({state:'visible'});
+  await a.page.waitForTimeout(1500);
+  assert.equal(await a.page.locator('#agent-prompt-dialog').isVisible(),true);
+  await a.page.locator('.agent-dialog-close').click();
+  await shellReload;
+  await a.page.waitForFunction(()=>document.activeElement.id==='viewport');
+  await a.page.waitForFunction(view=>{
+    const viewport=document.querySelector('#viewport');
+    return Math.abs(viewport.scrollTop-view.top)<2&&Math.abs(viewport.scrollLeft-view.left)<2&&document.querySelector('#round-picker').value==='2';
+  },viewBeforeReload,{timeout:8000}).catch(async error=>{
+    const actual=await a.page.locator('#viewport').evaluate(el=>({left:el.scrollLeft,top:el.scrollTop,round:document.querySelector('#round-picker').value}));
+    throw new Error(`Canvas view after shell reload: before prompt ${JSON.stringify(beforePrompt)}, expected ${JSON.stringify(viewBeforeReload)}, actual ${JSON.stringify(actual)}; ${error.message}`);
+  });
+  await a.page.goto(`${a.url}boards/first-steps/`);
+  await a.page.unroute('**/api/boards/keyboard/live');
   await a.page.evaluate(()=>localStorage.setItem('board-room-notes/first-steps',JSON.stringify({'first/one-step':{note:'Old unscoped cache must not leak',updatedAt:Date.now()+1000000}})));
   // Reuse the very same origin with the other workspace. Its namespace must win.
   const stalePage=await context.newPage();
@@ -101,7 +303,7 @@ try{
   await a.page.waitForFunction(()=>document.querySelector('#save-status').textContent==='Notes saved on this Mac');
   assert.equal(await a.page.locator('[data-note="first/one-step"]').inputValue(),'Runway only');
   assert.equal(errors.length,0,errors.join('\n'));
-  console.log(JSON.stringify({passed:true,evidence,checks:['two simultaneous labels and URLs','folder discovery','new-board prompt','isolated notes, same-origin port reuse and stale-tab write rejection','wide/collapsed/narrow headers','zoom and reset','independent experiment interaction','active preview safely offers reload'],browserErrors:errors},null,2));
+  console.log(JSON.stringify({passed:true,evidence,checks:['two simultaneous labels and URLs','folder discovery and empty new boards','new-board prompt','board and experiment removal prompts, copy and clipboard fallback','board cover prompts, custom images, live image updates and missing-image fallback','open prompts survive shell updates without losing the canvas position','isolated notes, same-origin port reuse and stale-tab write rejection','wide/collapsed/narrow headers and prompts','zoom and reset','independent experiment interaction','active preview safely offers reload','round selection in tall and zoomed-out canvases','canvas and experiment keyboard focus on entry, return and reload','toolbar keyboard access and note/experiment focus preserved during manifest updates'],browserErrors:errors},null,2));
 }finally{
   await browser.close();
   for(const {config} of instances)await main(['stop','--config',config]).catch(()=>{});

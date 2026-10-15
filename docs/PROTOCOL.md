@@ -4,9 +4,34 @@ Tinka is a review surface. An experiment belongs to the product it is exploring,
 
 ## Start a board
 
-Create a board with `node cli.mjs board create SLUG --config /absolute/config.json --title "Title"`. Its immediate folder under `boardsRoot` contains `board.json`, `rounds.json`, `build-state.json`, and `.state/notes.json`. The app never executes a manifest or an experiment start command. Keep source and evidence in that external board folder; keep the application installation replaceable.
+Create a board with `node cli.mjs board create SLUG --config /absolute/config.json --title "Title"`. Its immediate folder under `boardsRoot` contains `AGENTS.md`, `board.json`, `rounds.json`, `build-state.json`, and `.state/notes.json`. The portable guide stays with the board. Use `board guide SLUG --config PATH` to add it to an older board without overwriting an existing guide. No installed skill is required. The app never executes a manifest or an experiment start command. Keep source and evidence in that external board folder; keep the application installation replaceable.
+
+Keep durable boards in project version control, including assets, experiment handoffs and `.state/notes.json`. A portable project records its relative boards path and version pin in `tinka/project.json`; the checked-in `tinka/setup.mjs` restores the app and rebuilds machine-local config after checkout. See the [root README](../README.md) and [agent guide](AGENT.md). Existing external boards remain supported and need their own explicit backup or transfer; they are not automatically included by checking out a product repository.
+
+New workspaces have no boards, and new boards have no experiments. Create only what the owner requests. Do not add a reference board, workspace guide, sample or starter experiment unless requested. Reference material is ordinary optional content and can be removed like any other item.
 
 Before assigning work, add the dated round and every reserved concept slot to `rounds.json`. Give each concept a stable `id`, visible `number`, name, category, description, question, hint, and tone. Keep earlier rounds and revisions; add a new round or revision record instead of overwriting an accepted exploration. Mark each reserved slot with `node cli.mjs status --config /absolute/config.json --board SLUG ROUND/CONCEPT reserved "Owner and intended result"`. Change it to `building`, `review`, or `ready` as observed work progresses. A named owner or a status entry alone does not prove a runnable prototype. The reviewer should see the slot and truthful status before delegation starts.
+
+## Board cover image
+
+Each board owns the large image at the top of its card on the home page. The two sheets of paper are fallback artwork. The project's agent can create a simple, distinctive graphic that represents the board's actual subject, then save it with the board and set the optional `cover` field in `board.json`:
+
+```json
+{
+  "schemaVersion": 1,
+  "title": "A better first step",
+  "description": "Different ways to begin.",
+  "createdAt": "2026-10-15T00:00:00Z",
+  "cover": "assets/cover.svg"
+}
+```
+
+- Recommended canvas: **1200 × 600 pixels (2:1)**, or an SVG with `viewBox="0 0 1200 600"`. PNG, JPEG, WebP and SVG work. Aim for a small file, ideally under 300 KB.
+- Use a board-relative file path, usually `assets/cover.svg` or `assets/cover.png`. The file lives inside this board's folder, outside the replaceable app. Absolute paths, URLs and paths escaping the board are not accepted.
+- Prefer a clear visual idea, diagram or illustration. The board title is already below it; avoid tiny text, private information and important details near the edges. The image scales to the card; the title supplies its accessible name.
+- Edit the image or change `cover` to update the card automatically. Omit `cover` to use the default paper artwork. Each board can use its own image; no image service or Tinka SDK is required.
+
+The home page's **Change cover…** action prepares a prompt with the board's exact workspace, file location and image specification for its agent.
 
 ## Each experiment stands alone
 
@@ -46,3 +71,9 @@ To offer a comparison, add `"2026-10-14/quiet": [{"id":"second","name":"Second v
 ## Review and transfer
 
 Use `building` while implementation is active, `review` when the artifact is runnable and needs evaluation, and `ready` only after that evaluation. Compare behavior in the experiment and, when relevant, in the target product. Preserve the distinction between a concept, a tested prototype, a product implementation, and a release. Notes and review decisions live in the external board's `.state/notes.json` through the UI; installation and upgrades must not edit them.
+
+## Remove an item
+
+Each experiment and board has a **Remove…** action that prepares a copyable agent prompt. The browser does not delete or move files. The prompt identifies the project, workspace, config, board and, for an experiment, its round and stable ID. Verify that identity against `/api/health` before editing.
+
+When the owner supplies a removal prompt, remove exactly that target. For an experiment, save a recoverable manifest copy in the board's `.state` folder, then remove its concept and revision entries from `rounds.json`. Keep its files, shared dependencies, notes and build history; leave other IDs, numbering and rounds intact. For a board, move its complete folder to a recoverable archive outside `boardsRoot`, preserving all contents. Report the archive or snapshot location and verify that the target has disappeared from the review surface. Do not recreate removed reference material. An already absent target is a completed removal, not permission to choose a substitute.

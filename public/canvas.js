@@ -1,4 +1,5 @@
 import { watchBoard } from './live.js';
+import { openRemovalPrompt } from './agent-prompt.js';
 
 const $ = id => document.getElementById(id);
 const viewport = $('viewport');
@@ -14,6 +15,7 @@ const esc = value => String(value ?? '').replace(/[&<>"']/g, char => ({ '&': '&a
 
 let board = null;
 let appTitle = 'Tinka';
+let appConfig;
 let rounds = [];
 let revisions = {};
 let all = [];
@@ -23,7 +25,6 @@ let notes = {};
 let active = null;
 let activeRevision = null;
 let liveSnapshot = null;
-let restoreFocus = null;
 let saveTimer;
 let saveSequence = 0;
 let saveQueue = Promise.resolve();
@@ -95,6 +96,7 @@ async function loadAppTitle() {
   if (!response.ok) throw new Error('Workspace identity unavailable. Reload when the server is ready.');
   const config = await response.json();
   if (!config.workspaceId || !config.projectLabel) throw new Error('Workspace identity unavailable.');
+  appConfig = config;
   workspaceId = config.workspaceId;
   appTitle = `Tinka / ${config.projectLabel}`;
   const prefix = `tinka/${config.workspaceId}/${boardId}`;
@@ -121,7 +123,7 @@ function buildCanvas() {
     const versions = revisions[concept.key] || [];
     const revisionButtons = versions.map(variant => `<button class="revision-button" type="button" data-open="${esc(concept.key)}" data-revision="${esc(variant.id)}">Try ${esc(variant.name)} ↗</button>`).join('');
     const handoff = safeBoardPath(concept.handoff);
-    return `<article class="concept-card" data-key="${esc(concept.key)}"><header class="card-label"><div class="card-title"><span class="card-number">${esc(concept.number || String(concept.col + 1).padStart(2, '0'))}</span><h3>${esc(concept.name)}</h3><span class="card-category">${esc(concept.category || '')}</span></div><div class="card-actions">${revisionButtons}<button type="button" data-open="${esc(concept.key)}">Open experiment ↗</button>${handoff ? `<a class="handoff-link" href="${esc(handoff)}" target="_blank" rel="noopener">Handoff ↗</a>` : ''}</div></header><div class="preview"><iframe src="${esc(previewHref(concept, null, concept.tone === 'night' ? 'night' : 'paper'))}" title="${esc(concept.name)} preview" tabindex="-1" loading="eager" inert></iframe><button class="preview-launch" type="button" data-open="${esc(concept.key)}" aria-label="Explore ${esc(concept.name)}"><span>Open ${esc(concept.name)} ↗</span></button></div><div class="card-copy"><div><p>${esc(concept.description || '')}</p><p class="question">${esc(concept.question || '')}</p></div><div class="note-box"><button class="shortlist" type="button" data-star="${esc(concept.key)}" aria-label="Shortlist ${esc(concept.name)}" aria-pressed="false">☆</button><label>THOUGHTS TO RETURN TO<textarea data-note="${esc(concept.key)}" placeholder="What feels right? What gets in the way?" aria-label="Notes on ${esc(concept.name)}"></textarea></label></div></div></article>`;
+    return `<article class="concept-card" data-key="${esc(concept.key)}"><header class="card-label"><div class="card-title"><span class="card-number">${esc(concept.number || String(concept.col + 1).padStart(2, '0'))}</span><h3>${esc(concept.name)}</h3><span class="card-category">${esc(concept.category || '')}</span></div><div class="card-actions">${revisionButtons}<button type="button" data-open="${esc(concept.key)}">Open experiment ↗</button>${handoff ? `<a class="handoff-link" href="${esc(handoff)}" target="_blank" rel="noopener">Handoff ↗</a>` : ''}<button class="remove-action" type="button" data-remove-experiment="${esc(concept.key)}" aria-label="Remove ${esc(concept.name)} from board" title="Get a removal prompt">Remove…</button></div></header><div class="preview"><iframe src="${esc(previewHref(concept, null, concept.tone === 'night' ? 'night' : 'paper'))}" title="${esc(concept.name)} preview" tabindex="-1" loading="eager" inert></iframe><button class="preview-launch" type="button" data-open="${esc(concept.key)}" aria-label="Explore ${esc(concept.name)}"><span>Open ${esc(concept.name)} ↗</span></button></div><div class="card-copy"><div><p>${esc(concept.description || '')}</p><p class="question">${esc(concept.question || '')}</p></div><div class="note-box"><button class="shortlist" type="button" data-star="${esc(concept.key)}" aria-label="Shortlist ${esc(concept.name)}" aria-pressed="false">☆</button><label>THOUGHTS TO RETURN TO<textarea data-note="${esc(concept.key)}" placeholder="What feels right? What gets in the way?" aria-label="Notes on ${esc(concept.name)}"></textarea></label></div></div></article>`;
   }).join('');
   world.innerHTML = rounds.map(round => `<section class="round" aria-labelledby="round-${esc(round.id)}"><header class="round-header"><span class="round-label">ROUND ${esc(round.number || '')} · ${esc(round.date || '')}</span><h2 id="round-${esc(round.id)}">${esc(round.title || 'Exploration')}</h2><p>${esc(round.description || '')}</p></header><div class="concepts">${cards(round)}</div></section>`).join('') + '<section class="future-row"><span>CONTINUE EXPLORING</span><h2>Room for what comes next.</h2><p>New explorations can join this board without replacing earlier work.</p></section>';
   $('round-picker').innerHTML = rounds.map((round, index) => `<option value="${index}">Round ${esc(round.number || index + 1)}</option>`).join('');
@@ -144,7 +146,9 @@ function updatePlane() {
   const height = geometry.pad * 2 + rounds.length * geometry.rowHeight + geometry.worldTail;
   world.style.transform = `scale(${zoom})`;
   plane.style.width = `${width * zoom}px`;
-  plane.style.height = `${height * zoom}px`;
+  // Leave enough canvas below the last row to align it even in a tall window.
+  const lastRowTop = Math.max(0, rounds.length - 1) * geometry.rowHeight * zoom;
+  plane.style.height = `${Math.max(height * zoom, lastRowTop + viewport.clientHeight)}px`;
   $('zoom-level').textContent = `${Math.round(zoom * 100)}%`;
 }
 
@@ -163,6 +167,7 @@ function jump(key) {
   if (!concept) return;
   if (currentRound !== concept.row) { currentRound = concept.row; renderNav(); }
   if (zoom < .4) changeZoom(.5, 0, 0);
+  viewport.focus({ preventScroll: true });
   viewport.scrollTo({ left: (geometry.pad + concept.col * (geometry.cardWidth + geometry.gap)) * zoom - 25, top: concept.row * geometry.rowHeight * zoom, behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth' });
   document.querySelectorAll('[data-jump]').forEach(button => button.setAttribute('aria-current', String(button.dataset.jump === key)));
 }
@@ -188,6 +193,10 @@ function activeSourceKey() {
   return liveSnapshot?.concepts?.[sourceKey] ? sourceKey : active.key;
 }
 
+function focusReader() {
+  if (dialog.open) $('active-reader').focus({ preventScroll: true });
+}
+
 function loadRevision() {
   if (!active) return;
   const variant = currentVariant();
@@ -199,6 +208,7 @@ function loadRevision() {
   activeRevision = liveSnapshot?.concepts?.[activeSourceKey()]?.revision || null;
   $('reader-update').hidden = true;
   $('active-reader').src = previewHref(active, variant, $('reader-theme').value, Number($('reader-type').value), activeRevision || 'initial');
+  focusReader();
   history.replaceState(null, '', `#${active.key}${variant ? `~${variant.id}` : ''}`);
 }
 
@@ -206,7 +216,6 @@ function openReader(key, revision = 'original') {
   const concept = all.find(item => item.key === key);
   if (!concept) return;
   active = concept;
-  restoreFocus = document.activeElement;
   $('reader-name').textContent = active.name;
   $('reader-number').textContent = `EXPERIMENT ${active.number || ''}`;
   $('reader-theme').value = active.tone === 'night' ? 'night' : 'paper';
@@ -219,6 +228,7 @@ function openReader(key, revision = 'original') {
   $('reader-revision').value = versions.some(variant => variant.id === revision) ? revision : 'original';
   loadRevision();
   if (!dialog.open) dialog.showModal();
+  focusReader();
 }
 
 function closeReader() {
@@ -227,7 +237,7 @@ function closeReader() {
   if (dialog.open) dialog.close();
   $('active-reader').src = 'about:blank';
   history.replaceState(null, '', rounds[currentRound] ? `#round-${rounds[currentRound].id}` : location.pathname);
-  if (restoreFocus?.isConnected) restoreFocus.focus({ preventScroll: true });
+  viewport.focus({ preventScroll: true });
   viewport.scrollTo({ left, top, behavior: 'instant' });
   active = null;
 }
@@ -360,6 +370,7 @@ async function refreshManifest() {
     const note = [...document.querySelectorAll('[data-note]')].find(element => element.dataset.note === noteKey);
     if (note) { note.focus({ preventScroll: true }); note.setSelectionRange(...selection); }
   }
+  if (!dialog.open && document.activeElement === document.body) viewport.focus({ preventScroll: true });
   if (liveSnapshot) applyBoardSnapshot(liveSnapshot);
 }
 
@@ -390,7 +401,7 @@ function scheduleShellReload() {
   $('live-refresh').hidden = false;
   clearTimeout(shellReloadTimer);
   shellReloadTimer = setTimeout(() => {
-    if (dialog.open || document.activeElement?.matches('textarea,input,[contenteditable="true"]')) { scheduleShellReload(); return; }
+    if (document.querySelector('dialog[open]') || document.activeElement?.matches('textarea,input,[contenteditable="true"]')) { scheduleShellReload(); return; }
     reloadCanvas();
   }, 1200);
 }
@@ -402,10 +413,19 @@ function showError(message) {
 }
 
 // Controls are bound once; board content is replaced only after a manifest update.
+document.addEventListener('pointerdown', event => {
+  const remove = event.target.closest('[data-remove-experiment]');
+  if (remove && event.button === 0) { event.preventDefault(); remove.focus({ preventScroll: true }); }
+});
 document.addEventListener('click', event => {
   const open = event.target.closest('[data-open]');
   const nav = event.target.closest('[data-jump]');
   const star = event.target.closest('[data-star]');
+  const remove = event.target.closest('[data-remove-experiment]');
+  if (remove && appConfig) {
+    const concept = all.find(item => item.key === remove.dataset.removeExperiment);
+    if (concept) openRemovalPrompt(appConfig, board, concept);
+  }
   if (open && !open.disabled) openReader(open.dataset.open, open.dataset.revision);
   if (nav) jump(nav.dataset.jump);
   if (star) {
@@ -426,6 +446,15 @@ $('reset-view').onclick = () => { changeZoom(.5, 0, 0); if (all.length) jump(all
 $('help').onclick = () => { $('help-panel').hidden = !$('help-panel').hidden; $('help').setAttribute('aria-expanded', String(!$('help-panel').hidden)); };
 $('close-reader').onclick = closeReader;
 dialog.addEventListener('cancel', event => { event.preventDefault(); closeReader(); });
+$('active-reader').addEventListener('load', () => {
+  if (!dialog.open) return;
+  // Key events inside a frame do not reach the surrounding dialog.
+  try {
+    $('active-reader').contentWindow.addEventListener('keydown', event => {
+      if (event.key === 'Escape' && !event.defaultPrevented) { event.preventDefault(); closeReader(); }
+    });
+  } catch {} // Independent cross-origin previews own their keyboard handling.
+});
 $('reader-revision').onchange = loadRevision;
 $('round-picker').onchange = () => { currentRound = Number($('round-picker').value); renderNav(); const first = all.find(concept => concept.row === currentRound); if (first) jump(first.key); };
 $('reader-size').onchange = setReaderSize;
@@ -448,6 +477,7 @@ viewport.addEventListener('pointerup', stopPan);
 viewport.addEventListener('pointercancel', stopPan);
 viewport.addEventListener('wheel', event => { if (!event.ctrlKey) return; event.preventDefault(); const rect = viewport.getBoundingClientRect(); changeZoom(zoom * Math.exp(-event.deltaY * .005), event.clientX - rect.left, event.clientY - rect.top); }, { passive: false });
 new ResizeObserver(() => { if ($('reader-window').style.width) $('reader-size').value = 'custom'; }).observe($('reader-window'));
+new ResizeObserver(updatePlane).observe(viewport);
 viewport.addEventListener('scroll', () => {
   if (scrollFrame) return;
   scrollFrame = requestAnimationFrame(() => {
@@ -502,6 +532,7 @@ else {
         requestAnimationFrame(() => viewport.scrollTo({ left: saved.left, top: saved.top, behavior: 'instant' }));
       }
     } catch {}
+    if (!dialog.open && document.activeElement === document.body) viewport.focus({ preventScroll: true });
     $('live-status').classList.add('live-indicator');
     watchBoard(boardId, {
       onSnapshot: applyBoardSnapshot,

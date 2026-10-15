@@ -7,9 +7,9 @@ import { fileURLToPath } from 'node:url';
 const sourceRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const maxFileBytes = 20 * 1024 * 1024;
 const maxArchiveBytes = 100 * 1024 * 1024;
-const appRoots = ['README.md', 'AGENTS.md', 'IMPLEMENTATION_CONTRACT.md', 'package.json', 'cli.mjs', 'server.mjs', 'public', 'lib', 'examples'];
-const publicDocs = ['docs/README.md', 'docs/PROTOCOL.md', 'docs/RELEASE.md'];
-const skillRoots = ['skill/tinka/SKILL.md', 'skill/tinka/scripts/install.mjs'];
+const appRoots = ['README.md', 'AGENTS.md', 'IMPLEMENTATION_CONTRACT.md', 'package.json', 'cli.mjs', 'server.mjs', 'public', 'lib', 'examples', 'scripts/install.mjs'];
+const publicDocs = ['docs/README.md', 'docs/AGENT.md', 'docs/BOARD.md', 'docs/PROTOCOL.md', 'docs/RELEASE.md'];
+const skillRoots = ['skill/tinka/SKILL.md'];
 const excludedNames = new Set(['.DS_Store', '.state', 'boards', 'evidence', 'notes', 'tests', 'test', 'skill', 'scripts', 'node_modules']);
 
 const crcTable = Array.from({ length: 256 }, (_, index) => {
@@ -115,7 +115,8 @@ export async function buildRelease({ outDir }) {
   for (const root of skillRoots) await collect(root, skillFiles);
   const appName = `tinka-v${manifest.version}.zip`;
   const skillName = 'tinka-skill.zip';
-  const outputs = [appName, `${appName}.sha256`, skillName, `${skillName}.sha256`].map(name => path.join(outDir, name));
+  const installerName = 'tinka-install.mjs';
+  const outputs = [appName, `${appName}.sha256`, skillName, `${skillName}.sha256`, installerName, `${installerName}.sha256`].map(name => path.join(outDir, name));
   await mkdir(outDir, { recursive: true });
   for (const output of outputs) {
     try { await stat(output); throw new Error(`Release output already exists: ${output}`); }
@@ -127,7 +128,10 @@ export async function buildRelease({ outDir }) {
   await writeFile(outputs[1], checksumSidecar(appBytes, appName), { flag: 'wx' });
   await writeFile(outputs[2], skillBytes, { flag: 'wx' });
   await writeFile(outputs[3], checksumSidecar(skillBytes, skillName), { flag: 'wx' });
-  return { version: manifest.version, appZip: outputs[0], appChecksum: outputs[1], skillZip: outputs[2], skillChecksum: outputs[3], appFiles: appFiles.length, skillFiles: skillFiles.length };
+  const installerBytes=await readFile(path.join(sourceRoot,'scripts/install.mjs'));
+  await writeFile(outputs[4],installerBytes,{flag:'wx'});
+  await writeFile(outputs[5],checksumSidecar(installerBytes,installerName),{flag:'wx'});
+  return { version: manifest.version, appZip: outputs[0], appChecksum: outputs[1], skillZip: outputs[2], skillChecksum: outputs[3], installer: outputs[4], installerChecksum: outputs[5], appFiles: appFiles.length, skillFiles: skillFiles.length };
 }
 
 if (process.argv[1] && await realpath(path.resolve(process.argv[1])).catch(() => null) === fileURLToPath(import.meta.url)) {

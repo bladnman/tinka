@@ -8,12 +8,16 @@ import {DEFAULT_PORT,loadConfig,validatePort} from './lib/config.mjs';
 import {assertSlug,isInside} from './lib/paths.mjs';
 import {claimRuntime,removeRuntime,startManaged,stopManaged,writeRuntime} from './lib/runtime.mjs';
 import {listen} from './server.mjs';
+import {addBoardGuide,initializeProject} from './lib/project.mjs';
+import {boardDirectory} from './lib/paths.mjs';
 
 const appRoot=path.dirname(fileURLToPath(import.meta.url));
 const usage=`Usage:
+  node cli.mjs project init --project PATH [--boards design/boards] [--label TEXT]
   node cli.mjs init --config PATH --boards PATH [--port auto|NUMBER] [--label TEXT]
   node cli.mjs serve|start|stop --config PATH
   node cli.mjs board create SLUG --config PATH --title TEXT [--description TEXT]
+  node cli.mjs board guide SLUG --config PATH
   node cli.mjs status --config PATH --board SLUG ROUND/CONCEPT building|review|ready|reserved [MESSAGE]`;
 function parse(args){
   const positionals=[];const options={};
@@ -59,15 +63,22 @@ async function createBoard(config,slug,options){
     await Promise.all(files.map(([name,data])=>writeFile(path.join(directory,name),`${JSON.stringify(data,null,2)}\n`,{flag:'wx'})));
     await mkdir(path.join(directory,'.state'));
     await writeFile(path.join(directory,'.state','notes.json'),'{}\n',{flag:'wx'});
+    await addBoardGuide(directory);
   }catch(error){await rm(directory,{recursive:true,force:true});throw error;}
   return `Created board ${slug}`;
 }
 export async function main(args=process.argv.slice(2)){
   const {positionals,options}=parse(args);
   const command=positionals[0];
+  if(command==='project'&&positionals[1]==='init'&&positionals.length===2)return initializeProject(options,init);
   if(command==='init'&&positionals.length===1)return init(options);
   if(!options.config)throw new Error(usage);
   const config=await loadConfig(options.config);
+  if(command==='board'&&positionals[1]==='guide'&&positionals.length===3){
+    const directory=await boardDirectory(config.boardsRoot,positionals[2]);
+    const created=await addBoardGuide(directory);
+    return created?`Added board instructions to ${directory}`:`Preserved existing instructions in ${directory}`;
+  }
   if(command==='board'&&positionals[1]==='create'&&positionals.length===3)return createBoard(config,positionals[2],options);
   if(command==='status'&&positionals.length>=3&&positionals.length<=4){
     if(!options.board)throw new Error('--board is required.');

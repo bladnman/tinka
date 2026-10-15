@@ -8,7 +8,7 @@ import path from 'node:path';
 import { promisify } from 'node:util';
 import { test } from 'node:test';
 import { buildRelease } from '../scripts/package.mjs';
-import { installArchive, main, readSafeZip } from '../skill/tinka/scripts/install.mjs';
+import { installArchive, main, readSafeZip } from '../scripts/install.mjs';
 
 const exec = promisify(execFile);
 async function releaseFixture() {
@@ -27,20 +27,24 @@ async function freePort() {
   return port;
 }
 
-test('release archives contain only the app allowlist and the separate installer skill', async () => {
+test('release archives include app instructions and installer; optional skill is only a pointer', async () => {
   const fixture = await releaseFixture();
   try {
     const names = readSafeZip(fixture.zipBytes).map(entry => entry.relative);
     assert(names.includes('cli.mjs'));
     assert(names.includes('docs/PROTOCOL.md'));
+    assert(names.includes('docs/AGENT.md'));
+    assert(names.includes('docs/BOARD.md'));
+    assert(names.includes('scripts/install.mjs'));
     assert(names.includes('public/home.html'));
     assert(names.some(name => name.startsWith('lib/')));
-    assert(names.every(name => /^(?:README\.md|AGENTS\.md|IMPLEMENTATION_CONTRACT\.md|package\.json|cli\.mjs|server\.mjs|public\/|lib\/|examples\/|docs\/(?:README|PROTOCOL|RELEASE)\.md)/.test(name)));
-    assert(names.every(name => !/(?:^|\/)(?:boards|evidence|notes|skill|scripts|tests)(?:\/|$)/.test(name)));
+    assert(names.every(name => /^(?:README\.md|AGENTS\.md|IMPLEMENTATION_CONTRACT\.md|package\.json|cli\.mjs|server\.mjs|public\/|lib\/|examples\/|scripts\/install\.mjs$|docs\/(?:README|AGENT|BOARD|PROTOCOL|RELEASE)\.md)/.test(name)));
+    assert(names.every(name => !/(?:^|\/)(?:boards|evidence|notes|skill|tests)(?:\/|$)/.test(name)));
     const digest = createHash('sha256').update(fixture.zipBytes).digest('hex');
     assert.match(fixture.checksumText, new RegExp(`^${digest}  ${fixture.zipName}\\n$`));
     const skillBytes = await readFile(fixture.release.skillZip);
-    assert.deepEqual(readSafeZipSkillNames(skillBytes), ['SKILL.md', 'scripts/install.mjs']);
+    assert.deepEqual(readSafeZipSkillNames(skillBytes), ['SKILL.md']);
+    assert.deepEqual(await readFile(fixture.release.installer),await readFile(new URL('../scripts/install.mjs',import.meta.url)));
   } finally { await rm(fixture.temporary, { recursive: true, force: true }); }
 });
 

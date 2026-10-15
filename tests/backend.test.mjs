@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import {after, before, test} from 'node:test';
-import {mkdtemp,mkdir,readFile,realpath,symlink,writeFile,rm} from 'node:fs/promises';
+import {mkdtemp,mkdir,readFile,readdir,realpath,symlink,writeFile,rm} from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import net from 'node:net';
@@ -28,6 +28,17 @@ before(async()=>{
 after(async()=>{if(server)await new Promise(resolve=>server.close(resolve));if(temporary)await rm(temporary,{recursive:true,force:true});});
 const json=async url=>(await fetch(`${base}${url}`)).json();
 
+test('new workspaces and boards contain no automatic reference content',async()=>{
+  const emptyConfig=path.join(temporary,'empty-workspace','config.json');
+  const emptyBoards=path.join(temporary,'empty-workspace','boards');
+  await main(['init','--config',emptyConfig,'--boards',emptyBoards,'--label','Empty workspace']);
+  assert.deepEqual(await readdir(emptyBoards),[]);
+  await main(['board','create','blank','--config',emptyConfig,'--title','Blank board']);
+  const blank=path.join(emptyBoards,'blank');
+  assert.deepEqual(JSON.parse(await readFile(path.join(blank,'rounds.json'),'utf8')),{rounds:[],revisions:{}});
+  assert.deepEqual((await readdir(blank)).sort(),['.state','AGENTS.md','board.json','build-state.json','rounds.json']);
+});
+
 test('CLI creates external config and board, refusing overwrite',async()=>{
   const saved=JSON.parse(await readFile(configPath,'utf8'));
   assert.equal(saved.boardsRoot,await realpath(boardsRoot));
@@ -43,6 +54,26 @@ test('discovery and board manifest use only immediate declared boards',async()=>
   const response=await json('/api/boards/sample');
   assert.equal(response.rounds[0].concepts[0].id,'alpha');
   assert.equal(response.title,'A sample');
+});
+test('board cover paths are served, watched outside assets, and contained in the board',async()=>{
+  const metadataPath=path.join(boardRoot,'board.json');
+  const original=await readFile(metadataPath,'utf8');
+  try{
+    await mkdir(path.join(boardRoot,'art'));
+    const cover=path.join(boardRoot,'art','cover.svg');
+    await writeFile(cover,'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 600"></svg>');
+    await writeFile(metadataPath,JSON.stringify({...JSON.parse(original),cover:'art/cover.svg'}));
+    const first=await json('/api/boards');
+    assert.equal(first.boards[0].cover,'art/cover.svg');
+    const image=await fetch(`${base}/boards/sample/files/art/cover.svg`);
+    assert.equal(image.status,200);
+    assert.match(image.headers.get('content-type'),/image\/svg\+xml/);
+    await new Promise(resolve=>setTimeout(resolve,10));
+    await writeFile(cover,'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 600"><circle r="100"/></svg>');
+    assert.notEqual((await json('/api/boards')).revision,first.revision);
+    await writeFile(metadataPath,JSON.stringify({...JSON.parse(original),cover:'../outside.svg'}));
+    assert.equal((await json('/api/boards')).boards.length,0);
+  }finally{await writeFile(metadataPath,original);}
 });
 test('status update is atomic and build state is explicit',async()=>{
   const results=await Promise.all([
