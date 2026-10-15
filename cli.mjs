@@ -95,6 +95,6 @@ export async function main(args=process.argv.slice(2)){
   }
   throw new Error(usage);
 }
-if(process.argv[1]&&path.resolve(process.argv[1])===fileURLToPath(import.meta.url)){
+if(process.argv[1]&&await realpath(path.resolve(process.argv[1])).catch(()=>null)===fileURLToPath(import.meta.url)){
   try{process.stdout.write(`${await main()}\n`);}catch(error){process.stderr.write(`${error.message}\n`);process.exitCode=1;}
 }

@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { execFile } from 'node:child_process';
-import { mkdtemp, readFile, readdir, realpath, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, readFile, readdir, realpath, rm, writeFile, mkdir, symlink } from 'node:fs/promises';
 import net from 'node:net';
 import os from 'node:os';
 import path from 'node:path';
@@ -113,5 +113,31 @@ test('full app replacement restarts its managed service and retains external boa
   } finally {
     if (running) await exec(process.execPath, [path.join(app, 'cli.mjs'), 'stop', '--config', config]).catch(() => {});
     await rm(fixture.temporary, { recursive: true, force: true });
+  }
+});
+
+
+test('packaged CLI runs through a symlinked parent and still owns its canonical process',async()=>{
+  const fixture=await releaseFixture();
+  const real=path.join(fixture.temporary,'real');
+  const alias=path.join(fixture.temporary,'alias');
+  await mkdir(real);await symlink(real,alias);
+  const app=path.join(alias,'app');const config=path.join(alias,'config.json');
+  const cli=path.join(app,'cli.mjs');
+  try{
+    await installArchive({...fixture,installDir:app});
+    await exec(process.execPath,[cli,'init','--config',config,'--boards',path.join(alias,'boards'),'--label','Alias test']);
+    const settings=JSON.parse(await readFile(config,'utf8'));
+    assert.equal(settings.projectLabel,'Alias test');
+    const started=await exec(process.execPath,[cli,'start','--config',config]);
+    const runtime=JSON.parse(await readFile(`${config}.pid.json`,'utf8'));
+    assert.match(started.stdout,/started on http/);
+    assert.equal(runtime.configPath,path.join(real,'config.json'));
+    assert.equal((await (await fetch(`${runtime.url}api/health`)).json()).projectLabel,'Alias test');
+    await exec(process.execPath,[cli,'stop','--config',config]);
+    await assert.rejects(readFile(`${config}.pid.json`),{code:'ENOENT'});
+  }finally{
+    await exec(process.execPath,[cli,'stop','--config',config]).catch(()=>{});
+    await rm(fixture.temporary,{recursive:true,force:true});
   }
 });

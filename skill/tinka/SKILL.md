@@ -32,8 +32,8 @@ This skill contains the installer, not the application. The package and archive 
 Use [scripts/install.mjs](scripts/install.mjs) with Node 22 or newer. For a user's local package, require both `--zip` and its matching `--checksum`. With no ZIP specified, the installer downloads the latest release from `bladnman/tinka`. Use `--version X.Y.Z` to pin a published version. An explicit `--repo OWNER/REPO` can select a user-supplied fork; do not invent repository URLs. The helper verifies SHA-256, rejects unsafe ZIP entries, stages a complete app, and retains a backup when replacing an installation.
 
 ```bash
-node scripts/install.mjs --zip /absolute/tinka-v0.2.0.zip --checksum /absolute/tinka-v0.2.0.zip.sha256 --install-dir /absolute/app
-node scripts/install.mjs --install-dir /absolute/project/.tinka/app --version 0.2.0
+node scripts/install.mjs --zip /absolute/tinka-v0.2.1.zip --checksum /absolute/tinka-v0.2.1.zip.sha256 --install-dir /absolute/app
+node scripts/install.mjs --install-dir /absolute/project/.tinka/app --version 0.2.1
 ```
 
 Keep config, boards, notes, and PID/log files outside `--install-dir`. The install path can be visible or a dotfolder. An upgrade requires `--config /absolute/config.json`; the installer uses the old CLI to stop only its verified managed process, swaps the app, and restarts it through the new CLI if it was running. On a fresh install, use `node /absolute/app/cli.mjs init --config /absolute/config.json --boards /absolute/boards --label "Project name"`. Do not overwrite an existing config or board.

@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { createHash } from 'node:crypto';
-import { readFile, readdir, lstat, mkdir, stat, writeFile } from 'node:fs/promises';
+import { readFile, readdir, lstat, mkdir, stat, writeFile, realpath } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -130,7 +130,7 @@ export async function buildRelease({ outDir }) {
   return { version: manifest.version, appZip: outputs[0], appChecksum: outputs[1], skillZip: outputs[2], skillChecksum: outputs[3], appFiles: appFiles.length, skillFiles: skillFiles.length };
 }
 
-if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+if (process.argv[1] && await realpath(path.resolve(process.argv[1])).catch(() => null) === fileURLToPath(import.meta.url)) {
   const index = process.argv.indexOf('--out');
   const outDir = index >= 0 ? process.argv[index + 1] : path.join(sourceRoot, 'scripts', 'release');
   try { process.stdout.write(`${JSON.stringify(await buildRelease({ outDir }), null, 2)}\n`); }

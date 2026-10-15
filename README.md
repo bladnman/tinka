@@ -12,8 +12,8 @@ Download the [latest application and lightweight agent skill](https://github.com
 
 ```sh
 node /absolute/tinka/scripts/install.mjs \
-  --zip /absolute/tinka-v0.2.0.zip \
-  --checksum /absolute/tinka-v0.2.0.zip.sha256 \
+  --zip /absolute/tinka-v0.2.1.zip \
+  --checksum /absolute/tinka-v0.2.1.zip.sha256 \
   --install-dir /absolute/project/.tinka/app
 ```
 
@@ -66,7 +66,7 @@ Browser storage keys include an identity derived from this config's canonical pa
 node /absolute/tinka/scripts/install.mjs \
   --install-dir /absolute/project/.tinka/app \
   --config /absolute/project/tinka.config.json \
-  --version 0.2.0
+  --version 0.2.1
 ```
 
 Omit `--version` to choose the latest published release. The installer verifies SHA-256 and archive paths, stages a complete replacement, stops only the owned managed instance, keeps a backup, and restarts it if it was running. Failed replacement or restart restores the backup and attempts to restart the old app. Each installation records its version and archive checksum in `INSTALLATION.json`. Upgrades are explicit and affect only the supplied installation. Keep one installed app copy per project when projects need independent upgrades; do not point multiple configs at an app directory you intend to replace.

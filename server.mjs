@@ -1,5 +1,6 @@
 import http from 'node:http';
 import {createReadStream} from 'node:fs';
+import {realpath} from 'node:fs/promises';
 import path from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {boardResponse,discoverBoards,loadBoard,readNotes,writeNotes} from './lib/boards.mjs';
@@ -115,7 +116,7 @@ export async function listen(config,{port=config.port,persist=false}={}){
   }
   throw new Error(`No free port in this instance's ${PORT_ATTEMPTS}-attempt range starting at ${port}, step ${PORT_STEP}. Set another port in its config.`);
 }
-if(process.argv[1]&&path.resolve(process.argv[1])===fileURLToPath(import.meta.url)){
+if(process.argv[1]&&await realpath(path.resolve(process.argv[1])).catch(()=>null)===fileURLToPath(import.meta.url)){
   try{
     const {main}=await import('./cli.mjs');
     process.stdout.write(`${await main(['serve',...process.argv.slice(2)])}\n`);
