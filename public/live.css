@@ -1,0 +1,24 @@
+.build-badge{display:inline-flex;align-items:center;gap:7px;font:11px/1.3 -apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;letter-spacing:.02em;color:var(--muted);white-space:nowrap}
+.build-badge::before{content:'';width:7px;height:7px;border-radius:50%;background:#809564}
+.concept-card[data-build-state="building"] .build-badge::before{background:#b1813e;animation:working-dot 1.8s ease-in-out infinite}
+.concept-card[data-build-state="review"] .build-badge::before{background:#a08457}
+.concept-card[data-build-state="reserved"] .build-badge::before{background:#a3aa99}
+.concept-card[data-build-state="building"] .preview{animation:working-frame 2.4s ease-in-out infinite}
+.build-overlay{position:absolute;inset:0;display:flex;flex-direction:column;justify-content:center;align-items:center;gap:17px;background:color-mix(in srgb,var(--paper) 94%,transparent);pointer-events:none;z-index:1;text-align:center;padding:80px}
+.build-overlay[hidden]{display:none}
+.build-overlay strong{font:400 34px Georgia,serif}
+.build-overlay span{font:15px/1.6 -apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;color:var(--muted);max-width:460px}
+.build-orbit{width:38px;height:38px;border:1px solid #c1cbaa;border-radius:50%;box-shadow:0 0 0 10px #dce4ce70;animation:working-dot 2.4s ease-in-out infinite}
+.concept-card[data-build-state="reserved"] .build-orbit{animation:none}
+.concept-card[data-build-state="building"] .preview-launch,.concept-card[data-build-state="reserved"] .preview-launch{visibility:hidden}
+.concept-card.just-landed .preview{animation:landed 1.6s ease-out}
+.live-indicator{display:inline-flex;align-items:center;gap:6px;white-space:nowrap}
+.live-indicator::before{content:'';width:6px;height:6px;border-radius:50%;background:#718957}
+.live-indicator[data-connection="offline"]::before{background:#a68857}
+#live-refresh[hidden],#reader-update[hidden]{display:none!important}
+#live-refresh,#reader-update{font-size:10px;padding:5px 8px;background:#e3eacb;border-color:#b2c292}
+.reader-bottom:has(#reader-update:not([hidden])){align-items:center}
+@keyframes working-dot{50%{opacity:.4;transform:scale(.82)}}
+@keyframes working-frame{50%{box-shadow:0 0 0 5px #b7c69a50,0 9px 30px #3b46271a}}
+@keyframes landed{0%{box-shadow:0 0 0 12px #94ad6b90,0 9px 30px #3b46271a}100%{box-shadow:0 9px 30px #3b46271a}}
+@media(prefers-reduced-motion:reduce){.build-badge::before,.build-orbit,.concept-card .preview{animation:none!important}}

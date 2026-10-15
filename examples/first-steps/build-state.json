@@ -1,0 +1,14 @@
+{
+  "concepts": {
+    "first/one-step": {
+      "state": "review",
+      "message": "Runnable example; try the first entry.",
+      "updatedAt": 1792022400000
+    },
+    "first/choose-a-path": {
+      "state": "review",
+      "message": "Runnable example; compare the prompts.",
+      "updatedAt": 1792022400000
+    }
+  }
+}
