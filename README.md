@@ -1,12 +1,12 @@
 # Tinka
 
-A small, local canvas for trying things. A **Tinka Board** holds experiments, images, prototypes, alternative versions, and comparisons. Keep earlier rounds, leave notes, and return when something new lands.
+Tinka is a **free, local canvas for trying designs with your AI agent**. Ask for a few different approaches, try them on one board, and find your direction. A **Tinka Board** keeps experiments, images, prototypes, earlier rounds, and notes together.
 
 Each project gets its own instance. You can run `Tinka / Atlas` and `Tinka / Orchard` at the same time, with separate boards, notes, configuration, processes, and saved URLs. There is no master service or shared port allocator.
 
 [See Tinka](https://tinka.metal-sole.com/) · [Try the working examples](https://tinka.metal-sole.com/#example) · [Agent setup guide](https://tinka.metal-sole.com/install.md)
 
-![A Tinka board comparing three working Agent Runway prototypes with fictional data and a sample note.](https://tinka.metal-sole.com/shared/board.webp)
+![A Tinka board comparing three Glade reading designs, with a sample essay and example feedback.](https://tinka.metal-sole.com/shared/board.webp?v=glade-20261016)
 
 ## Quick start
 
@@ -22,9 +22,9 @@ local canvas. No separate agent skill is required. Agents should read the
 [agent guide](docs/AGENT.md) and the manual setup below.
 
 Open an experiment, try its interactions, and leave a note for the next round.
-These public examples use fictional data.
+These public examples use sample content.
 
-![An Agent Runway activity-window prototype open in Tinka, with the board behind it.](https://tinka.metal-sole.com/shared/experiment.webp)
+![The Open book reading design open in Tinka, with the other reading alternatives still on its board.](https://tinka.metal-sole.com/shared/experiment.webp?v=glade-20261016)
 
 ### Manual setup
 
