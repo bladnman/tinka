@@ -4,17 +4,27 @@ A small, local canvas for trying things. A **Tinka Board** holds experiments, im
 
 Each project gets its own instance. You can run `Tinka / Atlas` and `Tinka / Orchard` at the same time, with separate boards, notes, configuration, processes, and saved URLs. There is no master service or shared port allocator.
 
+[See Tinka](https://tinka.metal-sole.com/) · [Try the working examples](https://tinka.metal-sole.com/#example) · [Agent setup guide](https://tinka.metal-sole.com/install.md)
+
+![A Tinka board comparing three working Agent Runway prototypes with fictional data and a sample note.](https://tinka.metal-sole.com/shared/board.webp)
+
 ## Quick start
 
 Tell the agent you already use for your project:
 
 ```text
-Add Tinka to this project: https://github.com/bladnman/tinka
+Add Tinka to this project:
+https://tinka.metal-sole.com
 ```
 
 Your agent can read the setup instructions, install Tinka and start this project's
 local canvas. No separate agent skill is required. Agents should read the
 [agent guide](docs/AGENT.md) and the manual setup below.
+
+Open an experiment, try its interactions, and leave a note for the next round.
+These public examples use fictional data.
+
+![An Agent Runway activity-window prototype open in Tinka, with the board behind it.](https://tinka.metal-sole.com/shared/experiment.webp)
 
 ### Manual setup
 
