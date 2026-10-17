@@ -252,6 +252,48 @@ try{
   await a.page.keyboard.press('Escape');
   await a.page.locator('#reader-dialog').waitFor({state:'hidden'});
   await a.page.waitForFunction(()=>document.activeElement.id==='viewport');
+  // Step through experiments without leaving the viewer or changing comparison settings.
+  await a.page.goto(`${a.url}boards/keyboard/#first/pages`);
+  await readerFocused();
+  await a.page.waitForFunction(()=>document.querySelector('#reader-position').textContent==='1 / 3');
+  assert.equal(await a.page.locator('#reader-previous').isDisabled(),true);
+  await a.page.locator('#reader-size').selectOption('compact');
+  await a.page.locator('#reader-theme').selectOption('night');
+  await a.page.locator('#reader-type').selectOption('130');
+  await a.page.locator('#reader-next').click();
+  await readerFocused();
+  assert.equal(await a.page.locator('#reader-name').textContent(),'Pages 2');
+  assert.equal(new URL(a.page.url()).hash,'#second/pages');
+  assert.equal(await a.page.locator('#reader-position').textContent(),'2 / 3');
+  assert.deepEqual(await a.page.evaluate(()=>['reader-size','reader-theme','reader-type'].map(id=>document.getElementById(id).value)),['compact','night','130']);
+  await a.page.locator('#reader-next').click();
+  await readerFocused();
+  assert.equal(await a.page.locator('#reader-next').isDisabled(),true);
+  await a.page.keyboard.press('ArrowRight');
+  assert.equal(await keyboardFrame.locator('output').textContent(),'1');
+  assert.equal(await a.page.locator('#reader-name').textContent(),'Pages 3');
+  await a.page.screenshot({path:path.join(evidence,'reader-navigation-wide.png')});
+  // Status changes update the sequence without replacing the current preview.
+  await main(['status','--config',a.config,'--board','keyboard','second/pages','building','Updating fixture']);
+  await a.page.waitForFunction(()=>document.querySelector('#reader-position').textContent==='2 / 2');
+  assert.equal(await keyboardFrame.locator('output').textContent(),'1');
+  await a.page.locator('#reader-previous').click();
+  await readerFocused();
+  assert.equal(await a.page.locator('#reader-name').textContent(),'Pages 1');
+  await main(['status','--config',a.config,'--board','keyboard','third/pages','reserved','Reserved fixture']);
+  await a.page.waitForFunction(()=>document.querySelector('#reader-position').textContent==='1 / 1');
+  assert.equal(await a.page.locator('#reader-next').isDisabled(),true);
+  assert.equal(await a.page.locator('#reader-previous').isDisabled(),true);
+  for(const id of ['second','third'])await main(['status','--config',a.config,'--board','keyboard',`${id}/pages`,'ready','Keyboard test fixture']);
+  await a.page.waitForFunction(()=>document.querySelector('#reader-position').textContent==='1 / 3');
+  await a.page.setViewportSize({width:400,height:800});
+  await a.page.locator('#reader-next').click();
+  await readerFocused();
+  assert.equal(await a.page.locator('#reader-name').textContent(),'Pages 2');
+  assert.equal(await a.page.locator('.reader-bar').evaluate(el=>el.scrollWidth<=el.clientWidth),true);
+  await a.page.screenshot({path:path.join(evidence,'reader-navigation-narrow.png')});
+  await a.page.locator('#close-reader').click();
+  await a.page.setViewportSize({width:1440,height:1200});
   // Simulate a shell update only in this browser; the user's running app is untouched.
   await a.page.locator('#round-picker').selectOption('2');
   await settledRound(2);
@@ -303,7 +345,7 @@ try{
   await a.page.waitForFunction(()=>document.querySelector('#save-status').textContent==='Notes saved on this Mac');
   assert.equal(await a.page.locator('[data-note="first/one-step"]').inputValue(),'Runway only');
   assert.equal(errors.length,0,errors.join('\n'));
-  console.log(JSON.stringify({passed:true,evidence,checks:['two simultaneous labels and URLs','folder discovery and empty new boards','new-board prompt','board and experiment removal prompts, copy and clipboard fallback','board cover prompts, custom images, live image updates and missing-image fallback','open prompts survive shell updates without losing the canvas position','isolated notes, same-origin port reuse and stale-tab write rejection','wide/collapsed/narrow headers and prompts','zoom and reset','independent experiment interaction','active preview safely offers reload','round selection in tall and zoomed-out canvases','canvas and experiment keyboard focus on entry, return and reload','toolbar keyboard access and note/experiment focus preserved during manifest updates'],browserErrors:errors},null,2));
+  console.log(JSON.stringify({passed:true,evidence,checks:['two simultaneous labels and URLs','folder discovery and empty new boards','new-board prompt','board and experiment removal prompts, copy and clipboard fallback','board cover prompts, custom images, live image updates and missing-image fallback','open prompts survive shell updates without losing the canvas position','isolated notes, same-origin port reuse and stale-tab write rejection','wide/collapsed/narrow headers and prompts','zoom and reset','independent experiment interaction','previous/next across rounds, boundaries, live availability, retained settings and narrow viewer','active preview safely offers reload','round selection in tall and zoomed-out canvases','canvas and experiment keyboard focus on entry, return and reload','toolbar keyboard access and note/experiment focus preserved during manifest updates'],browserErrors:errors},null,2));
 }finally{
   await browser.close();
   for(const {config} of instances)await main(['stop','--config',config]).catch(()=>{});

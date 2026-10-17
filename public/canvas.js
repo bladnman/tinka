@@ -212,20 +212,47 @@ function loadRevision() {
   history.replaceState(null, '', `#${active.key}${variant ? `~${variant.id}` : ''}`);
 }
 
+function readerSequence() {
+  return all.filter(concept => concept.key === active?.key || !['reserved', 'building'].includes(liveSnapshot?.concepts?.[concept.key]?.state));
+}
+
+function updateReaderNavigation() {
+  const sequence = readerSequence();
+  const index = sequence.findIndex(concept => concept.key === active?.key);
+  $('reader-position').textContent = `${index < 0 ? '—' : index + 1} / ${sequence.length}`;
+  for (const [id, offset, label] of [['reader-previous', -1, 'Previous'], ['reader-next', 1, 'Next']]) {
+    const neighbor = index < 0 ? null : sequence[index + offset];
+    const button = $(id);
+    button.disabled = !neighbor;
+    button.title = neighbor ? `${label}: ${neighbor.name}` : `No ${label.toLowerCase()} experiment`;
+    button.setAttribute('aria-label', neighbor ? `${label} experiment: ${neighbor.name}` : `${label} experiment`);
+  }
+}
+
+function stepReader(offset) {
+  if (!active || !dialog.open) return;
+  const sequence = readerSequence();
+  const index = sequence.findIndex(concept => concept.key === active.key);
+  if (index >= 0 && sequence[index + offset]) openReader(sequence[index + offset].key);
+}
+
 function openReader(key, revision = 'original') {
   const concept = all.find(item => item.key === key);
   if (!concept) return;
   active = concept;
   $('reader-name').textContent = active.name;
   $('reader-number').textContent = `EXPERIMENT ${active.number || ''}`;
-  $('reader-theme').value = active.tone === 'night' ? 'night' : 'paper';
-  $('reader-type').value = '100';
-  $('reader-size').value = 'fit';
-  setReaderSize();
+  if (!dialog.open) {
+    $('reader-theme').value = active.tone === 'night' ? 'night' : 'paper';
+    $('reader-type').value = '100';
+    $('reader-size').value = 'fit';
+    setReaderSize();
+  }
   const versions = revisions[key] || [];
   $('revision-label').hidden = !versions.length;
   $('reader-revision').innerHTML = '<option value="original">Original</option>' + versions.map(variant => `<option value="${esc(variant.id)}">${esc(variant.name)}</option>`).join('');
   $('reader-revision').value = versions.some(variant => variant.id === revision) ? revision : 'original';
+  updateReaderNavigation();
   loadRevision();
   if (!dialog.open) dialog.showModal();
   focusReader();
@@ -347,6 +374,7 @@ function applyBoardSnapshot(snapshot) {
   const ready = entries.filter(entry => entry.state === 'ready').length;
   const parts = [building ? `${building} building` : null, review ? `${review} to review` : null, ready ? `${ready} ready` : null].filter(Boolean);
   $('live-status').textContent = `Live · ${parts.join(' · ') || 'Waiting for experiments'}`;
+  if (active) updateReaderNavigation();
 }
 
 async function refreshManifest() {
@@ -445,6 +473,8 @@ $('overview').onclick = () => { changeZoom(Math.min(.5, (viewport.clientWidth - 
 $('reset-view').onclick = () => { changeZoom(.5, 0, 0); if (all.length) jump(all.find(concept => concept.row === currentRound)?.key || all[0].key); };
 $('help').onclick = () => { $('help-panel').hidden = !$('help-panel').hidden; $('help').setAttribute('aria-expanded', String(!$('help-panel').hidden)); };
 $('close-reader').onclick = closeReader;
+$('reader-previous').onclick = () => stepReader(-1);
+$('reader-next').onclick = () => stepReader(1);
 dialog.addEventListener('cancel', event => { event.preventDefault(); closeReader(); });
 $('active-reader').addEventListener('load', () => {
   if (!dialog.open) return;

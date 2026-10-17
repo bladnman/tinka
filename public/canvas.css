@@ -124,3 +124,13 @@ body.header-collapsed .brand-copy { display:flex; }
   body.header-collapsed .brand { min-width:145px; max-width:190px; }
   .mast-actions .local-label { display:none; }
 }
+
+/* Keep experiment stepping beside the title, including on narrow screens. */
+.reader-heading { min-width:0; flex:1; }
+.reader-title { min-width:0; display:flex; flex-direction:column; gap:4px; }
+.reader-title strong { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.reader-navigation { display:flex; align-items:center; gap:8px; flex:none; }
+.reader-navigation button { width:40px; min-height:40px; padding:0; font-size:21px; background:#e6ebdc; }
+.reader-navigation button:disabled { opacity:.35; cursor:default; }
+#reader-position { min-width:42px; text-align:center; font-size:11px; color:var(--muted); font-variant-numeric:tabular-nums; white-space:nowrap; }
+@media (max-width:650px) { .reader-heading { flex-basis:100%; } .reader-tools { flex-wrap:wrap; } }
