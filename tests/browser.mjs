@@ -34,9 +34,9 @@ try{
   const [a,b]=instances;assert.notEqual(a.url,b.url);
   await main(['board','create','keyboard','--config',a.config,'--title','Keyboard navigation']);
   const keyboardBoard=path.join(a.boards,'keyboard');
-  const keyboardManifest={rounds:['first','second','third'].map((id,index)=>({id,number:String(index+1),title:`Round ${index+1}`,concepts:[{id:'pages',name:`Pages ${index+1}`,path:'pages.html'}]})),revisions:{}};
+  const keyboardManifest={rounds:['first','second','third'].map((id,index)=>({id,number:String(index+1),title:`Round ${index+1}`,concepts:[{id:'pages',name:`Pages ${index+1}`,path:`${id}.html`}]})),revisions:{}};
   await writeFile(path.join(keyboardBoard,'rounds.json'),JSON.stringify(keyboardManifest));
-  await writeFile(path.join(keyboardBoard,'pages.html'),'<!doctype html><title>Keyboard pages</title><h1>Keyboard pages</h1><output>0</output><input aria-label="Draft"><script>let page=0;addEventListener("keydown",event=>{if(event.target.tagName!=="INPUT"&&event.key==="ArrowRight"){event.preventDefault();document.querySelector("output").textContent=++page;}});</script>');
+  for(const round of keyboardManifest.rounds)await writeFile(path.join(keyboardBoard,`${round.id}.html`),`<!doctype html><title>Keyboard pages</title><body data-experiment="${round.id}"><h1>Keyboard pages</h1><output>0</output><input aria-label="Draft"><script>let page=0;addEventListener("keydown",event=>{if(event.target.tagName!=="INPUT"&&event.key==="ArrowRight"){event.preventDefault();document.querySelector("output").textContent=++page;}});</script>`);
   for(const round of keyboardManifest.rounds)await main(['status','--config',a.config,'--board','keyboard',`${round.id}/pages`,'ready','Keyboard test fixture']);
   await a.page.screenshot({path:path.join(evidence,'home-wide.png')});
   await a.page.locator('.new-board').first().click();
@@ -212,7 +212,7 @@ try{
   // Opening, deep links, and explicit reloads route keys into the experiment body.
   await a.page.locator('.card-actions [data-open="third/pages"]').click();
   const keyboardFrame=a.page.frameLocator('#active-reader');
-  const readerFocused=()=>a.page.waitForFunction(()=>document.activeElement.id==='active-reader'&&document.querySelector('#active-reader').contentDocument?.activeElement?.tagName==='BODY');
+  const readerFocused=()=>a.page.waitForFunction(()=>{const frame=document.querySelector('#active-reader');const doc=frame.contentDocument;return document.activeElement===frame&&doc?.readyState==='complete'&&doc.body?.dataset.experiment===location.hash.slice(1).split('/')[0]&&doc.activeElement?.tagName==='BODY';});
   await keyboardFrame.locator('h1').waitFor();
   await readerFocused();
   await a.page.keyboard.press('ArrowRight');
@@ -242,7 +242,7 @@ try{
   await readerFocused();
   await a.page.keyboard.press('ArrowRight');
   assert.equal(await keyboardFrame.locator('output').textContent(),'1');
-  await writeFile(path.join(keyboardBoard,'pages.html'),(await readFile(path.join(keyboardBoard,'pages.html'),'utf8')).replace('Keyboard pages</h1>','Updated keyboard pages</h1>'));
+  await writeFile(path.join(keyboardBoard,'first.html'),(await readFile(path.join(keyboardBoard,'first.html'),'utf8')).replace('Keyboard pages</h1>','Updated keyboard pages</h1>'));
   await a.page.locator('#reader-update').waitFor({state:'visible'});
   await a.page.locator('#reader-update').click();
   await keyboardFrame.getByRole('heading',{name:'Updated keyboard pages'}).waitFor();
