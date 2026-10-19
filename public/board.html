@@ -27,7 +27,7 @@
   <div id="board-error" class="board-error" role="alert" hidden></div>
   <main id="viewport" aria-label="Experiments canvas: drag or scroll to pan, pinch or Control-scroll to zoom" tabindex="0"><div id="plane"><div id="world"></div></div></main>
   <footer class="control-footer canvas-footer">
-    <div class="status-line"><span id="save-status" role="status">Loading notes…</span><span id="live-status" role="status" aria-live="polite"></span><button id="live-refresh" type="button" hidden>New work available · Refresh</button><span id="round-status">Loading board</span></div>
+    <div class="status-line"><span id="save-status" role="status">Loading notes…</span><span id="live-status" role="status" aria-live="polite"></span><button id="live-refresh" type="button" aria-label="New work available · Refresh" hidden><span class="refresh-detail">New work available · </span>Refresh</button><span id="round-status">Loading board</span></div>
     <section class="view-tools" aria-label="Board view controls"><input id="zoom-slider" type="range" min="5" max="125" step="1" value="50" aria-label="Board zoom"><button id="fit" class="fit" type="button" title="Fit every exploration in view">Fit</button></section>
   </footer>
   <dialog id="reader-dialog" aria-labelledby="reader-name">
@@ -50,13 +50,15 @@
       </aside>
     </div>
     <footer class="control-footer reader-footer">
-      <button id="close-reader" class="back" type="button" aria-label="Back to board" aria-keyshortcuts="Escape" title="Back to board (Esc)"><span aria-hidden="true">←</span> Back<span class="long"> to board</span><kbd class="long" aria-hidden="true">esc</kbd></button>
+      <button id="close-reader" class="back" type="button" aria-label="Back to board" aria-keyshortcuts="Escape" title="Back to board (Esc)"><span class="back-arrow" aria-hidden="true">←</span><span class="back-label"> Back to board</span><svg class="board-glyph" viewBox="0 0 20 20" aria-hidden="true"><rect x="3.5" y="3.5" width="5" height="5" rx="1.2"/><rect x="11.5" y="3.5" width="5" height="5" rx="1.2"/><rect x="3.5" y="11.5" width="5" height="5" rx="1.2"/><rect x="11.5" y="11.5" width="5" height="5" rx="1.2"/></svg><span class="board-label" aria-hidden="true">Board</span><kbd class="long" aria-hidden="true">esc</kbd></button>
       <nav class="experiment-navigation" aria-label="Experiments">
         <button id="reader-previous" type="button" aria-label="Previous experiment">←</button>
         <div id="dot-track" class="dot-track" role="group" aria-label="Experiments on this board"></div>
         <button id="reader-next" type="button" aria-label="Next experiment">→</button>
       </nav>
       <section class="view-tools reader-tools" aria-label="Experiment view controls">
+        <button id="view-toggle" class="view-toggle" type="button" aria-expanded="false" aria-controls="view-controls" aria-label="View" title="View: type size, fit, light, window size and open standalone"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M3 6.5h7.5M15.5 6.5H17M3 13.5h1.5M9.5 13.5H17"/><circle cx="13" cy="6.5" r="2.2"/><circle cx="7" cy="13.5" r="2.2"/></svg><span class="view-label">View</span></button>
+        <div id="view-controls" class="view-controls">
         <span class="type-glyph small" aria-hidden="true">A</span><input id="reader-type" class="type-slider" type="range" min="100" max="130" step="15" value="100" aria-label="Type size"><span class="type-glyph large" aria-hidden="true">A</span>
         <button id="reader-fit" class="window-fit" type="button" aria-pressed="true" title="Fit the window to the stage">Fit</button>
         <button id="reader-theme" class="light-toggle icon-button" type="button" aria-pressed="false" aria-label="Night"><svg class="sun" viewBox="0 0 20 20" aria-hidden="true"><circle cx="10" cy="10" r="3.6"/><path d="M10 1.8v2.4M10 15.8v2.4M1.8 10h2.4M15.8 10h2.4M4.2 4.2l1.7 1.7M14.1 14.1l1.7 1.7M4.2 15.8l1.7-1.7M14.1 5.9l1.7-1.7"/></svg><svg class="moon" viewBox="0 0 20 20" aria-hidden="true"><path d="M15.6 12.6A6.6 6.6 0 0 1 7.4 4.4a6.6 6.6 0 1 0 8.2 8.2z"/></svg></button>
@@ -74,6 +76,7 @@
           </div>
         </span>
         <a id="reader-standalone" class="standalone icon-button" href="#" target="_blank" rel="noopener noreferrer" aria-label="Open standalone" title="Open standalone ↗">↗</a>
+        </div>
       </section>
     </footer>
     <div id="dot-tooltip" class="dot-tooltip" role="tooltip" hidden></div>

@@ -287,7 +287,7 @@ function sendPreferences() {
   $('active-reader').contentWindow?.postMessage({ type: 'reader-preferences', theme: readerView.theme, scale: readerView.type }, location.origin);
 }
 
-function renderSizeControls() {
+function renderSizeControls(layout = true) {
   const viewer = $('reader-window');
   const size = readerView.size;
   const customText = `${Math.round(viewer.offsetWidth)} × ${Math.round(viewer.offsetHeight)}`;
@@ -300,6 +300,7 @@ function renderSizeControls() {
   sizeMenu.querySelectorAll('[data-size]').forEach(button => button.setAttribute('aria-pressed', String(button.dataset.size === size)));
   sizeMenu.querySelector('[data-size="custom"]').hidden = size !== 'custom';
   $('custom-size').textContent = customText;
+  if (layout) layoutReaderFooter();
 }
 
 function setReaderSize(size) {
@@ -367,6 +368,7 @@ function syncReaderNotes() {
   $('notes-toggle').setAttribute('aria-label', hasNote ? 'Notes (this experiment has a note)' : 'Notes');
   const starred = Boolean(notes[active.key]?.star);
   $('reader-star').title = starred ? 'Shortlisted · remove from shortlist' : 'Add to shortlist';
+  layoutReaderHeader();
 }
 
 function renderReaderHeader() {
@@ -395,6 +397,7 @@ function loadRevision({ focus = true } = {}) {
   if (standalone) $('reader-standalone').href = standalone;
   activeRevision = liveSnapshot?.concepts?.[activeSourceKey()]?.revision || null;
   $('reader-update').hidden = true;
+  layoutReaderHeader();
   replaceFrame($('active-reader'), previewHref(active, variant, readerView.theme, readerView.type, activeRevision || 'initial', true));
   if (focus) focusReader();
 }
@@ -408,12 +411,11 @@ function dotLabel(concept, index, total) {
   return `${index + 1} of ${total}: Round ${round?.number || concept.row + 1} · ${concept.number ? `${concept.number} ` : ''}${concept.name}`;
 }
 
+// Keep the current dot centred in the strip (the browser clamps at either end).
 function revealDot(dot) {
   if (!dot || scrub) return;
-  const left = dot.offsetLeft - track.offsetLeft;
-  const right = left + dot.offsetWidth;
-  if (left < track.scrollLeft) track.scrollLeft = left;
-  else if (right > track.scrollLeft + track.clientWidth) track.scrollLeft = right - track.clientWidth;
+  track.scrollLeft = dot.offsetLeft - track.offsetLeft + dot.offsetWidth / 2 - track.clientWidth / 2;
+  updateTrackFade();
 }
 
 function renderDots(sequence, index) {
@@ -435,6 +437,86 @@ function renderDots(sequence, index) {
   if (focusedDot && current && document.activeElement !== current) current.focus({ preventScroll: true });
 }
 
+// ---- Reader header and footer layout: chosen by measured fit, never a fixed breakpoint ----
+// The header keeps the breadcrumb on one line while the board name and the experiment name each keep a readable
+// width (or all of it, if shorter) and the item actions fit; otherwise the experiment line takes its own row.
+const readerHeader = document.querySelector('.reader-header');
+const NAME_MIN = 120;
+function layoutReaderHeader() {
+  if (!dialog.open) return;
+  // On one line, each name may shrink to NAME_MIN (or its full width, if shorter) but no further.
+  readerHeader.style.setProperty('--board-min', `${Math.min($('reader-board-link').scrollWidth, NAME_MIN)}px`);
+  readerHeader.style.setProperty('--name-min', `${Math.min($('reader-name').scrollWidth, NAME_MIN)}px`);
+  readerHeader.dataset.layout = 'row';
+  const identity = readerHeader.querySelector('.identity').getBoundingClientRect();
+  const last = [...readerHeader.querySelectorAll('.item-actions > :not([hidden])')].at(-1)?.getBoundingClientRect();
+  if (last && last.right > identity.right + .5) readerHeader.dataset.layout = 'wrapped';
+}
+
+function layoutReaderChrome() {
+  layoutReaderHeader();
+  layoutReaderFooter();
+}
+
+// The footer is always one row. Its dot strip shows up to 9 dots and the arrows hug it. As room runs out, measured
+// against the actual widths: the strip drops to 7, 5, then 3 dots; Back becomes a board glyph with "Board"; the
+// view controls fold into a View popover; the View button drops its word; and only then does Back drop its word
+// (the strip may grow again each time room is freed). The navigation stays centred on the page when it can,
+// otherwise between its neighbours.
+const readerFooter = document.querySelector('.reader-footer');
+const STRIP_DOTS = [9, 7, 5, 3];
+const DOT_WIDTH = 24;
+const FOOTER_STEPS = [['full', 'inline'], ['board', 'inline'], ['board', 'folded'], ['board', 'folded-icon'], ['icon', 'folded-icon']];
+function layoutReaderFooter() {
+  if (!dialog.open) return;
+  const nav = readerFooter.querySelector('.experiment-navigation');
+  const tools = readerFooter.querySelector('.reader-tools');
+  readerFooter.style.setProperty('--nav-shift', '0px');
+  const navGap = parseFloat(getComputedStyle(nav).columnGap) || 0;
+  const arrows = $('reader-previous').offsetWidth + $('reader-next').offsetWidth + 2 * navGap;
+  const dots = track.scrollWidth;
+  const room = () => {
+    const gap = parseFloat(getComputedStyle(readerFooter).columnGap) || 0;
+    const start = $('close-reader').getBoundingClientRect().right + gap;
+    return { start, end: tools.getBoundingClientRect().left - gap };
+  };
+  let strip = STRIP_DOTS.at(-1);
+  for (const [back, view] of FOOTER_STEPS) {
+    readerFooter.dataset.back = back;
+    readerFooter.dataset.tools = view;
+    const { start, end } = room();
+    const fit = STRIP_DOTS.find(count => arrows + Math.min(dots, count * DOT_WIDTH) <= end - start + .5);
+    if (fit) { strip = fit; break; }
+  }
+  readerFooter.style.setProperty('--strip-dots', String(strip));
+  if (readerFooter.dataset.tools === 'inline') setViewOpen(false, { focus: false });
+  const box = readerFooter.getBoundingClientRect();
+  const { start, end } = room();
+  const slack = Math.max(0, (end - start - nav.getBoundingClientRect().width) / 2);
+  const shift = Math.max(-slack, Math.min(slack, box.left + box.width / 2 - (start + end) / 2));
+  readerFooter.style.setProperty('--nav-shift', `${Math.round(shift)}px`);
+  revealDot(track.querySelector('[aria-pressed="true"]'));
+  updateTrackFade();
+}
+
+// Fade an edge of the strip while more dots lie beyond it.
+function updateTrackFade() {
+  const more = track.scrollWidth - track.clientWidth;
+  track.style.setProperty('--fade-start', track.scrollLeft > 1 ? '16px' : '0px');
+  track.style.setProperty('--fade-end', track.scrollLeft < more - 1 ? '16px' : '0px');
+}
+
+// ---- View popover: the folded home of the view controls on narrow footers ----
+const viewControls = $('view-controls');
+function setViewOpen(open, { focus = true } = {}) {
+  const wasOpen = viewControls.classList.contains('open');
+  if (open === wasOpen) return;
+  viewControls.classList.toggle('open', open);
+  $('view-toggle').setAttribute('aria-expanded', String(open));
+  if (!open) closeSizeMenu(false);
+  if (focus) (open ? $('reader-type') : $('view-toggle')).focus({ preventScroll: true });
+}
+
 function updateReaderNavigation() {
   const sequence = readerSequence();
   const index = sequence.findIndex(concept => concept.key === active?.key);
@@ -448,6 +530,7 @@ function updateReaderNavigation() {
     button.setAttribute('aria-label', neighbor ? `${label} experiment: ${neighbor.name}` : `${label} experiment`);
   }
   renderDots(sequence, index);
+  layoutReaderChrome();
 }
 
 function stepReader(offset, focus = 'reader') {
@@ -478,6 +561,7 @@ function openReader(key, revision = 'original', { history: mode = 'push', focus 
     setType(100, false);
     setReaderSize('fit');
     closeSizeMenu(false);
+    setViewOpen(false, { focus: false });
     setNotesOpen(notesOpen, { focus: false });
   }
   renderRevisionOptions();
@@ -486,6 +570,7 @@ function openReader(key, revision = 'original', { history: mode = 'push', focus 
   updateReaderNavigation();
   loadRevision({ focus: false });
   if (opening) dialog.showModal();
+  layoutReaderChrome();
   commitHistory(readerState(), mode);
   updateMetadata();
   if (focus === 'dot') focusActiveDot();
@@ -498,6 +583,7 @@ function closeReader({ history: mode = 'push' } = {}) {
   const left = viewport.scrollLeft;
   const top = viewport.scrollTop;
   closeSizeMenu(false);
+  setViewOpen(false, { focus: false });
   hideTooltip();
   scrub = null;
   if (dialog.open) dialog.close();
@@ -512,6 +598,7 @@ function closeReader({ history: mode = 'push' } = {}) {
 // Escape closes the size panel first, then the notes panel while typing in it, otherwise returns to the board.
 function handleEscape() {
   if (!sizeMenu.hidden) { closeSizeMenu(true); return; }
+  if (viewControls.classList.contains('open')) { setViewOpen(false); return; }
   if (notesOpen && $('notes-panel').contains(document.activeElement)) { setNotesOpen(false); return; }
   closeReader();
 }
@@ -662,6 +749,7 @@ function applyBoardSnapshot(snapshot) {
   if (active && activeEntry) {
     if (!activeRevision) activeRevision = activeEntry.revision;
     $('reader-update').hidden = activeRevision === activeEntry.revision || !['ready', 'review'].includes(activeEntry.state);
+    layoutReaderHeader();
   }
   const entries = all.map(concept => snapshot.concepts[concept.key]).filter(Boolean);
   const building = entries.filter(entry => entry.state === 'building').length;
@@ -740,6 +828,7 @@ document.addEventListener('pointerdown', event => {
   const remove = event.target.closest('[data-remove-experiment]');
   if (remove && event.button === 0) { event.preventDefault(); remove.focus({ preventScroll: true }); }
   if (!sizeMenu.hidden && !event.target.closest('.size-wrap')) closeSizeMenu(false);
+  if (viewControls.classList.contains('open') && !event.target.closest('.reader-tools')) setViewOpen(false, { focus: false });
   if (!$('board-info').hidden && !event.target.closest('#board-info, #board-info-toggle')) setInfoOpen(false);
 });
 document.addEventListener('click', event => {
@@ -790,6 +879,7 @@ $('notes-close').onclick = () => setNotesOpen(false);
 $('reader-type').addEventListener('input', () => setType($('reader-type').value));
 $('reader-fit').onclick = () => setReaderSize('fit');
 $('reader-theme').onclick = () => setTheme(readerView.theme === 'night' ? 'paper' : 'night');
+$('view-toggle').onclick = () => setViewOpen(!viewControls.classList.contains('open'));
 $('size-trigger').onclick = () => (sizeMenu.hidden ? openSizeMenu() : closeSizeMenu());
 sizeMenu.addEventListener('click', event => {
   const size = event.target.closest('[data-size]');
@@ -843,6 +933,7 @@ track.addEventListener('pointerup', event => {
   endScrub(true);
 });
 track.addEventListener('pointercancel', () => endScrub(false));
+track.addEventListener('scroll', updateTrackFade, { passive: true });
 track.addEventListener('click', event => {
   const dot = event.target.closest('[data-dot]');
   if (dot && event.detail === 0) openReader(dot.dataset.dot, 'original', { focus: 'dot' });
@@ -930,9 +1021,12 @@ viewport.addEventListener('keydown', event => {
 });
 new ResizeObserver(() => {
   if ($('reader-window').style.width && readerView.size !== 'custom') readerView.size = 'custom';
-  if (dialog.open) renderSizeControls();
+  // A new size label can change the footer layout, which resizes this window; lay out on the next frame to avoid a resize loop.
+  if (dialog.open) { renderSizeControls(false); requestAnimationFrame(layoutReaderFooter); }
 }).observe($('reader-window'));
 new ResizeObserver(updatePlane).observe(viewport);
+// The dialog fills the window, so this fires on window resizes but never because the footer re-laid itself out.
+new ResizeObserver(layoutReaderChrome).observe(dialog);
 viewport.addEventListener('scroll', () => {
   if (scrollFrame) return;
   scrollFrame = requestAnimationFrame(() => {
@@ -944,7 +1038,7 @@ viewport.addEventListener('scroll', () => {
 }, { passive: true });
 window.addEventListener('popstate', route);
 // Clicking into the experiment frame never reaches this document; close the popover when focus leaves it.
-window.addEventListener('blur', () => { closeSizeMenu(false); if (!scrub) hideTooltip(); });
+window.addEventListener('blur', () => { closeSizeMenu(false); setViewOpen(false, { focus: false }); if (!scrub) hideTooltip(); });
 window.addEventListener('hashchange', route);
 $('live-refresh').onclick = reloadCanvas;
 $('reader-update').onclick = () => loadRevision();

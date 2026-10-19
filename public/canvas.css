@@ -19,7 +19,8 @@ a{color:inherit}
 .brand-mark{display:block;flex:0 0 26px;width:26px;height:26px;object-fit:contain}
 .slash{color:#adb7a0;font-size:22px;flex:none}
 .board-name{font:400 23px/1.15 Georgia,serif;margin:0;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.board-link{text-decoration:none;flex:0 1 auto;padding-block:11px;margin-block:-11px}
+/* In the reader the experiment name is the page; the board name gives way first. */
+.board-link{text-decoration:none;flex:0 12 auto;padding-block:11px;margin-block:-11px}
 .board-link:hover{text-decoration:underline}
 .info-toggle{flex:none;display:inline-flex;align-items:center;justify-content:center;width:44px;height:44px;padding:0;margin:-6px 0;border-color:transparent;background:transparent;color:#65744f;border-radius:7px}
 .info-toggle svg,.icon-button svg,.size-trigger svg{width:18px;height:18px;fill:none;stroke:currentColor;stroke-width:1.5;stroke-linecap:round;stroke-linejoin:round}
@@ -78,7 +79,9 @@ a{color:inherit}
 .control-footer{flex:none;display:flex;align-items:center;justify-content:space-between;gap:18px;min-height:60px;padding:6px 20px;background:var(--paper);border-top:1px solid var(--line);position:relative;user-select:none;-webkit-user-select:none}
 .status-line{align-self:stretch;display:flex;align-items:center;gap:20px;min-width:0;font-size:10px;color:var(--muted);white-space:nowrap;overflow:hidden}
 .status-line>*{flex:none}
-#save-status{flex:0 1 auto;overflow:hidden;text-overflow:ellipsis}
+/* Status text gives way (with an ellipsis) before the refresh offer is ever clipped; see the container query below. */
+.canvas-footer .status-line{flex:1 1 0;container-type:inline-size}
+#save-status,#live-status,#round-status{flex:0 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis}
 #live-status{color:var(--green);font-weight:650}
 #live-status:empty{display:none}
 #live-refresh{position:relative;min-height:0;padding:2px 8px;background:#e4eadc;border-color:#b8c8a8;color:var(--green);font-size:10px;font-weight:700}
@@ -122,15 +125,20 @@ a{color:inherit}
 #reader-note{flex:1;min-height:120px;margin-top:8px;resize:none;background:#f0f2e8;border:1px solid #c7cebd;border-radius:6px;padding:11px 12px;font:13px/1.55 -apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;letter-spacing:0;color:var(--ink)}
 .reader-save-status{margin:0;font-size:10.5px;color:var(--muted)}
 
-.reader-footer{display:grid;grid-template-columns:1fr minmax(0,580px) 1fr;gap:14px}
-.back{justify-self:start;min-height:44px;min-width:44px;background:transparent;border-color:transparent;font-size:12px;white-space:nowrap}
+/* Reader footer: always one row of back, navigation and view tools. canvas.js measures the space and sets
+   --strip-dots, data-back and data-tools; nothing here depends on a fixed breakpoint. */
+.reader-footer{display:grid;grid-template-columns:auto minmax(0,1fr) auto;grid-template-areas:"back nav tools";gap:14px}
+.back{grid-area:back;justify-self:start;min-height:44px;min-width:44px;background:transparent;border-color:transparent;font-size:12px;white-space:nowrap}
 .back:hover{background:var(--hover)}
 .back kbd{font:10px/1 ui-monospace,SFMono-Regular,Menlo,monospace;color:#7b846f;border:1px solid var(--line);border-radius:4px;padding:2px 5px;margin-left:9px;position:relative;top:-1px}
-.experiment-navigation{display:flex;align-items:center;gap:6px;min-width:0;max-width:580px;width:100%;justify-self:center}
+/* The navigation is as wide as its arrows and dot strip, so the arrows hug the strip. */
+.experiment-navigation{grid-area:nav;display:flex;align-items:center;gap:6px;min-width:0;max-width:100%;justify-self:center;translate:var(--nav-shift,0px) 0}
 .experiment-navigation>button{flex:none;min-width:44px;min-height:44px;border-color:transparent;background:transparent;padding:8px;font-size:15px}
 .experiment-navigation>button:hover{background:var(--hover)}
 .experiment-navigation>button:disabled{opacity:.28;background:transparent}
-.dot-track{display:flex;align-items:center;flex:1;min-width:0;height:44px;overflow-x:auto;overflow-y:hidden;scrollbar-width:none;touch-action:pan-y;justify-content:safe center}
+/* A small fixed window of dots (fewer with less room, all of them when there are only a few). It keeps the current
+   dot centred and fades an edge while more dots lie beyond it. */
+.dot-track{--fade:linear-gradient(90deg,transparent,#000 var(--fade-start,0px),#000 calc(100% - var(--fade-end,0px)),transparent);display:flex;align-items:center;flex:0 1 auto;min-width:0;max-width:calc(var(--strip-dots,9) * 24px);height:44px;overflow-x:auto;overflow-y:hidden;scrollbar-width:none;touch-action:pan-y;justify-content:safe center;-webkit-mask-image:var(--fade);mask-image:var(--fade)}
 .dot-track::-webkit-scrollbar{display:none}
 .experiment-dot{position:relative;flex:none;width:24px;min-width:24px;height:44px;padding:0;border:0;border-radius:0;background:transparent;cursor:pointer;touch-action:none}
 .experiment-dot.group-start:not(:first-child){margin-left:12px}
@@ -140,7 +148,17 @@ a{color:inherit}
 .experiment-dot:hover{background:#e5eadc}
 .experiment-dot:hover::after{background:#61744c}
 .experiment-dot:focus-visible{outline:2px solid var(--green);outline-offset:-3px;border-radius:5px}
-.reader-tools{gap:2px;justify-self:end}
+.reader-tools{grid-area:tools;position:relative;justify-self:end;width:max-content}
+.view-controls{display:flex;align-items:center;gap:2px}
+.view-toggle{display:none}
+.view-toggle svg{width:18px;height:18px;fill:none;stroke:currentColor;stroke-width:1.5;stroke-linecap:round}
+.reader-tools .view-toggle[aria-expanded="true"]{background:var(--soft)}
+/* Folded: the view controls move into a popover above the View button. */
+.reader-footer[data-tools^="folded"] .view-toggle{display:inline-flex;align-items:center;gap:6px;padding:0 10px;color:#4a5640}
+.reader-footer[data-tools="folded-icon"] .view-toggle{padding:0}
+.reader-footer[data-tools="folded-icon"] .view-label{display:none}
+.reader-footer[data-tools^="folded"] .view-controls{position:absolute;right:0;bottom:calc(100% + 12px);z-index:20;flex-wrap:wrap;justify-content:flex-end;width:max-content;max-width:calc(100vw - 24px);padding:6px;background:var(--paper);border:1px solid #b7c4a7;border-radius:10px;box-shadow:0 8px 30px #25301822}
+.reader-footer[data-tools^="folded"] .view-controls:not(.open){display:none}
 .reader-tools input.type-slider{width:96px}
 .type-glyph{font-family:Georgia,serif;color:#6b7560;line-height:1;padding:0 4px}
 .type-glyph.small{font-size:11px}
@@ -168,12 +186,27 @@ a{color:inherit}
 .standalone:hover{background:var(--hover)}
 .dot-tooltip{position:fixed;z-index:30;left:50%;transform:translateX(-50%);width:max-content;max-width:min(430px,calc(100vw - 28px));border:1px solid #bec9af;border-radius:7px;background:var(--paper);padding:10px 13px;box-shadow:0 5px 18px #34452a22;color:#405036;font-size:11px;line-height:1.5;pointer-events:none}
 
-@media(max-width:1240px){
-  .reader-footer{grid-template-columns:auto 1fr;grid-template-areas:"back tools" "nav nav";gap:0 10px;padding:5px 14px}
-  .back{grid-area:back}
-  .reader-tools{grid-area:tools}
-  .experiment-navigation{grid-area:nav;max-width:620px;gap:3px}
-}
+/* Compact Back shows a board glyph with "Board", then the glyph alone, so it never looks like Previous; its name
+   and Esc tooltip stay. */
+.board-glyph{display:none;width:16px;height:16px;fill:none;stroke:currentColor;stroke-width:1.5;stroke-linejoin:round}
+.board-label{display:none}
+.reader-footer:is([data-back="board"],[data-back="icon"]) .back{display:inline-flex;align-items:center;justify-content:center;gap:6px}
+.reader-footer:is([data-back="board"],[data-back="icon"]) :is(.back-arrow,.back-label,.back kbd){display:none}
+.reader-footer:is([data-back="board"],[data-back="icon"]) .board-glyph{display:block}
+.reader-footer[data-back="board"] .board-label{display:inline}
+.reader-footer[data-back="icon"] .back{padding:0}
+.reader-header[data-layout="row"] .board-link{min-width:var(--board-min,0px)}
+.reader-header[data-layout="row"] .experiment-crumb{min-width:var(--name-min,0px)}
+/* Reader header without room for the breadcrumb on one line (canvas.js measures): the board name stays beside
+   Tinka, the experiment line takes its own row with its actions at the end, and a reload offer below them. */
+.reader-header[data-layout="wrapped"] .identity{flex-wrap:wrap;row-gap:0}
+.reader-header[data-layout="wrapped"] .board-link{flex:1 1 0;margin-block:0}
+.reader-header[data-layout="wrapped"] .experiment-slash{display:none}
+.reader-header[data-layout="wrapped"] .item-line{flex:1 1 100%;order:9;flex-wrap:wrap;gap:2px}
+.reader-header[data-layout="wrapped"] .experiment-crumb{flex:1 1 0}
+.reader-header[data-layout="wrapped"] .item-actions{display:contents}
+.reader-header[data-layout="wrapped"] #reader-update{flex-basis:100%;margin:2px 0 6px}
+@container (max-width:260px){.refresh-detail{display:none}}
 @media(max-width:760px){
   .canvas-header,.reader-header{padding:8px 16px;min-height:56px}
   .identity{gap:7px}
@@ -186,31 +219,15 @@ a{color:inherit}
   #round-status{display:none}
 }
 @media(max-width:650px){
-  .reader-header .identity{flex-wrap:wrap;row-gap:0}
-  .reader-header .item-line{flex:1 1 100%;order:9}
   .reader-header .experiment-crumb{font-size:17px}
-  .reader-header .item-actions{margin-left:auto}
-  .experiment-slash{display:none}
-  .reader-tools{gap:0}
-  .type-glyph.small{display:none}
-  .type-glyph.large{font-size:15px;padding:0 2px 0 4px}
-  .reader-tools input.type-slider{width:64px}
-  .window-fit{padding-left:10px;margin-left:2px}
-  .reader-tools .size-trigger{padding:0 6px;gap:4px}
-  .size-value{max-width:5.5em}
-  .back .long{display:none}
-  .back{padding:8px}
   .reader-area{flex-direction:column}
   .notes-panel{width:auto;height:min(270px,42%);border-left:0;border-top:1px solid var(--line);padding:12px 16px;gap:8px;box-shadow:0 -6px 18px #34452a14}
   .notes-head h2{font-size:17px}
   #reader-note{min-height:70px}
   .reader-stage{padding:10px}
-  #reader-update{flex-basis:100%;margin:2px 0 6px}
-  .item-actions{flex-wrap:wrap;justify-content:flex-end}
 }
 @media(max-width:480px){
-  .canvas-header .brand span{max-width:96px;overflow:hidden;text-overflow:ellipsis}
+  .brand span{max-width:96px;overflow:hidden;text-overflow:ellipsis}
   .status-line:has(#live-status:not(:empty)) #save-status[data-state="saved"]{display:none}
-  .status-line #live-status{flex:0 1 auto;overflow:hidden;text-overflow:ellipsis}
 }
 @media(prefers-reduced-motion:reduce){*,*::before,*::after{transition:none!important;scroll-behavior:auto!important}}

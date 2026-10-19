@@ -717,6 +717,185 @@ try{
   await h.setViewportSize({width:390,height:844});
   await h.screenshot({path:path.join(evidence,'history-reader-narrow.png')});
   await h.setViewportSize({width:1440,height:960});
+  // ---- Footer and header layout at a few widths: footers stay one row, groups and controls never overlap, nothing
+  // leaves the window or is clipped, the arrows hug the dot strip, the current dot is in view, Back never looks like
+  // Previous, and targets stay 44px ----
+  const sweepBoards=[['sweep-short','Short',3,2,false,0],['sweep-long','A board title long enough that it must truncate instead of pushing into the controls beside it',20,6,true,9]];
+  const sweepKey=(perRound,i)=>`r${Math.floor(i/perRound)}/c${i}`;
+  for(const [slug,title,count,perRound,longNames,current] of sweepBoards){
+    await main(['board','create',slug,'--config',a.config,'--title',title]);
+    const dir=path.join(a.boards,slug);const sweepRounds=[];
+    for(let i=0;i<count;i++){
+      const row=Math.floor(i/perRound);
+      sweepRounds[row]??={id:`r${row}`,number:String(row+1).padStart(2,'0'),title:`Round ${row+1}`,concepts:[]};
+      sweepRounds[row].concepts.push({id:`c${i}`,number:String(i+1).padStart(2,'0'),name:longNames?`An unusually long experiment name, number ${i+1}, that keeps on going`:`Card ${i+1}`,path:`c${i}.html`});
+      await writeFile(path.join(dir,`c${i}.html`),`<!doctype html><title>c${i}</title><body data-experiment="c${i}"><h1>c${i}</h1>`);
+    }
+    await writeFile(path.join(dir,'v2.html'),'<!doctype html><title>v2</title><body data-experiment="v2">');
+    await writeFile(path.join(dir,'rounds.json'),JSON.stringify({rounds:sweepRounds,revisions:{[sweepKey(perRound,current)]:[{id:'v2',name:'Second',path:'v2.html'}]}}));
+    for(let i=0;i<count;i++)await main(['status','--config',a.config,'--board',slug,sweepKey(perRound,i),'ready','Sweep fixture']);
+  }
+  // Problems in one region at the current width. Controls inside the dot strip are clipped to it first.
+  const layoutIssues=spec=>h.evaluate(spec=>{
+    const issues=[];const vw=document.documentElement.clientWidth;
+    const root=document.querySelector(spec.root);
+    const shown=el=>{const style=getComputedStyle(el);const box=el.getBoundingClientRect();return style.display!=='none'&&style.visibility!=='hidden'&&box.width>0&&box.height>0;};
+    const rect=(el,clip)=>{const b=el.getBoundingClientRect();const r={left:b.left,right:b.right,top:b.top,bottom:b.bottom};if(clip){const c=clip.getBoundingClientRect();r.left=Math.max(r.left,c.left);r.right=Math.min(r.right,c.right);}return r;};
+    const overlap=(p,q)=>Math.min(p.right,q.right)-Math.max(p.left,q.left)>.5&&Math.min(p.bottom,q.bottom)-Math.max(p.top,q.top)>.5;
+    const name=el=>el.id?`#${el.id}`:el.dataset.dot?`dot ${el.dataset.dot}`:`.${[...el.classList].join('.')}`;
+    if(root.scrollWidth>root.clientWidth+.5)issues.push(`${spec.root} scrolls sideways`);
+    const groups=(spec.groups||[]).map(selector=>root.querySelector(selector)).filter(el=>el&&shown(el));
+    groups.forEach((g,i)=>groups.slice(i+1).forEach(other=>{if(overlap(rect(g),rect(other)))issues.push(`${name(g)} overlaps ${name(other)}`);}));
+    // One row: every group is centred on the same line.
+    if(spec.oneRow){const centres=groups.map(g=>{const b=g.getBoundingClientRect();return (b.top+b.bottom)/2;});if(Math.max(...centres)-Math.min(...centres)>1.5)issues.push(`groups are not in one row (${centres.map(Math.round)})`);}
+    const controls=[];
+    for(const el of root.querySelectorAll('button,input,a[href],textarea')){
+      if(!shown(el)||el.closest('[hidden],.size-menu,.board-info'))continue;
+      const scroller=el.closest('.dot-track');const r=rect(el,scroller);
+      if(r.right-r.left<1)continue;
+      controls.push({el,r});
+      if(r.left<-.5||r.right>vw+.5)issues.push(`${name(el)} leaves the window`);
+      // Ancestors that hide overflow (other than the dot strip) must not clip a control.
+      for(let parent=el.parentElement;parent&&parent!==document.body;parent=parent.parentElement){
+        if(parent===scroller)break;
+        const style=getComputedStyle(parent);
+        if(style.overflowX!=='visible'||style.overflowY!=='visible'){const p=parent.getBoundingClientRect();if(r.left<p.left-.5||r.right>p.right+.5||r.top<p.top-.5||r.bottom>p.bottom+.5)issues.push(`${name(el)} clipped by ${name(parent)}`);}
+      }
+      // Dots are 24 by 44 by design; the small status buttons carry a 44px hit area on a pseudo-element.
+      const b=el.getBoundingClientRect();const minWidth=el.matches('.experiment-dot')?24:44;
+      if(!el.matches(spec.pseudoTargets||'#none')&&(b.height<43.5||b.width<minWidth-.5))issues.push(`${name(el)} target ${Math.round(b.width)}×${Math.round(b.height)}`);
+    }
+    controls.forEach((c,i)=>controls.slice(i+1).forEach(d=>{if(overlap(c.r,d.r))issues.push(`${name(c.el)} overlaps ${name(d.el)}`);}));
+    const result={issues,height:Math.round(root.getBoundingClientRect().height),layout:spec.navigation?`${root.dataset.back}/${root.dataset.tools}/${getComputedStyle(root).getPropertyValue('--strip-dots').trim()}`:''};
+    if(spec.navigation){
+      const prev=document.querySelector('#reader-previous').getBoundingClientRect();
+      const next=document.querySelector('#reader-next').getBoundingClientRect();
+      const strip=document.querySelector('#dot-track').getBoundingClientRect();
+      const dots=controls.filter(c=>c.el.matches('.experiment-dot'));
+      if(!dots.length)issues.push('no visible dots');
+      else{
+        const before=dots[0].r.left-prev.right;const after=next.left-dots.at(-1).r.right;
+        if(before<-.5||before>24)issues.push(`Previous is ${Math.round(before)}px from the first dot`);
+        if(after<-.5||after>24)issues.push(`Next is ${Math.round(after)}px from the last dot`);
+      }
+      // Compact Back never looks like Previous: different visible text, or the board glyph when it has none.
+      const backButton=document.querySelector('#close-reader');const backText=backButton.innerText.trim();
+      if(backText===document.querySelector('#reader-previous').innerText.trim()||backText==='←'||(!backText&&!shown(backButton.querySelector('.board-glyph'))))issues.push(`Back shows "${backText}" like Previous`);
+      const current=document.querySelector('#dot-track [aria-pressed="true"]').getBoundingClientRect();
+      if(current.left<strip.left-.5||current.right>strip.right+.5)issues.push('the current dot is not fully in the strip');
+      if(strip.width>9*24+.5)issues.push(`the strip is ${Math.round(strip.width)}px wide`);
+      // Centred on the page when there is room; otherwise against a neighbouring group.
+      const nav=document.querySelector('.experiment-navigation').getBoundingClientRect();
+      const centre=Math.abs((nav.left+nav.right)/2-vw/2);
+      const back=document.querySelector('#close-reader').getBoundingClientRect();const tools=document.querySelector('.reader-tools').getBoundingClientRect();
+      const gap=parseFloat(getComputedStyle(root).columnGap)||0;
+      if(centre>1.5&&nav.left-back.right>gap+1.5&&tools.left-nav.right>gap+1.5)issues.push(`navigation is ${Math.round(centre)}px off centre`);
+    }
+    return result;
+  },spec);
+  const settle=()=>h.evaluate(()=>new Promise(requestAnimationFrame));
+  const sweep=async(label,spec)=>{
+    let height=null;const layouts=new Set();
+    for(const width of [320,390,768,1024,1244,1440,1920]){
+      await h.setViewportSize({width,height:860});await settle();
+      const result=await layoutIssues(spec);layouts.add(result.layout);
+      // A one-row footer keeps the same height at every width.
+      if(spec.oneRow){height??=result.height;if(result.height!==height)result.issues.push(`height ${result.height}px instead of ${height}px`);}
+      assert.deepEqual(result.issues,[],`${label} at ${width}px`);
+    }
+    return [...layouts];
+  };
+  const readerSpec={root:'.reader-footer',groups:['.back','.experiment-navigation','.reader-tools'],navigation:true,oneRow:true};
+  const footerShot=async(name,width)=>{await h.setViewportSize({width,height:860});await settle();await h.locator('.reader-footer').screenshot({path:path.join(evidence,`${name}-${width}.png`)});};
+  // A short track with "Fit", and a long track with a mid-track current item, a Custom size and a Version entry.
+  for(const [slug,,count,perRound,,current] of sweepBoards){
+    await h.setViewportSize({width:1440,height:860});
+    await h.goto(`${a.url}boards/${slug}/#${sweepKey(perRound,current)}`);
+    await h.waitForFunction(([count,key])=>document.querySelector('#reader-dialog').open&&document.querySelectorAll('#dot-track [data-dot]').length===count&&document.querySelector('#dot-track [aria-pressed="true"]')?.dataset.dot===key,[count,sweepKey(perRound,current)]);
+    if(slug==='sweep-long'){
+      assert.equal(await h.locator('#revision-group').evaluate(el=>el.hidden),false,'the long-track experiment has a Version entry');
+      await h.locator('#reader-window').evaluate(el=>{el.style.width='600px';});
+      await h.waitForFunction(()=>document.querySelector('#size-value').textContent==='Custom');
+    }
+    const layouts=await sweep(`reader footer, ${slug}`,readerSpec);
+    // Wide windows show everything; narrow ones fold the view controls, never adding a row.
+    assert(layouts.some(layout=>layout.startsWith('full/inline/'))&&layouts.some(layout=>layout.includes('/folded')),`${slug} used ${layouts}`);
+    for(const width of slug==='sweep-short'?[390,320,768,1244]:[320,1244])await footerShot(slug==='sweep-short'?'reader-footer':'reader-footer-long-mid',width);
+  }
+  // The strip keeps the current dot centred and fades the edges that have more beyond them; the arrows, keys and
+  // endpoints still walk the whole sequence.
+  await h.setViewportSize({width:1244,height:860});
+  await h.goto(`${a.url}boards/sweep-long/#r1/c9`);
+  await h.waitForFunction(()=>document.querySelector('#dot-track [aria-pressed="true"]')?.dataset.dot==='r1/c9');
+  await settle();
+  const stripState=()=>h.evaluate(()=>{const track=document.querySelector('#dot-track');const strip=track.getBoundingClientRect();const dot=track.querySelector('[aria-pressed="true"]').getBoundingClientRect();return {offset:Math.round((dot.left+dot.right)/2-(strip.left+strip.right)/2),fade:[track.style.getPropertyValue('--fade-start'),track.style.getPropertyValue('--fade-end')],dots:Math.round(strip.width/24)};});
+  assert.deepEqual(await stripState(),{offset:0,fade:['16px','16px'],dots:9});
+  await h.locator('#dot-track [aria-pressed="true"]').focus();
+  await h.keyboard.press('Home');
+  await h.waitForFunction(()=>document.querySelector('#dot-track [aria-pressed="true"]')?.dataset.dot==='r0/c0'&&document.activeElement?.dataset.dot==='r0/c0');
+  assert.deepEqual((await stripState()).fade,['0px','16px']);
+  assert.equal(await h.locator('#reader-previous').isDisabled(),true);
+  await h.keyboard.press('End');
+  await h.waitForFunction(()=>document.querySelector('#dot-track [aria-pressed="true"]')?.dataset.dot==='r3/c19');
+  assert.deepEqual((await stripState()).fade,['16px','0px']);
+  assert.equal(await h.locator('#reader-next').isDisabled(),true);
+  await h.keyboard.press('ArrowLeft');
+  await h.waitForFunction(()=>document.querySelector('#dot-track [aria-pressed="true"]')?.dataset.dot==='r3/c18');
+  // Drag-scrub across the strip scrolls it at the edge and lands on a dot that was out of view.
+  const stripBox=await h.locator('#dot-track').boundingBox();
+  await h.mouse.move(stripBox.x+stripBox.width-30,stripBox.y+22);await h.mouse.down();
+  for(let i=0;i<12;i++)await h.mouse.move(stripBox.x+4+(i%2),stripBox.y+22);
+  await h.mouse.up();
+  await h.waitForFunction(()=>{const key=document.querySelector('#dot-track [aria-pressed="true"]')?.dataset.dot;return key&&Number(key.split('/c')[1])<10;});
+  // Phone width folds the view controls into one View popover holding all of them.
+  await h.goto(`${a.url}boards/sweep-short/#r0/c0`);
+  await h.waitForFunction(()=>document.querySelector('#reader-dialog').open&&document.querySelectorAll('#dot-track [data-dot]').length===3);
+  await h.setViewportSize({width:390,height:844});await settle();
+  assert.equal(await h.locator('#view-toggle').isVisible(),true);
+  assert.equal(await h.locator('#reader-type').isVisible(),false);
+  await h.locator('#view-toggle').click();
+  assert.equal(await h.locator('#view-toggle').getAttribute('aria-expanded'),'true');
+  assert.equal(await h.evaluate(()=>document.activeElement.id),'reader-type');
+  for(const id of ['reader-type','reader-fit','reader-theme','size-trigger','reader-standalone'])assert.equal(await h.locator(`#${id}`).isVisible(),true,id);
+  assert.deepEqual((await layoutIssues({root:'.view-controls'})).issues,[]);
+  await h.screenshot({path:path.join(evidence,'reader-view-popover-390.png')});
+  await h.keyboard.press('ArrowRight');
+  assert.equal(await h.locator('#reader-type').getAttribute('aria-valuetext'),'115%');
+  await h.locator('#reader-theme').click();
+  assert.equal(await h.locator('#reader-theme').getAttribute('aria-pressed'),'true');
+  await h.locator('#size-trigger').click();
+  await h.locator('#size-menu [data-size="compact"]').click();
+  assert.equal(await h.locator('#size-value').textContent(),'Compact');
+  assert.equal(await h.locator('#view-toggle').getAttribute('aria-expanded'),'true');
+  await h.keyboard.press('Escape');
+  assert.equal(await h.locator('#view-toggle').getAttribute('aria-expanded'),'false');
+  assert.equal(await h.evaluate(()=>document.activeElement.id),'view-toggle');
+  assert.equal(await h.locator('#reader-dialog').evaluate(el=>el.open),true);
+  await h.locator('#view-toggle').click();
+  await h.locator('#reader-name').click();
+  assert.equal(await h.locator('#view-toggle').getAttribute('aria-expanded'),'false');
+  await h.setViewportSize({width:1440,height:860});await settle();
+  assert.equal(await h.locator('#view-toggle').isVisible(),false);
+  assert.equal(await h.locator('#reader-type').isVisible(),true);
+  // Long titles in both headers, with the live "New version available" banner after the experiment changes.
+  await h.goto(`${a.url}boards/sweep-long/#r0/c1`);
+  await h.waitForFunction(()=>document.querySelector('#reader-dialog').open&&document.querySelector('#reader-name').textContent.startsWith('An unusually long'));
+  await h.waitForFunction(()=>document.querySelector('#active-reader').contentDocument?.body?.dataset.experiment==='c1'&&document.querySelector('#live-status').textContent.startsWith('Live'));
+  await writeFile(path.join(a.boards,'sweep-long','c1.html'),'<!doctype html><title>c1</title><body data-experiment="c1"><h1>c1, changed</h1>');
+  await h.locator('#reader-update').waitFor();
+  // A long project label too (labels come from the project's config; this instance's is short).
+  const longLabel=()=>h.evaluate(()=>{for(const id of ['project-label','reader-project'])document.getElementById(id).textContent='A rather long project label';});
+  await longLabel();
+  const headerSpec={groups:['.brand','.board-name','.item-line'],pseudoTargets:'#reader-update'};
+  await sweep('reader header, long titles and reload banner',{...headerSpec,root:'.reader-header'});
+  await h.goto(`${a.url}boards/sweep-long/`);
+  await h.waitForFunction(()=>!document.querySelector('#reader-dialog').open&&document.querySelector('#live-status').textContent.startsWith('Live'));
+  await longLabel();
+  await sweep('board header, long title',{root:'.canvas-header',groups:['.brand','.board-name','.info-toggle']});
+  // The refresh offer normally appears after an app update and reloads soon after; show it to measure it.
+  await h.locator('#live-refresh').evaluate(el=>{el.hidden=false;});
+  await sweep('board footer, live status and refresh offer',{root:'.canvas-footer',groups:['.status-line','.view-tools'],pseudoTargets:'#live-refresh',oneRow:true});
+  await h.setViewportSize({width:1440,height:960});
   await h.close();
   await a.page.evaluate(()=>localStorage.setItem('board-room-notes/first-steps',JSON.stringify({'first/one-step':{note:'Old unscoped cache must not leak',updatedAt:Date.now()+1000000}})));
   // Reuse the very same origin with the other workspace. Its namespace must win.
@@ -737,7 +916,7 @@ try{
   await a.page.waitForFunction(()=>document.querySelector('#save-status').textContent==='Notes saved on this Mac');
   assert.equal(await a.page.locator('[data-note="first/one-step"]').inputValue(),'Runway only');
   assert.equal(errors.length,0,errors.join('\n'));
-  const checks=['two simultaneous labels and URLs','folder discovery and empty new boards','new-board prompt','board and experiment removal prompts, copy and clipboard fallback','board cover prompts, custom images, live image updates and missing-image fallback','open prompts survive shell updates without losing the canvas position','isolated notes, same-origin port reuse and stale-tab write rejection','identity-only header, board info popover with export and help, narrow layouts and prompts','removed top-bar controls stay absent','board footer zoom slider synced with Control-wheel, keyboard, Safari gesture and touch pinch','drag pan and Fit of every exploration','independent experiment interaction','previous/next across rounds, boundaries, live availability, retained settings and narrow viewer','dot track order, grouping, click, keyboard, hover titles and drag-scrub','reader footer Type, Fit, Light, size popover with Version and Custom, and Open standalone','star and notes shared between card and reader and saved to .state/notes.json','notes panel beside the stage on desktop and below it on phones','browser history: home, board, experiments, versions, Escape/Back/breadcrumb, rounds, re-selection, view-only changes, deep links and reload','board view restored on Back from an experiment','active preview safely offers reload','round deep links in tall and zoomed-out canvases','canvas and experiment keyboard focus on entry, return and reload','toolbar keyboard access and note/experiment focus preserved during manifest updates'];
+  const checks=['two simultaneous labels and URLs','folder discovery and empty new boards','new-board prompt','board and experiment removal prompts, copy and clipboard fallback','board cover prompts, custom images, live image updates and missing-image fallback','open prompts survive shell updates without losing the canvas position','isolated notes, same-origin port reuse and stale-tab write rejection','identity-only header, board info popover with export and help, narrow layouts and prompts','removed top-bar controls stay absent','board footer zoom slider synced with Control-wheel, keyboard, Safari gesture and touch pinch','drag pan and Fit of every exploration','independent experiment interaction','previous/next across rounds, boundaries, live availability, retained settings and narrow viewer','dot track order, grouping, click, keyboard, hover titles and drag-scrub','reader footer Type, Fit, Light, size popover with Version and Custom, and Open standalone','star and notes shared between card and reader and saved to .state/notes.json','notes panel beside the stage on desktop and below it on phones','browser history: home, board, experiments, versions, Escape/Back/breadcrumb, rounds, re-selection, view-only changes, deep links and reload','board view restored on Back from an experiment','active preview safely offers reload','round deep links in tall and zoomed-out canvases','canvas and experiment keyboard focus on entry, return and reload','toolbar keyboard access and note/experiment focus preserved during manifest updates','one-row reader and board footers and both headers at seven widths from 320 to 1920px: no overlap, nothing off screen or clipped, arrows hugging the dot strip, current dot in view, Back distinct from Previous and 44px targets','fixed dot strip: centred current dot, edge fades, Home/End/arrows, endpoints and edge-scrolling drag-scrub','View popover on narrow footers: every view control inside, keyboard focus, Escape and outside click'];
   console.log(JSON.stringify({passed:true,assertions:assertCount(),checkGroups:checks.length,evidence,checks,browserErrors:errors},null,2));
 }finally{
   await browser.close();
