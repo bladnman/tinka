@@ -142,6 +142,8 @@ function renderMarkdown(markdown, baseUrl) {
 }
 
 applyPreferences(query.get('theme'), query.get('scale'));
+// Inside Tinka's experiment view the surrounding header already names the item and links to it.
+if (query.get('chrome') === 'none' && parent !== window) $('media-header').hidden = true;
 window.addEventListener('message', event => {
   if (event.origin !== location.origin || event.source !== parent) return;
   if (event.data?.type === 'reader-preferences') applyPreferences(event.data.theme, event.data.scale);

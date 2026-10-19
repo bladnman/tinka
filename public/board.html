@@ -8,20 +8,77 @@
   <link rel="stylesheet" href="/app/live.css">
   <link rel="stylesheet" href="/app/agent-prompt.css">
 </head>
-<body class="header-collapsed">
-  <div id="canvas-header" class="canvas-header">
-    <header class="masthead">
-      <a class="brand" href="/" aria-label="Boards home"><img class="brand-mark" src="/app/mark.svg" alt="" width="27" height="27"><span class="brand-copy"><span id="brand-name">Tinka</span><span class="brand-divider">/</span><span id="project-label"></span><span class="board-crumb"><span class="brand-divider">/</span><strong id="board-title-crumb">Board</strong></span></span></a>
-      <div class="mast-actions"><span class="local-label">A local design canvas</span><button id="export" type="button">Export notes</button><button id="help" type="button" aria-expanded="false">How to explore</button></div>
-    </header>
-    <section class="intro" aria-labelledby="board-title"><div><p class="eyebrow">VISUAL EXPERIMENT BOARD</p><h1 id="board-title">Loading board…</h1><p id="board-description"></p></div><div class="intro-meta"><span id="experiment-count">Experiments</span><span id="round-count">Explorations</span><span>Notes saved on this Mac</span></div></section>
-    <nav class="toolbar" aria-label="Canvas controls"><div class="round-navigation"><label class="round-picker">Exploration <select id="round-picker" aria-label="Choose exploration"></select></label><div id="concept-nav" class="concept-nav"></div></div><div class="zoom-tools"><button id="zoom-out" type="button" aria-label="Zoom out">−</button><output id="zoom-level">50%</output><button id="zoom-in" type="button" aria-label="Zoom in">+</button><button id="overview" type="button">Overview</button><button id="reset-view" type="button">Reset view</button></div><button id="toggle-header" type="button" aria-expanded="false">Expand header</button></nav>
-  </div>
-  <div id="help-panel" hidden><strong>Make yourself at home.</strong> Scroll in either direction to explore. Drag empty canvas to pan; pinch or use − / + to zoom. Open an experiment to try it. Resize the viewer with its lower-right handle or size presets. Escape returns here. Stars and notes are saved on this Mac.</div>
+<body>
+  <header id="canvas-header" class="canvas-header">
+    <nav class="identity" aria-label="Breadcrumb">
+      <a class="brand" href="/" aria-label="Tinka home"><img class="brand-mark" src="/app/mark.svg" alt="" width="26" height="26"><span id="project-label"></span></a>
+      <span class="slash" aria-hidden="true">/</span>
+      <h1 id="board-title" class="board-name" aria-current="page">Loading board…</h1>
+      <button id="board-info-toggle" class="info-toggle" type="button" aria-expanded="false" aria-controls="board-info" aria-label="About this board" title="About this board · notes export and help"><svg viewBox="0 0 20 20" aria-hidden="true"><circle cx="10" cy="10" r="7.4"/><path d="M10 9v4.6M10 6.4v.1"/></svg></button>
+    </nav>
+    <section id="board-info" class="board-info" aria-labelledby="board-info-heading" hidden>
+      <p class="eyebrow" id="board-info-heading">ABOUT THIS BOARD</p>
+      <p id="board-description"></p>
+      <p class="info-meta"><span id="experiment-count">Experiments</span><span id="round-count">Explorations</span><span>Notes saved on this Mac</span></p>
+      <div id="help-panel"><strong>Make yourself at home.</strong> Drag or scroll to move around the canvas. Pinch, or hold Control or ⌘ while scrolling, to zoom; the zoom slider and Fit sit in the footer. With the canvas focused, arrow keys pan and + / − zoom. Open an experiment to try it, then step through the others with Previous, Next or the dots. Escape returns here. Stars and notes are saved on this Mac.</div>
+      <div class="info-actions"><button id="export" type="button">Export notes</button></div>
+    </section>
+  </header>
   <div id="board-error" class="board-error" role="alert" hidden></div>
-  <main id="viewport" aria-label="Experiments canvas" tabindex="0"><div id="plane"><div id="world"></div></div></main>
-  <footer class="canvas-footer"><span id="save-status" role="status">Loading notes…</span><span>Scroll to explore · drag empty space to pan · open an experiment to try it</span><span id="live-status" role="status" aria-live="polite"></span><button id="live-refresh" type="button" hidden>New work available · Refresh</button><span id="round-status">Loading board</span></footer>
-  <dialog id="reader-dialog" aria-labelledby="reader-name"><div class="reader-bar"><div class="reader-heading"><nav class="reader-navigation" aria-label="Experiments"><button id="reader-previous" type="button" aria-label="Previous experiment">←</button><span id="reader-position" role="status" aria-live="polite"></span><button id="reader-next" type="button" aria-label="Next experiment">→</button></nav><div class="reader-title"><span class="eyebrow" id="reader-number"></span><strong id="reader-name"></strong></div></div><div class="reader-tools"><label id="revision-label" hidden>Version <select id="reader-revision" aria-label="Experiment version"></select></label><label>Window <select id="reader-size"><option value="fit">Fit</option><option value="custom" disabled hidden>Custom</option><option value="compact">Compact</option><option value="standard">Standard</option><option value="wide">Wide</option></select></label><label>Light <select id="reader-theme"><option value="paper">Paper</option><option value="night">Night</option></select></label><label>Type <select id="reader-type"><option value="100">100%</option><option value="115">115%</option><option value="130">130%</option></select></label><button id="close-reader" type="button">Back to board <kbd>esc</kbd></button></div></div><div class="reader-stage"><div id="reader-window"><iframe id="active-reader" title="Experiment viewer"></iframe></div></div><div class="reader-bottom"><span id="reader-hint"></span><button id="reader-update" type="button" hidden>New version available · Reload experiment</button><a id="reader-standalone" href="#" target="_blank" rel="noopener noreferrer">Open standalone ↗</a><span>Drag the lower-right corner to resize</span></div></dialog>
+  <main id="viewport" aria-label="Experiments canvas: drag or scroll to pan, pinch or Control-scroll to zoom" tabindex="0"><div id="plane"><div id="world"></div></div></main>
+  <footer class="control-footer canvas-footer">
+    <div class="status-line"><span id="save-status" role="status">Loading notes…</span><span id="live-status" role="status" aria-live="polite"></span><button id="live-refresh" type="button" hidden>New work available · Refresh</button><span id="round-status">Loading board</span></div>
+    <section class="view-tools" aria-label="Board view controls"><input id="zoom-slider" type="range" min="5" max="125" step="1" value="50" aria-label="Board zoom"><button id="fit" class="fit" type="button" title="Fit every exploration in view">Fit</button></section>
+  </footer>
+  <dialog id="reader-dialog" aria-labelledby="reader-name">
+    <header class="reader-header">
+      <nav class="identity" aria-label="Breadcrumb">
+        <a class="brand" id="reader-home" href="/" aria-label="Tinka home"><img class="brand-mark" src="/app/mark.svg" alt="" width="26" height="26"><span id="reader-project"></span></a>
+        <span class="slash" aria-hidden="true">/</span>
+        <a id="reader-board-link" class="board-name board-link" href="#">Board</a>
+        <span class="slash experiment-slash" aria-hidden="true">/</span>
+        <span class="item-line"><strong id="reader-name" class="experiment-crumb" aria-current="page"></strong><span class="item-actions"><button id="reader-star" class="item-star" type="button" aria-pressed="false" aria-label="Shortlist">☆</button><button id="notes-toggle" class="notes-toggle" type="button" aria-expanded="false" aria-controls="notes-panel">Notes<span class="note-dot" aria-hidden="true" hidden></span></button><button id="reader-update" type="button" hidden>New version available · Reload experiment</button></span></span>
+      </nav>
+    </header>
+    <div class="reader-area">
+      <div class="reader-stage"><div id="reader-window" title="Drag the lower-right corner to resize"><iframe id="active-reader" title="Experiment viewer"></iframe></div></div>
+      <aside id="notes-panel" class="notes-panel" aria-labelledby="notes-heading" hidden>
+        <div class="notes-head"><div><h2 id="notes-heading">Notes</h2><p id="notes-for"></p></div><button id="notes-close" class="notes-close" type="button" aria-label="Close notes">×</button></div>
+        <p id="reader-hint" class="notes-hint"></p>
+        <label class="notes-label">THOUGHTS TO RETURN TO<textarea id="reader-note" placeholder="What feels right? What gets in the way?"></textarea></label>
+        <p id="reader-save-status" class="reader-save-status" role="status">Notes saved on this Mac</p>
+      </aside>
+    </div>
+    <footer class="control-footer reader-footer">
+      <button id="close-reader" class="back" type="button" aria-label="Back to board" aria-keyshortcuts="Escape" title="Back to board (Esc)"><span aria-hidden="true">←</span> Back<span class="long"> to board</span><kbd class="long" aria-hidden="true">esc</kbd></button>
+      <nav class="experiment-navigation" aria-label="Experiments">
+        <button id="reader-previous" type="button" aria-label="Previous experiment">←</button>
+        <div id="dot-track" class="dot-track" role="group" aria-label="Experiments on this board"></div>
+        <button id="reader-next" type="button" aria-label="Next experiment">→</button>
+      </nav>
+      <section class="view-tools reader-tools" aria-label="Experiment view controls">
+        <span class="type-glyph small" aria-hidden="true">A</span><input id="reader-type" class="type-slider" type="range" min="100" max="130" step="15" value="100" aria-label="Type size"><span class="type-glyph large" aria-hidden="true">A</span>
+        <button id="reader-fit" class="window-fit" type="button" aria-pressed="true" title="Fit the window to the stage">Fit</button>
+        <button id="reader-theme" class="light-toggle icon-button" type="button" aria-pressed="false" aria-label="Night"><svg class="sun" viewBox="0 0 20 20" aria-hidden="true"><circle cx="10" cy="10" r="3.6"/><path d="M10 1.8v2.4M10 15.8v2.4M1.8 10h2.4M15.8 10h2.4M4.2 4.2l1.7 1.7M14.1 14.1l1.7 1.7M4.2 15.8l1.7-1.7M14.1 5.9l1.7-1.7"/></svg><svg class="moon" viewBox="0 0 20 20" aria-hidden="true"><path d="M15.6 12.6A6.6 6.6 0 0 1 7.4 4.4a6.6 6.6 0 1 0 8.2 8.2z"/></svg></button>
+        <span class="size-wrap">
+          <button id="size-trigger" class="size-trigger" type="button" aria-expanded="false" aria-controls="size-menu" aria-label="Window size: Fit"><svg viewBox="0 0 20 20" aria-hidden="true"><rect x="2.5" y="4" width="15" height="12" rx="1.8"/><path d="M2.5 7.5h15"/></svg><span id="size-value" class="size-value">Fit</span><span class="chev" aria-hidden="true">⌄</span></button>
+          <div id="size-menu" class="size-menu" role="group" aria-label="Window size and version" hidden>
+            <p class="menu-label">Window</p>
+            <button type="button" data-size="fit" aria-pressed="true"><span>Fit</span><small>fills the stage</small></button>
+            <button type="button" data-size="custom" aria-pressed="false" hidden><span>Custom</span><small id="custom-size"></small></button>
+            <button type="button" data-size="compact" aria-pressed="false"><span>Compact</span><small>440 × 620</small></button>
+            <button type="button" data-size="standard" aria-pressed="false"><span>Standard</span><small>1000 × 720</small></button>
+            <button type="button" data-size="wide" aria-pressed="false"><span>Wide</span><small>1380 × 840</small></button>
+            <div id="revision-group" class="revision-group" role="group" aria-labelledby="revision-label" hidden><p class="menu-label" id="revision-label">Version</p><div id="revision-options"></div></div>
+            <p class="size-hint">Drag the window's lower-right corner for a custom size.</p>
+          </div>
+        </span>
+        <a id="reader-standalone" class="standalone icon-button" href="#" target="_blank" rel="noopener noreferrer" aria-label="Open standalone" title="Open standalone ↗">↗</a>
+      </section>
+    </footer>
+    <div id="dot-tooltip" class="dot-tooltip" role="tooltip" hidden></div>
+    <span id="reader-position" class="sr-only" role="status" aria-live="polite"></span>
+  </dialog>
   <script type="module" src="/app/canvas.js"></script>
 </body>
 </html>

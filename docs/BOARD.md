@@ -47,6 +47,15 @@ Tinka never executes it. If this board has been copied alone, its experiment
 READMEs describe what else must travel with it. To browse it in Tinka, place the
 complete folder under a configured boards root; do not reinitialize its files.
 
+When creating this board, or revisiting it without a cover as part of requested
+work, consider a quick, distinctive image of its subject so the owner can
+recognize it among other boards. Reuse a suitable asset or make a simple SVG
+when enough; generating an image is optional. Save it inside this board and set
+`board.json`'s optional `cover` to a board-relative path such as `assets/cover.svg`.
+See **Board cover image** in the selected installation's `docs/PROTOCOL.md` for
+the full file and design guidance. Covers are optional and should not delay the
+requested work. Preserve an existing custom cover unless asked to change it.
+
 For app installation and recovery without a skill, see
 https://github.com/bladnman/tinka. A project's `TINKA.md` takes precedence over
 generic placement examples. Never use a different project's instance to resolve

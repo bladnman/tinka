@@ -42,6 +42,15 @@ New boards receive a portable `AGENTS.md`. For an existing board, use
 `node cli.mjs board guide SLUG --config /absolute/config.json` to add it without
 overwriting an existing guide. No board content or notes are changed.
 
+When creating a board, or revisiting a coverless board as part of requested work,
+consider a quick, distinctive cover that represents its subject. It helps the
+owner recognize the board among other boards. Reuse a suitable asset or make a
+simple SVG when enough; generating an image is optional. Save the image inside
+the board and set `board.json`'s optional `cover` to its board-relative path, such
+as `assets/cover.svg`. Follow [Board cover image](PROTOCOL.md#board-cover-image)
+for the full file and design guidance. Covers are optional and should not delay
+the requested work. Preserve an existing custom cover unless asked to change it.
+
 ## Install and upgrade
 
 The app includes `scripts/install.mjs`; releases also provide the same standalone

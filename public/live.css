@@ -17,7 +17,6 @@
 .live-indicator[data-connection="offline"]::before{background:#a68857}
 #live-refresh[hidden],#reader-update[hidden]{display:none!important}
 #live-refresh,#reader-update{font-size:10px;padding:5px 8px;background:#e3eacb;border-color:#b2c292}
-.reader-bottom:has(#reader-update:not([hidden])){align-items:center}
 @keyframes working-dot{50%{opacity:.4;transform:scale(.82)}}
 @keyframes working-frame{50%{box-shadow:0 0 0 5px #b7c69a50,0 9px 30px #3b46271a}}
 @keyframes landed{0%{box-shadow:0 0 0 12px #94ad6b90,0 9px 30px #3b46271a}100%{box-shadow:0 9px 30px #3b46271a}}

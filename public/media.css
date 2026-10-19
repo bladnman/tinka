@@ -6,6 +6,7 @@ body { display:flex; flex-direction:column; overflow:hidden; background:var(--pa
 button,a { color:var(--accent); }
 a:focus-visible,button:focus-visible { outline:2px solid var(--accent); outline-offset:3px; }
 #media-header { flex:0 0 auto; display:flex; align-items:center; justify-content:space-between; gap:15px; min-height:42px; padding:8px clamp(18px,4vw,42px); border-bottom:1px solid var(--line); color:var(--muted); font-size:10px; font-weight:700; letter-spacing:.12em; text-transform:uppercase; }
+#media-header[hidden] { display:none; }
 #media-header a { font-size:10px; text-transform:none; letter-spacing:0; white-space:nowrap; }
 #media-content { flex:1; min-height:0; overflow:auto; }
 .media-message { width:min(100% - 50px,640px); margin:10vh auto; color:var(--muted); font-size:calc(16px * var(--scale)); line-height:1.55; }
