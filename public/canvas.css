@@ -35,9 +35,12 @@ a{color:inherit}
 .board-error{padding:12px 28px;border-bottom:1px solid #d9b4a4;background:#f7e8df;color:#703c2e;font-size:12px;line-height:1.5}
 
 /* Board canvas */
-#viewport{flex:1;position:relative;overflow:auto;overscroll-behavior:contain;scrollbar-width:thin;scrollbar-color:#a6b19b transparent;background-image:radial-gradient(#bfc5b5 .8px,transparent .8px);background-size:20px 20px;cursor:grab;outline:none;min-height:150px;touch-action:none}
+/* An endless canvas: canvas.js pans the plane and zooms the world; the viewport never scrolls by itself. */
+#viewport{flex:1;position:relative;overflow:hidden;overflow-anchor:none;background-image:radial-gradient(#bfc5b5 .8px,transparent .8px);background-size:20px 20px;cursor:grab;outline:none;min-height:150px;touch-action:none}
 #viewport.panning{cursor:grabbing;user-select:none;-webkit-user-select:none}
-#plane{position:relative;margin-inline:auto}
+/* An invisible cushion on every side, so the browser can still scroll to reveal focus or a find-in-page match. */
+#viewport::before{content:'';position:absolute;left:0;top:0;width:calc(100% + 2 * var(--cushion,0px));height:calc(100% + 2 * var(--cushion,0px));pointer-events:none}
+#plane{position:absolute;left:var(--cushion,0px);top:var(--cushion,0px);transform-origin:0 0;will-change:transform}
 #world{position:absolute;left:0;top:0;transform-origin:0 0;padding:var(--pad);width:max-content}
 .round{height:var(--row-height)}
 .round-header{display:flex;align-items:baseline;gap:24px;margin-bottom:28px}

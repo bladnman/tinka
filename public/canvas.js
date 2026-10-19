@@ -10,7 +10,7 @@ const slider = $('zoom-slider');
 const track = $('dot-track');
 const tooltip = $('dot-tooltip');
 const sizeMenu = $('size-menu');
-const geometry = { pad: 70, gap: 68, cardWidth: 1000, rowHeight: 1220, worldTail: 300 };
+const geometry = { pad: 70, gap: 68, cardWidth: 1000, rowHeight: 1220 };
 const MIN_ZOOM = .05;
 const MAX_ZOOM = 1.25;
 const SIZE_NAMES = { fit: 'Fit', custom: 'Custom', compact: 'Compact', standard: 'Standard', wide: 'Wide' };
@@ -38,7 +38,6 @@ let saveTimer;
 let saveSequence = 0;
 let saveQueue = Promise.resolve();
 let shellReloadTimer;
-let scrollFrame = 0;
 let routedHash = null;
 let notesOpen = false;
 let dotSignature = '';
@@ -154,62 +153,156 @@ function buildCanvas() {
   world.innerHTML = rounds.map(round => `<section class="round" aria-labelledby="round-heading-${esc(round.id)}"><header class="round-header"><span class="round-label">ROUND ${esc(round.number || '')} · ${esc(round.date || '')}</span><h2 id="round-heading-${esc(round.id)}">${esc(round.title || 'Exploration')}</h2><p>${esc(round.description || '')}</p></header><div class="concepts">${cards(round)}</div></section>`).join('') + '<section class="future-row"><span>CONTINUE EXPLORING</span><h2>Room for what comes next.</h2><p>New explorations can join this board without replacing earlier work.</p></section>';
   decorateBuildCards();
   renderNav();
+  if (resting) rest(); else applyView();
   updateMetadata();
 }
 
 function renderNav() {
   const round = rounds[currentRound];
   $('round-status').textContent = round ? `Round ${round.number || currentRound + 1} / ${round.date || round.id}` : 'No explorations yet';
-  updatePlane();
 }
 
-// ---- Board canvas: native scrolling pans; the slider, Fit and pinch gestures zoom. ----
-function updatePlane() {
-  const columns = Math.max(1, ...rounds.map(round => round.concepts?.length || 0));
-  const width = geometry.pad * 2 + columns * geometry.cardWidth + (columns - 1) * geometry.gap;
-  const height = geometry.pad * 2 + rounds.length * geometry.rowHeight + geometry.worldTail;
+// ---- Board canvas: an endless plane. The plane carries the pan and the world the zoom; nothing scrolls natively. ----
+// The board can move past any edge until only KEEP pixels of it are left in view.
+const KEEP = 80;
+// An invisible margin lets the browser scroll the canvas in any direction to reveal a focused control or a
+// find-in-page match. The scroll is turned straight into a pan, so the view has no edges of its own.
+const CUSHION = 100000;
+const view = { x: 0, y: 0 };
+// At rest the view shows the board's resting place and follows window resizes; any pan or zoom ends that.
+let resting = true;
+let glide = 0;
+let glideTarget = null;
+let roundFrame = 0;
+
+function settleCushion() {
+  viewport.scrollLeft = CUSHION;
+  viewport.scrollTop = CUSHION;
+}
+
+function clampView({ x, y }) {
+  const pad = geometry.pad * zoom;
+  const width = Math.max(0, world.offsetWidth * zoom - pad * 2);
+  const height = Math.max(0, world.offsetHeight * zoom - pad * 2);
+  const keepX = Math.min(KEEP, viewport.clientWidth / 3, width);
+  const keepY = Math.min(KEEP, viewport.clientHeight / 3, height);
+  return {
+    x: Math.min(viewport.clientWidth - keepX - pad, Math.max(keepX - width - pad, x)),
+    y: Math.min(viewport.clientHeight - keepY - pad, Math.max(keepY - height - pad, y)),
+  };
+}
+
+function applyView() {
+  Object.assign(view, clampView(view));
+  plane.style.transform = `translate(${Math.round(view.x)}px, ${Math.round(view.y)}px)`;
   world.style.transform = `scale(${zoom})`;
-  plane.style.width = `${width * zoom}px`;
-  // When the whole board fits, centre it vertically (it is centred horizontally by CSS).
-  // Otherwise leave enough canvas below the last row to align it even in a tall window.
-  const scaledHeight = world.offsetHeight * zoom;
-  const fits = rounds.length > 0 && scaledHeight <= viewport.clientHeight;
-  const lastRowTop = Math.max(0, rounds.length - 1) * geometry.rowHeight * zoom;
-  plane.style.marginTop = fits ? `${Math.floor((viewport.clientHeight - scaledHeight) / 2)}px` : '0px';
-  plane.style.height = `${fits ? scaledHeight : Math.max(height * zoom, lastRowTop + viewport.clientHeight)}px`;
   const percent = Math.round(zoom * 100);
   slider.value = String(percent);
   slider.setAttribute('aria-valuetext', `${percent} percent`);
   slider.title = `Zoom ${percent}%`;
 }
 
-function changeZoom(value, cx = viewport.clientWidth / 2, cy = viewport.clientHeight / 2) {
-  const next = clampZoom(value);
-  const x = (viewport.scrollLeft + cx - plane.offsetLeft) / zoom;
-  const y = (viewport.scrollTop + cy - plane.offsetTop) / zoom;
-  zoom = next;
-  updatePlane();
-  viewport.scrollLeft = x * zoom + plane.offsetLeft - cx;
-  viewport.scrollTop = y * zoom + plane.offsetTop - cy;
+// A board rests centred on each axis where it fits, otherwise at its left edge with the given exploration on top.
+function restingView(row = currentRound) {
+  const width = world.offsetWidth * zoom;
+  const height = world.offsetHeight * zoom;
+  return {
+    x: width <= viewport.clientWidth ? Math.floor((viewport.clientWidth - width) / 2) : 0,
+    y: rounds.length && height <= viewport.clientHeight ? Math.floor((viewport.clientHeight - height) / 2) : -row * geometry.rowHeight * zoom,
+  };
 }
 
+function stopGlide() {
+  cancelAnimationFrame(glide);
+  glide = 0;
+  glideTarget = null;
+}
+
+function rest() {
+  stopGlide();
+  resting = true;
+  Object.assign(view, restingView());
+  applyView();
+}
+
+// The reader's own pan or zoom: the quiet round status follows it.
+function moveView(x, y) {
+  stopGlide();
+  resting = false;
+  view.x = x;
+  view.y = y;
+  applyView();
+  trackRound();
+}
+
+// Ease to a place (instantly with reduced motion). A placement chosen by the app sets the round itself.
+function glideTo(target, { track = false } = {}) {
+  stopGlide();
+  resting = false;
+  if (!track) { cancelAnimationFrame(roundFrame); roundFrame = 0; }
+  const to = clampView(target);
+  const from = { ...view };
+  const reduced = matchMedia('(prefers-reduced-motion: reduce)').matches;
+  const start = performance.now();
+  const step = now => {
+    const t = reduced ? 1 : Math.min(1, (now - start) / 240);
+    const eased = 1 - (1 - t) ** 3;
+    view.x = from.x + (to.x - from.x) * eased;
+    view.y = from.y + (to.y - from.y) * eased;
+    applyView();
+    if (track) trackRound();
+    glide = t < 1 ? requestAnimationFrame(step) : 0;
+    if (!glide) glideTarget = null;
+  };
+  if (reduced) { step(start); return; }
+  glideTarget = to;
+  glide = requestAnimationFrame(step);
+}
+
+function trackRound() {
+  if (roundFrame) return;
+  roundFrame = requestAnimationFrame(() => {
+    roundFrame = 0;
+    if (!rounds.length) return;
+    const row = Math.max(0, Math.min(rounds.length - 1, Math.floor((-view.y / zoom + 130) / geometry.rowHeight)));
+    if (row !== currentRound) { currentRound = row; renderNav(); }
+  });
+}
+
+function changeZoom(value, cx = viewport.clientWidth / 2, cy = viewport.clientHeight / 2) {
+  const scale = clampZoom(value) / zoom;
+  zoom = clampZoom(value);
+  moveView(cx - (cx - view.x) * scale, cy - (cy - view.y) * scale);
+}
+
+// Fit every exploration on both axes, centred.
 function fitBoard() {
   const margin = 24;
   const contentWidth = world.offsetWidth - geometry.pad * 2;
   const contentHeight = world.offsetHeight - geometry.pad * 2;
   if (contentWidth <= 0 || contentHeight <= 0) return;
   zoom = clampZoom(Math.min((viewport.clientWidth - margin * 2) / contentWidth, (viewport.clientHeight - margin * 2) / contentHeight));
-  updatePlane();
-  viewport.scrollTo({ left: Math.max(0, geometry.pad * zoom - margin), top: Math.max(0, geometry.pad * zoom - margin), behavior: 'instant' });
+  const pad = geometry.pad * zoom;
+  moveView((viewport.clientWidth - contentWidth * zoom) / 2 - pad, (viewport.clientHeight - contentHeight * zoom) / 2 - pad);
 }
 
 function jump(key) {
   const concept = all.find(item => item.key === key);
   if (!concept) return;
   if (currentRound !== concept.row) { currentRound = concept.row; renderNav(); }
-  if (zoom < .4) changeZoom(.5, 0, 0);
+  if (zoom < .4) { view.x *= .5 / zoom; view.y *= .5 / zoom; zoom = .5; }
   viewport.focus({ preventScroll: true });
-  viewport.scrollTo({ left: (geometry.pad + concept.col * (geometry.cardWidth + geometry.gap)) * zoom - 25, top: concept.row * geometry.rowHeight * zoom, behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth' });
+  const place = restingView(concept.row);
+  const wide = world.offsetWidth * zoom > viewport.clientWidth;
+  glideTo({ x: wide ? 25 - (geometry.pad + concept.col * (geometry.cardWidth + geometry.gap)) * zoom : place.x, y: place.y });
+}
+
+function showRow(row) {
+  currentRound = row;
+  renderNav();
+  const first = all.find(item => item.row === row);
+  if (first) jump(first.key);
+  else glideTo(restingView(row));
 }
 
 function viewportPoint(clientX, clientY) {
@@ -260,13 +353,7 @@ function route() {
   if (state.view === 'experiment') { openReader(state.key, state.revision || 'original', { history: 'replace' }); return; }
   if (dialog.open || active) { closeReader({ history: 'none' }); return; }
   const row = rounds.findIndex(round => round.id === state.round);
-  if (row >= 0) {
-    currentRound = row;
-    renderNav();
-    const first = all.find(item => item.row === row);
-    if (first) jump(first.key);
-    else viewport.scrollTo({ top: row * geometry.rowHeight * zoom, behavior: 'instant' });
-  }
+  if (row >= 0) showRow(row);
 }
 
 // ---- Experiment view ----
@@ -580,8 +667,8 @@ function openReader(key, revision = 'original', { history: mode = 'push', focus 
 
 function closeReader({ history: mode = 'push' } = {}) {
   if (!active && !dialog.open) return;
-  const left = viewport.scrollLeft;
-  const top = viewport.scrollTop;
+  // Returning focus to the board must not move it: the board comes back exactly as it was left.
+  const left = { ...view };
   closeSizeMenu(false);
   setViewOpen(false, { focus: false });
   hideTooltip();
@@ -592,7 +679,9 @@ function closeReader({ history: mode = 'push' } = {}) {
   commitHistory({ view: 'board', round: rounds[currentRound]?.id || null }, mode);
   if (board) updateMetadata();
   viewport.focus({ preventScroll: true });
-  viewport.scrollTo({ left, top, behavior: 'instant' });
+  settleCushion();
+  Object.assign(view, left);
+  applyView();
 }
 
 // Escape closes the size panel first, then the notes panel while typing in it, otherwise returns to the board.
@@ -763,8 +852,6 @@ function applyBoardSnapshot(snapshot) {
 async function refreshManifest() {
   const fresh = await fetchBoard();
   const selected = rounds[currentRound]?.id;
-  const left = viewport.scrollLeft;
-  const top = viewport.scrollTop;
   const focused = document.activeElement;
   const noteKey = world.contains(focused) ? focused?.dataset.note : null;
   const selection = noteKey ? [focused.selectionStart, focused.selectionEnd] : null;
@@ -775,7 +862,6 @@ async function refreshManifest() {
   currentRound = Math.max(0, rounds.findIndex(round => round.id === selected));
   buildCanvas();
   applyNotes();
-  viewport.scrollTo({ left, top, behavior: 'instant' });
   if (active) {
     active = all.find(concept => concept.key === active.key) || active;
     if (!currentVariant()) activeVariantId = 'original';
@@ -795,7 +881,7 @@ async function refreshManifest() {
 async function reloadCanvas() {
   clearTimeout(saveTimer);
   clearTimeout(shellReloadTimer);
-  try { sessionStorage.setItem(viewKey, JSON.stringify({ zoom, left: viewport.scrollLeft, top: viewport.scrollTop, round: rounds[currentRound]?.id })); } catch {}
+  try { sessionStorage.setItem(viewKey, JSON.stringify({ zoom, x: view.x, y: view.y, resting, round: rounds[currentRound]?.id })); } catch {}
   if (saveSequence) {
     try { await saveQueue; await fetch(`${boardApi}/notes`, { method: 'PUT', headers: { 'Content-Type': 'application/json', 'X-Tinka-Workspace': workspaceId }, body: JSON.stringify(notes) }); } catch {}
   }
@@ -959,14 +1045,15 @@ let pinch = null;
 viewport.addEventListener('pointerdown', event => {
   if (event.pointerType === 'mouse' && event.button !== 0) return;
   if (event.target.closest('textarea,input,select,a')) return;
+  stopGlide();
   pointers.set(event.pointerId, { x: event.clientX, y: event.clientY });
   if (pointers.size === 1) {
-    pan = { id: event.pointerId, x: event.clientX, y: event.clientY, left: viewport.scrollLeft, top: viewport.scrollTop, active: false };
+    pan = { id: event.pointerId, x: event.clientX, y: event.clientY, left: view.x, top: view.y, active: false };
     pinch = null;
   } else if (pointers.size === 2) {
     const [a, b] = [...pointers.values()];
     const [mx, my] = viewportPoint((a.x + b.x) / 2, (a.y + b.y) / 2);
-    pinch = { distance: Math.hypot(a.x - b.x, a.y - b.y) || 1, zoom, x: (viewport.scrollLeft + mx - plane.offsetLeft) / zoom, y: (viewport.scrollTop + my - plane.offsetTop) / zoom };
+    pinch = { distance: Math.hypot(a.x - b.x, a.y - b.y) || 1, zoom, x: (mx - view.x) / zoom, y: (my - view.y) / zoom };
     pan = null;
     viewport.classList.add('panning');
   }
@@ -978,9 +1065,7 @@ viewport.addEventListener('pointermove', event => {
     const [a, b] = [...pointers.values()];
     const [mx, my] = viewportPoint((a.x + b.x) / 2, (a.y + b.y) / 2);
     zoom = clampZoom(pinch.zoom * (Math.hypot(a.x - b.x, a.y - b.y) || 1) / pinch.distance);
-    updatePlane();
-    viewport.scrollLeft = pinch.x * zoom + plane.offsetLeft - mx;
-    viewport.scrollTop = pinch.y * zoom + plane.offsetTop - my;
+    moveView(mx - pinch.x * zoom, my - pinch.y * zoom);
     return;
   }
   if (!pan || pan.id !== event.pointerId) return;
@@ -991,7 +1076,7 @@ viewport.addEventListener('pointermove', event => {
     viewport.classList.add('panning');
     try { viewport.setPointerCapture(event.pointerId); } catch {}
   }
-  if (pan.active) { viewport.scrollLeft = pan.left - dx; viewport.scrollTop = pan.top - dy; }
+  if (pan.active) moveView(pan.left + dx, pan.top + dy);
 });
 function endPointer(event) {
   if (!pointers.has(event.pointerId)) return;
@@ -999,42 +1084,72 @@ function endPointer(event) {
   if (pointers.size < 2) pinch = null;
   if (pointers.size === 1) {
     const [id, point] = [...pointers.entries()][0];
-    pan = { id, x: point.x, y: point.y, left: viewport.scrollLeft, top: viewport.scrollTop, active: true };
+    pan = { id, x: point.x, y: point.y, left: view.x, top: view.y, active: true };
   } else if (!pointers.size) { pan = null; viewport.classList.remove('panning'); }
 }
 viewport.addEventListener('pointerup', endPointer);
 viewport.addEventListener('pointercancel', endPointer);
+// A note field with more to scroll keeps its own wheel scrolling.
+function scrollsItself(target, dy) {
+  const field = target.closest?.('textarea');
+  if (!field || !dy) return false;
+  return dy > 0 ? field.scrollTop + field.clientHeight < field.scrollHeight - 1 : field.scrollTop > 0;
+}
+// Control/⌘-scroll (and trackpad pinch) zooms about the pointer; any other scroll pans.
 viewport.addEventListener('wheel', event => {
-  if (!event.ctrlKey && !event.metaKey) return;
+  if (event.ctrlKey || event.metaKey) {
+    event.preventDefault();
+    const delta = Math.max(-60, Math.min(60, event.deltaMode === 1 ? event.deltaY * 16 : event.deltaY));
+    changeZoom(zoom * Math.exp(-delta * .005), ...viewportPoint(event.clientX, event.clientY));
+    return;
+  }
+  const unit = event.deltaMode === 1 ? 16 : event.deltaMode === 2 ? viewport.clientHeight : 1;
+  let dx = event.deltaX * unit;
+  let dy = event.deltaY * unit;
+  if (event.shiftKey && !dx) [dx, dy] = [dy, 0];
+  if (scrollsItself(event.target, dy)) return;
   event.preventDefault();
-  const delta = Math.max(-60, Math.min(60, event.deltaMode === 1 ? event.deltaY * 16 : event.deltaY));
-  changeZoom(zoom * Math.exp(-delta * .005), ...viewportPoint(event.clientX, event.clientY));
+  moveView(view.x - dx, view.y - dy);
 }, { passive: false });
 let gestureZoom = zoom;
 viewport.addEventListener('gesturestart', event => { event.preventDefault(); gestureZoom = zoom; });
 viewport.addEventListener('gesturechange', event => { event.preventDefault(); changeZoom(gestureZoom * event.scale, ...viewportPoint(event.clientX, event.clientY)); });
 viewport.addEventListener('gestureend', event => event.preventDefault());
+// Keys pan as scrolling did: arrows, Page Up/Down and Space (on the canvas itself), Home and End for the first and
+// last explorations. + and − zoom about the centre.
 viewport.addEventListener('keydown', event => {
-  if (event.target !== viewport || event.metaKey || event.ctrlKey || event.altKey) return;
-  if (event.key === '+' || event.key === '=') { event.preventDefault(); changeZoom(zoom * 1.15); }
-  else if (event.key === '-' || event.key === '_') { event.preventDefault(); changeZoom(zoom / 1.15); }
+  if (event.defaultPrevented || event.metaKey || event.ctrlKey || event.altKey) return;
+  if (event.target.closest('textarea,input,select,[contenteditable]')) return;
+  const onCanvas = event.target === viewport;
+  const page = viewport.clientHeight * .875;
+  const key = event.key === ' ' && onCanvas ? (event.shiftKey ? 'PageUp' : 'PageDown') : event.key;
+  const step = { ArrowLeft: [80, 0], ArrowRight: [-80, 0], ArrowUp: [0, 80], ArrowDown: [0, -80], PageUp: [0, page], PageDown: [0, -page] }[key];
+  if (onCanvas && (key === '+' || key === '=')) changeZoom(zoom * 1.15);
+  else if (onCanvas && (key === '-' || key === '_')) changeZoom(zoom / 1.15);
+  else if (key.startsWith('Arrow') && step) moveView(view.x + step[0], view.y + step[1]);
+  else if (step) { const from = glideTarget || view; glideTo({ x: from.x + step[0], y: from.y + step[1] }, { track: true }); }
+  else if ((key === 'Home' || key === 'End') && rounds.length) { currentRound = key === 'Home' ? 0 : rounds.length - 1; renderNav(); glideTo(restingView()); }
+  else return;
+  event.preventDefault();
 });
 new ResizeObserver(() => {
   if ($('reader-window').style.width && readerView.size !== 'custom') readerView.size = 'custom';
   // A new size label can change the footer layout, which resizes this window; lay out on the next frame to avoid a resize loop.
   if (dialog.open) { renderSizeControls(false); requestAnimationFrame(layoutReaderFooter); }
 }).observe($('reader-window'));
-new ResizeObserver(updatePlane).observe(viewport);
+new ResizeObserver(() => { if (resting) rest(); else applyView(); }).observe(viewport);
 // The dialog fills the window, so this fires on window resizes but never because the footer re-laid itself out.
 new ResizeObserver(layoutReaderChrome).observe(dialog);
+// The browser scrolls the canvas to reveal keyboard focus or a find-in-page match; carry that over as a pan.
+// A press on a card control never moves the board.
+viewport.style.setProperty('--cushion', `${CUSHION}px`);
+settleCushion();
 viewport.addEventListener('scroll', () => {
-  if (scrollFrame) return;
-  scrollFrame = requestAnimationFrame(() => {
-    scrollFrame = 0;
-    if (!rounds.length) return;
-    const row = Math.max(0, Math.min(rounds.length - 1, Math.floor(((viewport.scrollTop - plane.offsetTop) / zoom + 130) / geometry.rowHeight)));
-    if (row !== currentRound) { currentRound = row; renderNav(); }
-  });
+  const dx = viewport.scrollLeft - CUSHION;
+  const dy = viewport.scrollTop - CUSHION;
+  if (!dx && !dy) return;
+  settleCushion();
+  if (!pointers.size) moveView(view.x - dx, view.y - dy);
 }, { passive: true });
 window.addEventListener('popstate', route);
 // Clicking into the experiment frame never reaches this document; close the popover when focus leaves it.
@@ -1069,7 +1184,7 @@ else {
       const index = rounds.findIndex(round => round.id === requested.round);
       if (index >= 0) currentRound = index;
       renderNav();
-      requestAnimationFrame(() => { viewport.scrollTop = currentRound * geometry.rowHeight * zoom; });
+      rest();
     }
     routedHash = location.hash;
     try {
@@ -1079,7 +1194,9 @@ else {
         zoom = clampZoom(saved.zoom);
         currentRound = Math.max(0, rounds.findIndex(round => round.id === saved.round));
         renderNav();
-        requestAnimationFrame(() => viewport.scrollTo({ left: saved.left, top: saved.top, behavior: 'instant' }));
+        // A view saved by an earlier version (scroll offsets) falls back to the round's resting place.
+        if (saved.resting || !Number.isFinite(saved.x) || !Number.isFinite(saved.y)) rest();
+        else { resting = false; Object.assign(view, { x: saved.x, y: saved.y }); applyView(); }
       }
     } catch {}
     if (!dialog.open && document.activeElement === document.body) viewport.focus({ preventScroll: true });

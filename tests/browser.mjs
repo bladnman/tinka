@@ -207,12 +207,13 @@ try{
   await a.page.setViewportSize({width:1440,height:1200});
   await a.page.goto(`${a.url}boards/keyboard/`);
   await a.page.waitForFunction(()=>document.activeElement.id==='viewport');
+  // The canvas pans its plane and zooms its world; read both from their transforms.
   const settledRound=async index=>a.page.waitForFunction(index=>{
-    const viewport=document.querySelector('#viewport');
     const zoom=Number(document.querySelector('#world').style.transform.match(/scale\(([^)]+)\)/)[1]);
-    return document.querySelector('#round-status').textContent.startsWith(`Round ${index+1} /`)&&Math.abs(viewport.scrollTop-index*1220*zoom)<2;
+    const top=-Number(document.querySelector('#plane').style.transform.match(/-?[\d.]+(?=px)/g)[1]);
+    return document.querySelector('#round-status').textContent.startsWith(`Round ${index+1} /`)&&Math.abs(top-index*1220*zoom)<.5;
   },index,{timeout:8000}).catch(async error=>{
-    const actual=await a.page.evaluate(()=>({hash:location.hash,top:document.querySelector('#viewport').scrollTop,transform:document.querySelector('#world').style.transform,status:document.querySelector('#round-status').textContent}));
+    const actual=await a.page.evaluate(()=>({hash:location.hash,pan:document.querySelector('#plane').style.transform,transform:document.querySelector('#world').style.transform,status:document.querySelector('#round-status').textContent}));
     throw new Error(`Round ${index+1} did not settle: ${JSON.stringify(actual)}; ${error.message}`);
   });
   const showRound=async id=>{
@@ -226,12 +227,15 @@ try{
     await settledRound(index);
   }
   await a.page.screenshot({path:path.join(evidence,'round-three-tall.png')});
-  // Manual scrolling still updates the quiet round status; arrow keys belong to the canvas.
-  await a.page.locator('#viewport').evaluate(el=>el.scrollTo({top:0,behavior:'instant'}));
+  // Home shows the first exploration; arrow keys belong to the canvas; panning by hand updates the quiet round status.
+  await a.page.keyboard.press('Home');
   await settledRound(0);
   await a.page.keyboard.press('ArrowDown');
-  await a.page.waitForFunction(()=>document.querySelector('#viewport').scrollTop>0);
+  await a.page.waitForFunction(()=>Number(document.querySelector('#plane').style.transform.match(/-?[\d.]+(?=px)/g)[1])<-75);
   assert(( await a.page.locator('#round-status').textContent()).startsWith('Round 1 /'));
+  await a.page.mouse.move(720,600);
+  await a.page.mouse.wheel(0,610);
+  await a.page.waitForFunction(()=>document.querySelector('#round-status').textContent.startsWith('Round 2 /'));
   await a.page.locator('#zoom-slider').evaluate(el=>{el.value='20';el.dispatchEvent(new Event('input',{bubbles:true}));});
   assert.equal(await a.page.locator('#world').evaluate(el=>el.style.transform),'scale(0.2)');
   await showRound('second');
@@ -345,10 +349,11 @@ try{
   const shellReload=a.page.waitForEvent('load');
   // Click the visible scaled card directly, without Playwright scrolling its transformed ancestors.
   const promptButton=await a.page.locator('[data-remove-experiment="third/pages"]').boundingBox();
-  const beforePrompt=await a.page.locator('#viewport').evaluate(el=>({top:el.scrollTop}));
+  const canvasTransforms=()=>({pan:document.querySelector('#plane').style.transform,zoom:document.querySelector('#world').style.transform});
+  const beforePrompt=await a.page.evaluate(canvasTransforms);
   await a.page.mouse.click(promptButton.x+promptButton.width/2,promptButton.y+promptButton.height/2);
   await a.page.locator('#agent-prompt-dialog').waitFor();
-  const viewBeforeReload=await a.page.locator('#viewport').evaluate(el=>({left:el.scrollLeft,top:el.scrollTop}));
+  const viewBeforeReload=await a.page.evaluate(canvasTransforms);
   await a.page.locator('.agent-dialog-close').focus();
   await a.page.route('**/api/boards/keyboard/live',async route=>{
     const response=await route.fetch();
@@ -362,10 +367,9 @@ try{
   await shellReload;
   await a.page.waitForFunction(()=>document.activeElement.id==='viewport');
   await a.page.waitForFunction(view=>{
-    const viewport=document.querySelector('#viewport');
-    return Math.abs(viewport.scrollTop-view.top)<2&&Math.abs(viewport.scrollLeft-view.left)<2&&document.querySelector('#round-status').textContent.startsWith('Round 3 /');
+    return document.querySelector('#plane').style.transform===view.pan&&document.querySelector('#world').style.transform===view.zoom&&document.querySelector('#round-status').textContent.startsWith('Round 3 /');
   },viewBeforeReload,{timeout:8000}).catch(async error=>{
-    const actual=await a.page.locator('#viewport').evaluate(el=>({left:el.scrollLeft,top:el.scrollTop,round:document.querySelector('#round-status').textContent}));
+    const actual=await a.page.evaluate(()=>({pan:document.querySelector('#plane').style.transform,zoom:document.querySelector('#world').style.transform,round:document.querySelector('#round-status').textContent}));
     throw new Error(`Canvas view after shell reload: before prompt ${JSON.stringify(beforePrompt)}, expected ${JSON.stringify(viewBeforeReload)}, actual ${JSON.stringify(actual)}; ${error.message}`);
   });
   await a.page.goto(`${a.url}boards/first-steps/`);
@@ -382,7 +386,30 @@ try{
   const waitReader=name=>h.waitForFunction(([name,id])=>{const dialog=document.querySelector('#reader-dialog');const doc=document.querySelector('#active-reader').contentDocument;return dialog.open&&document.querySelector('#reader-name').textContent===name&&doc?.readyState==='complete'&&doc.body?.dataset.experiment===id;},[name,frameIds[name]]);
   const waitBoard=()=>h.waitForFunction(()=>!document.querySelector('#reader-dialog').open&&document.querySelectorAll('.concept-card').length===3&&document.querySelector('#save-status').dataset.state);
   const frameData=()=>h.locator('#active-reader').evaluate(frame=>({...frame.contentDocument.body.dataset}));
-  const boardView=()=>h.evaluate(()=>{const v=document.querySelector('#viewport');return {left:Math.round(v.scrollLeft),top:Math.round(v.scrollTop),transform:document.querySelector('#world').style.transform};});
+  const boardView=()=>h.evaluate(()=>({pan:document.querySelector('#plane').style.transform,transform:document.querySelector('#world').style.transform}));
+  // The pan, zoom and board content edges (inside the world's padding) relative to the canvas, in pixels.
+  const canvasState=()=>h.evaluate(()=>{
+    const v=document.querySelector('#viewport');const vr=v.getBoundingClientRect();
+    const w=document.querySelector('#world');const wr=w.getBoundingClientRect();
+    const z=Number(w.style.transform.match(/scale\(([^)]+)\)/)[1]);const pad=70*z;
+    const [x,y]=document.querySelector('#plane').style.transform.match(/-?[\d.]+(?=px)/g).map(Number);
+    return {x,y,z,left:wr.left-vr.left+pad,top:wr.top-vr.top+pad,right:wr.right-vr.left-pad,bottom:wr.bottom-vr.top-pad,width:v.clientWidth,height:v.clientHeight,vl:vr.left,vt:vr.top,scroll:[v.scrollLeft,v.scrollTop]};
+  });
+  // Drag the canvas by (dx, dy) from a point that is not a text field, chosen so the whole drag stays in the window.
+  const dragCanvas=async(dx,dy)=>{
+    const start=await h.evaluate(([dx,dy])=>{
+      const v=document.querySelector('#viewport').getBoundingClientRect();
+      const xs=dx>0?[v.left+40,v.left+120,v.left+200]:dx<0?[v.right-40,v.right-120,v.right-200]:[v.left+v.width/2,v.left+80,v.right-80];
+      const ys=dy>0?[v.top+40,v.top+120,v.top+200]:dy<0?[v.bottom-40,v.bottom-120,v.bottom-200]:[v.top+v.height/2,v.top+80,v.bottom-80];
+      for(const y of ys)for(const x of xs){const el=document.elementFromPoint(x,y);if(el&&!el.closest('textarea,input,select,a'))return {x,y};}
+      return null;
+    },[dx,dy]);
+    assert(start,'A drag start point is available');
+    await h.mouse.move(start.x,start.y);await h.mouse.down();
+    await h.mouse.move(start.x+dx/2,start.y+dy/2,{steps:5});await h.mouse.move(start.x+dx,start.y+dy,{steps:5});
+    await h.mouse.up();
+  };
+  const near=(a,b)=>Math.abs(a-b)<1.5;
   const setRange=(selector,value)=>h.locator(selector).evaluate((el,value)=>{el.value=String(value);el.dispatchEvent(new Event('input',{bubbles:true}));},value);
   await h.goto(a.url);
   await h.getByRole('heading',{name:'History'}).waitFor();
@@ -425,22 +452,71 @@ try{
     send('pointerdown',11,600,500);send('pointerdown',12,700,500);send('pointermove',11,550,500);send('pointermove',12,750,500);send('pointerup',11,550,500);send('pointerup',12,750,500);
   });
   assert.equal(await h.locator('#zoom-slider').inputValue(),'80');
-  // Dragging empty canvas pans in both directions.
+  // The scroll wheel pans, and dragging empty canvas pans in both directions.
   await setRange('#zoom-slider',100);
-  await h.locator('#viewport').evaluate(el=>el.scrollTo({left:400,top:400,behavior:'instant'}));
+  await h.mouse.move(700,500);
+  const beforeWheel=await canvasState();
+  await h.mouse.wheel(400,400);
+  const afterWheel=await canvasState();
+  assert(near(beforeWheel.x-afterWheel.x,400)&&near(beforeWheel.y-afterWheel.y,400),`Wheel pans the canvas: ${JSON.stringify([beforeWheel,afterWheel])}`);
   const empty=await h.evaluate(()=>{const v=document.querySelector('#viewport').getBoundingClientRect();for(let y=v.top+40;y<v.bottom-200;y+=20)for(let x=v.left+40;x<v.right-260;x+=20){const el=document.elementFromPoint(x,y);if(el&&el.matches('#viewport,#plane,#world,.round,.concepts,.round-header,.card-copy,.future-row'))return {x,y};}return null;});
   assert(empty,'An empty canvas point is available');
-  const beforePan=await boardView();
+  const beforePan=await canvasState();
   await h.mouse.move(empty.x,empty.y);await h.mouse.down();await h.mouse.move(empty.x+120,empty.y+90,{steps:6});await h.mouse.move(empty.x+200,empty.y+150,{steps:6});await h.mouse.up();
-  const afterPan=await boardView();
-  assert(Math.abs(beforePan.left-afterPan.left-200)<3&&Math.abs(beforePan.top-afterPan.top-150)<3,`Drag pans the canvas: ${JSON.stringify([beforePan,afterPan])}`);
-  // Fit shows every exploration on both axes.
+  const afterPan=await canvasState();
+  assert(near(afterPan.x-beforePan.x,200)&&near(afterPan.y-beforePan.y,150),`Drag pans the canvas: ${JSON.stringify([beforePan,afterPan])}`);
+  // Free pan: the canvas moves past every edge of the board and stops only with KEEP (80px) of it left in view.
+  await setRange('#zoom-slider',50);
+  for(let i=0;i<3;i++)await dragCanvas(900,0);
+  let pan=await canvasState();
+  assert(near(pan.left,pan.width-80),`Dragging right passes the board's left edge: ${JSON.stringify(pan)}`);
+  for(let i=0;i<4;i++)await dragCanvas(-900,0);
+  pan=await canvasState();
+  assert(near(pan.right,80),`Dragging left passes the board's right edge: ${JSON.stringify(pan)}`);
+  for(let i=0;i<4;i++)await dragCanvas(0,600);
+  pan=await canvasState();
+  assert(near(pan.top,pan.height-80),`Dragging down passes the board's top edge: ${JSON.stringify(pan)}`);
+  for(let i=0;i<5;i++)await dragCanvas(0,-600);
+  pan=await canvasState();
+  assert(near(pan.bottom,80)&&near(pan.right,80),`Dragging up passes the board's bottom edge: ${JSON.stringify(pan)}`);
+  // Keyboard focus (and find-in-page, which reveals the same way) brings a control into view from any side.
+  const opener=h.locator('.card-actions [data-open="alpha/one"]:not([data-revision])');
+  await opener.focus();
+  // The browser's scroll arrives as a scroll event on the next frame and becomes a pan.
+  await h.waitForFunction(()=>{const v=document.querySelector('#viewport');return v.scrollLeft===100000&&v.scrollTop===100000;});
+  const openerBox=await opener.boundingBox();
+  pan=await canvasState();
+  assert(openerBox.x>=pan.vl&&openerBox.y>=pan.vt&&openerBox.x+openerBox.width<=pan.vl+pan.width&&openerBox.y+openerBox.height<=pan.vt+pan.height,`Focus reveals a control above and left of the view: ${JSON.stringify([openerBox,pan])}`);
+  assert.deepEqual(pan.scroll,[100000,100000]);
+  // Zooming in on the sliver of board left at an edge keeps that spot under the pointer.
+  for(let i=0;i<3;i++)await dragCanvas(900,0);
+  pan=await canvasState();
+  const anchor={x:pan.vl+pan.left+40,y:pan.vt+pan.height/2};
+  const anchored=[(anchor.x-pan.vl-pan.x)/pan.z,(anchor.y-pan.vt-pan.y)/pan.z];
+  await h.mouse.move(anchor.x,anchor.y);await h.keyboard.down('Control');await h.mouse.wheel(0,-60);await h.keyboard.up('Control');
+  const zoomedIn=await canvasState();
+  assert(zoomedIn.z>pan.z&&near(zoomedIn.vl+zoomedIn.x+anchored[0]*zoomedIn.z,anchor.x)&&near(zoomedIn.vt+zoomedIn.y+anchored[1]*zoomedIn.z,anchor.y),`Zoom near an edge stays anchored: ${JSON.stringify([anchor,pan,zoomedIn])}`);
+  // Fit, even far from the board, shows every exploration on both axes, centred.
   await h.locator('#fit').click();
   const fit=await h.evaluate(()=>{const v=document.querySelector('#viewport').getBoundingClientRect();return [...document.querySelectorAll('.concept-card')].every(card=>{const r=card.getBoundingClientRect();return r.left>=v.left-1&&r.right<=v.right+1&&r.top>=v.top-1&&r.bottom<=v.bottom+1;});});
   assert.equal(fit,true);
+  pan=await canvasState();
+  assert(near((pan.left+pan.right)/2,pan.width/2)&&near((pan.top+pan.bottom)/2,pan.height/2),`Fit centres the board: ${JSON.stringify(pan)}`);
   const fitScale=Number((await boardView()).transform.match(/scale\(([^)]+)\)/)[1]);
   assert.equal(await h.locator('#zoom-slider').inputValue(),String(Math.round(fitScale*100)));
   await h.screenshot({path:path.join(evidence,'history-board-fit.png')});
+  // Keys pan the canvas: arrows by 80px, Page Down by most of a screen; Home and End show the first and last explorations.
+  await h.locator('#viewport').focus();
+  const beforeKeys=await canvasState();
+  await h.keyboard.press('ArrowLeft');await h.keyboard.press('ArrowUp');
+  const afterKeys=await canvasState();
+  assert(near(afterKeys.x-beforeKeys.x,80)&&near(afterKeys.y-beforeKeys.y,80),`Arrow keys pan: ${JSON.stringify([beforeKeys,afterKeys])}`);
+  await h.keyboard.press('PageDown');
+  await h.waitForFunction(y=>Math.abs(Number(document.querySelector('#plane').style.transform.match(/-?[\d.]+(?=px)/g)[1])-y)<1.5,afterKeys.y-afterKeys.height*.875);
+  await h.keyboard.press('End');
+  await h.waitForFunction(()=>document.querySelector('#round-status').textContent.startsWith('Round 02 /'));
+  await h.keyboard.press('Home');
+  await h.waitForFunction(()=>document.querySelector('#round-status').textContent.startsWith('Round 01 /'));
   // View-only board changes never add history entries.
   assert.equal(await length(),base);
   assert.equal(await historyLength(),baseHistoryLength);
@@ -448,7 +524,8 @@ try{
   await h.locator('#board-info-toggle').click();
   await h.locator('#board-info-toggle').click();
   await setRange('#zoom-slider',50);
-  await h.locator('#viewport').evaluate(el=>el.scrollTo({left:0,top:0,behavior:'instant'}));
+  await h.locator('#viewport').focus();
+  await h.keyboard.press('Home');
   await h.locator('.shortlist[data-star="alpha/two"]').click();
   await h.locator('[data-note="alpha/two"]').fill('Card note');
   assert.equal(await length(),base);
@@ -602,9 +679,13 @@ try{
   await waitReader('Two');
   await h.goForward();
   await waitBoard();
-  // Back from an experiment restores exactly the board view that was left.
+  // Back from an experiment restores exactly the board view that was left, here panned past the board's top-left edge.
   await setRange('#zoom-slider',80);
-  await h.locator('#viewport').evaluate(el=>el.scrollTo({left:300,top:420,behavior:'instant'}));
+  await h.mouse.move(700,500);
+  const beforeEdge=await canvasState();
+  await h.mouse.wheel(Math.min(0,beforeEdge.left-300),Math.min(0,beforeEdge.top-200));
+  const pastEdge=await canvasState();
+  assert(pastEdge.left>0&&pastEdge.top>0,`The view is past the board's top-left edge: ${JSON.stringify(pastEdge)}`);
   const leftView=await boardView();
   await h.locator('[data-open="beta/three"].preview-launch').evaluate(button=>button.click());
   await waitReader('Three');
@@ -699,8 +780,15 @@ try{
   await waitBoard();
   await h.waitForFunction(()=>document.querySelector('#round-status').textContent.startsWith('Round 01 /'));
   entries=await length();
+  // A round link still finds its exploration after the canvas has been panned far away.
+  await h.mouse.move(700,500);
+  await h.mouse.wheel(-2500,-2500);
   await h.evaluate(()=>{location.hash='#round-beta';});
-  await h.waitForFunction(()=>document.querySelector('#round-status').textContent.startsWith('Round 02 /'));
+  await h.waitForFunction(()=>{
+    const zoom=Number(document.querySelector('#world').style.transform.match(/scale\(([^)]+)\)/)[1]);
+    const top=-Number(document.querySelector('#plane').style.transform.match(/-?[\d.]+(?=px)/g)[1]);
+    return document.querySelector('#round-status').textContent.startsWith('Round 02 /')&&Math.abs(top-1220*zoom)<2;
+  });
   assert.equal(await length(),entries+1);
   await h.goBack();
   await h.waitForFunction(()=>location.hash==='#round-alpha'&&document.querySelector('#round-status').textContent.startsWith('Round 01 /'));
@@ -916,7 +1004,7 @@ try{
   await a.page.waitForFunction(()=>document.querySelector('#save-status').textContent==='Notes saved on this Mac');
   assert.equal(await a.page.locator('[data-note="first/one-step"]').inputValue(),'Runway only');
   assert.equal(errors.length,0,errors.join('\n'));
-  const checks=['two simultaneous labels and URLs','folder discovery and empty new boards','new-board prompt','board and experiment removal prompts, copy and clipboard fallback','board cover prompts, custom images, live image updates and missing-image fallback','open prompts survive shell updates without losing the canvas position','isolated notes, same-origin port reuse and stale-tab write rejection','identity-only header, board info popover with export and help, narrow layouts and prompts','removed top-bar controls stay absent','board footer zoom slider synced with Control-wheel, keyboard, Safari gesture and touch pinch','drag pan and Fit of every exploration','independent experiment interaction','previous/next across rounds, boundaries, live availability, retained settings and narrow viewer','dot track order, grouping, click, keyboard, hover titles and drag-scrub','reader footer Type, Fit, Light, size popover with Version and Custom, and Open standalone','star and notes shared between card and reader and saved to .state/notes.json','notes panel beside the stage on desktop and below it on phones','browser history: home, board, experiments, versions, Escape/Back/breadcrumb, rounds, re-selection, view-only changes, deep links and reload','board view restored on Back from an experiment','active preview safely offers reload','round deep links in tall and zoomed-out canvases','canvas and experiment keyboard focus on entry, return and reload','toolbar keyboard access and note/experiment focus preserved during manifest updates','one-row reader and board footers and both headers at seven widths from 320 to 1920px: no overlap, nothing off screen or clipped, arrows hugging the dot strip, current dot in view, Back distinct from Previous and 44px targets','fixed dot strip: centred current dot, edge fades, Home/End/arrows, endpoints and edge-scrolling drag-scrub','View popover on narrow footers: every view control inside, keyboard focus, Escape and outside click'];
+  const checks=['two simultaneous labels and URLs','folder discovery and empty new boards','new-board prompt','board and experiment removal prompts, copy and clipboard fallback','board cover prompts, custom images, live image updates and missing-image fallback','open prompts survive shell updates without losing the canvas position','isolated notes, same-origin port reuse and stale-tab write rejection','identity-only header, board info popover with export and help, narrow layouts and prompts','removed top-bar controls stay absent','board footer zoom slider synced with Control-wheel, keyboard, Safari gesture and touch pinch','wheel and drag pan, and free pan past every edge of the board to an 80px bound','keyboard pan with arrows, Page Down, Home and End','focus revealing controls from any side, zoom anchored near an edge, centred Fit after panning away, and round links after panning away','independent experiment interaction','previous/next across rounds, boundaries, live availability, retained settings and narrow viewer','dot track order, grouping, click, keyboard, hover titles and drag-scrub','reader footer Type, Fit, Light, size popover with Version and Custom, and Open standalone','star and notes shared between card and reader and saved to .state/notes.json','notes panel beside the stage on desktop and below it on phones','browser history: home, board, experiments, versions, Escape/Back/breadcrumb, rounds, re-selection, view-only changes, deep links and reload','board view restored on Back from an experiment','active preview safely offers reload','round deep links in tall and zoomed-out canvases','canvas and experiment keyboard focus on entry, return and reload','toolbar keyboard access and note/experiment focus preserved during manifest updates','one-row reader and board footers and both headers at seven widths from 320 to 1920px: no overlap, nothing off screen or clipped, arrows hugging the dot strip, current dot in view, Back distinct from Previous and 44px targets','fixed dot strip: centred current dot, edge fades, Home/End/arrows, endpoints and edge-scrolling drag-scrub','View popover on narrow footers: every view control inside, keyboard focus, Escape and outside click'];
   console.log(JSON.stringify({passed:true,assertions:assertCount(),checkGroups:checks.length,evidence,checks,browserErrors:errors},null,2));
 }finally{
   await browser.close();
