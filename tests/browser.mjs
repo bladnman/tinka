@@ -372,8 +372,11 @@ try{
     const actual=await a.page.evaluate(()=>({pan:document.querySelector('#plane').style.transform,zoom:document.querySelector('#world').style.transform,round:document.querySelector('#round-status').textContent}));
     throw new Error(`Canvas view after shell reload: before prompt ${JSON.stringify(beforePrompt)}, expected ${JSON.stringify(viewBeforeReload)}, actual ${JSON.stringify(actual)}; ${error.message}`);
   });
+  // Drain the shell stub before navigation cancels or auto-continues an intercepted poll.
+  // unroute() uses the default non-waiting behavior, so an outstanding route.fetch()
+  // could otherwise resume with fulfill() after Playwright had already handled its route.
+  await a.page.unrouteAll({behavior:'wait'});
   await a.page.goto(`${a.url}boards/first-steps/`);
-  await a.page.unroute('**/api/boards/keyboard/live');
 
   // ---- Real browser history, card 10 footers, dots, and notes shared between card and reader ----
   const h=await context.newPage();h.on('pageerror',error=>errors.push(error.message));

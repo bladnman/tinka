@@ -1,5 +1,7 @@
 import { watchBoard } from './live.js';
 import { openRemovalPrompt } from './agent-prompt.js';
+import { WorkspaceBoard } from './workspace-board.js';
+import { contentURL, enableOrganization } from './workspace.js';
 
 const $ = id => document.getElementById(id);
 const viewport = $('viewport');
@@ -22,6 +24,7 @@ const esc = value => String(value ?? '').replace(/[&<>"']/g, char => ({ '&': '&a
 const clampZoom = value => Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, value));
 
 let board = null;
+let graph = null;
 let appTitle = 'Tinka';
 let appConfig;
 let rounds = [];
@@ -62,6 +65,7 @@ function safeRemoteUrl(value) {
 }
 
 function descriptor(concept, variant = null) {
+  if (concept?.graphItem) return { kind: variant?.content?.kind || variant?.kind || concept.graphItem.content?.kind || 'text', name: variant ? `${concept.name} · ${variant.name}` : concept.name, graphItem: concept.graphItem, graphRevision: variant };
   return {
     kind: variant?.kind || concept.kind || 'html',
     path: variant?.path || concept.path || `rounds/${concept.round}/${concept.id}/index.html`,
@@ -71,6 +75,7 @@ function descriptor(concept, variant = null) {
 }
 
 function standaloneHref(concept, variant = null) {
+  if (concept?.graphItem) return contentURL(concept.graphItem, variant);
   const item = descriptor(concept, variant);
   return safeRemoteUrl(item.url) || safeBoardPath(item.path);
 }
@@ -85,6 +90,7 @@ function mediaHref(item, theme = 'paper', scale = 100, inReader = false) {
 }
 
 function previewHref(concept, variant = null, theme = 'paper', scale = 100, revision = null, inReader = false) {
+  if (concept?.graphItem) { const params = new URLSearchParams({item:concept.graphItem.id,theme,scale:String(scale)}); if (variant) params.set('variant',variant.id); if (revision) params.set('v',String(revision)); return `/app/item.html?${params}`; }
   const item = descriptor(concept, variant);
   const remote = safeRemoteUrl(item.url);
   const source = safeBoardPath(item.path);
@@ -103,13 +109,18 @@ function replaceFrame(frame, url) {
 }
 
 function readRound() {
-  all = rounds.flatMap((round, row) => (round.concepts || []).map((concept, col) => ({ ...concept, round: round.id, row, col, key: `${round.id}/${concept.id}` })));
+  all = rounds.flatMap((round, row) => (round.concepts || []).map((concept, col) => ({ ...concept, round: round.id, row, col, key: concept.key || `${round.id}/${concept.id}` })));
+  if (graph) { const order=graph.snapshot.reviewOrder;all.sort((a,b)=>order.indexOf(a.placement.id)-order.indexOf(b.placement.id)); }
 }
 
 async function fetchBoard() {
   const response = await fetch(boardApi, { cache: 'no-store' });
   if (!response.ok) throw new Error(`Board metadata unavailable (${response.status})`);
   const data = await response.json();
+  if (data.schemaVersion === 2) {
+    if (!graph) graph = new WorkspaceBoard(appConfig, data, { concepts:()=>all, active:()=>active, zoom:()=>zoom, shiftOrigin:(dx,dy)=>{if(dx||dy){view.x-=dx*zoom;view.y-=dy*zoom;resting=false;}}, preview:c=>previewHref(c), layout:()=>{ if(resting)rest();else applyView(); }, mode:mode=>{ if(mode==='canvas')zoom=1; }, reloadReader:()=>loadRevision(), saveStatus:setSaveStatus, openOwner:()=>{const c=graph.ownerConcept();if(c)openReader(c.key);}, closeReader:()=>closeReader(), data:acceptGraphData });
+    return graph.adapt(data);
+  }
   if (!Array.isArray(data.rounds)) throw new Error('The board manifest is invalid.');
   return data;
 }
@@ -144,6 +155,7 @@ function updateMetadata() {
 }
 
 function buildCanvas() {
+  if (graph) { graph.build(all); updateMetadata(); renderNav(); applyNotes(); return; }
   const cards = round => all.filter(concept => concept.round === round.id).map(concept => {
     const versions = revisions[concept.key] || [];
     const revisionButtons = versions.map(variant => `<button class="revision-button" type="button" data-open="${esc(concept.key)}" data-revision="${esc(variant.id)}">Try ${esc(variant.name)} ↗</button>`).join('');
@@ -193,6 +205,7 @@ function clampView({ x, y }) {
 }
 
 function applyView() {
+  if (graph?.mode === 'grid') { plane.style.transform='none'; world.style.transform='none'; return; }
   Object.assign(view, clampView(view));
   plane.style.transform = `translate(${Math.round(view.x)}px, ${Math.round(view.y)}px)`;
   world.style.transform = `scale(${zoom})`;
@@ -219,6 +232,7 @@ function stopGlide() {
 }
 
 function rest() {
+  if (graph?.mode === 'grid') { applyView(); return; }
   stopGlide();
   resting = true;
   Object.assign(view, restingView());
@@ -277,6 +291,7 @@ function changeZoom(value, cx = viewport.clientWidth / 2, cy = viewport.clientHe
 
 // Fit every exploration on both axes, centred.
 function fitBoard() {
+  if (graph?.mode === 'grid') { viewport.scrollTo({top:0,left:0}); return; }
   const margin = 24;
   const contentWidth = world.offsetWidth - geometry.pad * 2;
   const contentHeight = world.offsetHeight - geometry.pad * 2;
@@ -287,7 +302,8 @@ function fitBoard() {
 }
 
 function jump(key) {
-  const concept = all.find(item => item.key === key);
+  if (graph?.mode === 'grid') return;
+  const concept = all.find(item => item.key === key) || graph?.ownerConcept(key) || graph?.aliasConcept(key);
   if (!concept) return;
   if (currentRound !== concept.row) { currentRound = concept.row; renderNav(); }
   if (zoom < .4) { view.x *= .5 / zoom; view.y *= .5 / zoom; zoom = .5; }
@@ -320,8 +336,9 @@ function parseHash(hash = location.hash) {
   if (!raw) return { view: 'board', round: null, invalid: raw === null };
   const row = rounds.findIndex(round => raw === `round-${round.id}`);
   if (row >= 0) return { view: 'board', round: rounds[row].id };
-  const [key, revision] = raw.split('~');
-  if (all.some(concept => concept.key === key)) return { view: 'experiment', key, revision: (revisions[key] || []).some(variant => variant.id === revision) ? revision : null };
+  let [key, revision] = raw.split('~');
+  if (graph) { const alias=graph.aliasConcept(key)||graph.ownerConcept(key);if(alias){key=alias.key;revisions[key]=graph.revisionsFor(alias.graphItem);} }
+  if (all.some(concept => concept.key === key) || graph?.ownerConcept(key) || graph?.aliasConcept(key)) return { view: 'experiment', key, revision: (revisions[key] || []).some(variant => variant.id === revision) ? revision : null };
   return { view: 'board', round: null, invalid: true };
 }
 
@@ -473,6 +490,7 @@ function renderReaderHeader() {
   $('reader-hint').textContent = hint;
   $('reader-board-link').href = `${location.pathname}${rounds[currentRound] ? `#round-${rounds[currentRound].id}` : ''}`;
   applyNotes();
+  if (graph) graph.reader(active);
 }
 
 function loadRevision({ focus = true } = {}) {
@@ -490,6 +508,7 @@ function loadRevision({ focus = true } = {}) {
 }
 
 function readerSequence() {
+  if (graph) return all.filter(c=>c.key===active?.key||!['reserved','building'].includes(c.graphItem?.build?.state));
   return all.filter(concept => concept.key === active?.key || !['reserved', 'building'].includes(liveSnapshot?.concepts?.[concept.key]?.state));
 }
 
@@ -632,8 +651,9 @@ function focusActiveDot() {
 }
 
 function openReader(key, revision = 'original', { history: mode = 'push', focus = 'reader' } = {}) {
-  const concept = all.find(item => item.key === key);
+  const concept = all.find(item => item.key === key) || graph?.ownerConcept(key) || graph?.aliasConcept(key);
   if (!concept) return false;
+  if(graph){revisions[concept.key]=graph.revisionsFor(concept.graphItem);notes[concept.key]={...(concept.graphItem.review||{}),...(graph.pendingReview.get(concept.graphItem.id)||{})};key=concept.key;}
   const variantId = (revisions[key] || []).some(variant => variant.id === revision) ? revision : 'original';
   if (dialog.open && active?.key === key && activeVariantId === variantId) {
     commitHistory(readerState(), mode === 'push' ? 'none' : mode);
@@ -676,6 +696,7 @@ function closeReader({ history: mode = 'push' } = {}) {
   if (dialog.open) dialog.close();
   replaceFrame($('active-reader'), 'about:blank');
   active = null;
+  if (graph) $('workspace-surfaces').hidden = true;
   commitHistory({ view: 'board', round: rounds[currentRound]?.id || null }, mode);
   if (board) updateMetadata();
   viewport.focus({ preventScroll: true });
@@ -762,6 +783,7 @@ function mergeNotes(base, incoming) {
 }
 
 function storeNotes() {
+  if (graph) { graph.captureReview(active&&!all.includes(active)?[...all,active]:all,notes); clearTimeout(saveTimer); setSaveStatus('Saving item notes…','saving'); saveTimer=setTimeout(()=>graph.saveReview(active&&!all.includes(active)?[...all,active]:all,notes),350); return; }
   const revision = ++saveSequence;
   try { localStorage.setItem(notesKey, JSON.stringify(notes)); } catch {}
   setSaveStatus('Saving notes…', 'saving');
@@ -779,6 +801,7 @@ function storeNotes() {
 }
 
 async function loadNotes() {
+  if (graph) { notes = board.graphNotes || {}; applyNotes(); setSaveStatus(graph.pendingReview.size?'Unsaved feedback restored · retry when ready':'Item notes saved on this Mac',graph.pendingReview.size?'local':'saved'); return; }
   const backup = localNotes(notesKey);
   let server = {};
   let connected = false;
@@ -808,6 +831,13 @@ function decorateBuildCards() {
 }
 
 function applyBoardSnapshot(snapshot) {
+  if (graph) {
+    const concepts = Object.fromEntries(all.map(c=>[c.key, {...(c.graphItem.build||{state:'ready'}), ...(snapshot.items?.[c.graphItem.id]||{})}]));
+    liveSnapshot = {...snapshot,concepts};
+    for(const concept of all){const revision=concepts[concept.key]?.revision;if(!revision)continue;const card=[...world.querySelectorAll('.workspace-card')].find(c=>c.dataset.key===concept.key),frame=card?.querySelector('.workspace-live-preview iframe');if(frame&&loadedPreviews.has(concept.key)&&loadedPreviews.get(concept.key)!==revision)replaceFrame(frame,previewHref(concept,null,'paper',100,revision));loadedPreviews.set(concept.key,revision);}
+    const entry=concepts[active?.key]; if(active&&entry?.revision){ if(!activeRevision)activeRevision=entry.revision; $('reader-update').hidden=activeRevision===entry.revision; }
+    $('live-status').textContent='Live · '+all.length+' items'; if(active)updateReaderNavigation(); return;
+  }
   liveSnapshot = snapshot;
   const labels = { building: 'Building', reserved: 'Reserved', review: 'Ready to review', ready: 'Ready' };
   document.querySelectorAll('.concept-card').forEach(card => {
@@ -849,7 +879,13 @@ function applyBoardSnapshot(snapshot) {
   if (active) updateReaderNavigation();
 }
 
+function acceptGraphData(fresh) {
+  const activeKey=active?.key; board=fresh;rounds=fresh.rounds;revisions=fresh.revisions||{};notes=fresh.graphNotes||{};readRound();currentRound=Math.min(currentRound,Math.max(0,rounds.length-1));buildCanvas();
+  if(activeKey){active=all.find(c=>c.key===activeKey)||active;renderRevisionOptions();renderReaderHeader();updateReaderNavigation();}
+}
+
 async function refreshManifest() {
+  if (graph) { if (document.activeElement?.matches('textarea,input') || graph.saving || graph.pendingReview.size) return; await graph.refresh(); return; }
   const fresh = await fetchBoard();
   const selected = rounds[currentRound]?.id;
   const focused = document.activeElement;
@@ -882,7 +918,8 @@ async function reloadCanvas() {
   clearTimeout(saveTimer);
   clearTimeout(shellReloadTimer);
   try { sessionStorage.setItem(viewKey, JSON.stringify({ zoom, x: view.x, y: view.y, resting, round: rounds[currentRound]?.id })); } catch {}
-  if (saveSequence) {
+  if (graph) { clearTimeout(saveTimer); await graph.saveReview(active&&!all.includes(active)?[...all,active]:all,notes); }
+  if (saveSequence && !graph) {
     try { await saveQueue; await fetch(`${boardApi}/notes`, { method: 'PUT', headers: { 'Content-Type': 'application/json', 'X-Tinka-Workspace': workspaceId }, body: JSON.stringify(notes) }); } catch {}
   }
   location.reload();
@@ -929,6 +966,7 @@ document.addEventListener('click', event => {
   if (star?.dataset.star) {
     const key = star.dataset.star;
     notes[key] = { ...notes[key], star: !notes[key]?.star, updatedAt: Date.now() };
+    if(graph){const item=all.find(c=>c.key===key)?.graphItem||active?.graphItem;for(const c of all)if(c.graphItem.id===item?.id)notes[c.key]={...notes[c.key],star:notes[key].star};}
     applyNotes();
     storeNotes();
   }
@@ -938,13 +976,14 @@ document.addEventListener('input', event => {
   const key = target.dataset.note || (target.id === 'reader-note' ? active?.key : null);
   if (!key) return;
   notes[key] = { ...notes[key], note: target.value, updatedAt: Date.now() };
+  if(graph){const item=all.find(c=>c.key===key)?.graphItem||active?.graphItem;for(const c of all)if(c.graphItem.id===item?.id)notes[c.key]={...notes[c.key],note:target.value};}
   // The board card and the experiment view edit the same note.
   document.querySelectorAll('[data-note]').forEach(element => { if (element !== target && element.dataset.note === key) element.value = target.value; });
   syncReaderNotes();
   storeNotes();
 });
 document.addEventListener('keydown', event => {
-  if (event.key !== 'Escape' || event.defaultPrevented) return;
+  if (event.key !== 'Escape' || event.defaultPrevented || document.querySelector('dialog.workspace-dialog[open]')) return;
   if (dialog.open) { event.preventDefault(); handleEscape(); return; }
   if (!$('board-info').hidden) { event.preventDefault(); setInfoOpen(false, { focus: true }); }
 }, true);
@@ -1043,6 +1082,8 @@ const pointers = new Map();
 let pan = null;
 let pinch = null;
 viewport.addEventListener('pointerdown', event => {
+  if (graph?.mode === 'grid') return;
+  if (graph && event.target.closest('button')) return;
   if (event.pointerType === 'mouse' && event.button !== 0) return;
   if (event.target.closest('textarea,input,select,a')) return;
   stopGlide();
@@ -1091,12 +1132,13 @@ viewport.addEventListener('pointerup', endPointer);
 viewport.addEventListener('pointercancel', endPointer);
 // A note field with more to scroll keeps its own wheel scrolling.
 function scrollsItself(target, dy) {
-  const field = target.closest?.('textarea');
+  const field = target.closest?.('textarea,.workspace-card-copy');
   if (!field || !dy) return false;
   return dy > 0 ? field.scrollTop + field.clientHeight < field.scrollHeight - 1 : field.scrollTop > 0;
 }
 // Control/⌘-scroll (and trackpad pinch) zooms about the pointer; any other scroll pans.
 viewport.addEventListener('wheel', event => {
+  if (graph?.mode === 'grid') return;
   if (event.ctrlKey || event.metaKey) {
     event.preventDefault();
     const delta = Math.max(-60, Math.min(60, event.deltaMode === 1 ? event.deltaY * 16 : event.deltaY));
@@ -1118,6 +1160,7 @@ viewport.addEventListener('gestureend', event => event.preventDefault());
 // Keys pan as scrolling did: arrows, Page Up/Down and Space (on the canvas itself), Home and End for the first and
 // last explorations. + and − zoom about the centre.
 viewport.addEventListener('keydown', event => {
+  if (graph?.mode === 'grid') return;
   if (event.defaultPrevented || event.metaKey || event.ctrlKey || event.altKey) return;
   if (event.target.closest('textarea,input,select,[contenteditable]')) return;
   const onCanvas = event.target === viewport;
@@ -1145,6 +1188,7 @@ new ResizeObserver(layoutReaderChrome).observe(dialog);
 viewport.style.setProperty('--cushion', `${CUSHION}px`);
 settleCushion();
 viewport.addEventListener('scroll', () => {
+  if (graph?.mode === 'grid') return;
   const dx = viewport.scrollLeft - CUSHION;
   const dy = viewport.scrollTop - CUSHION;
   if (!dx && !dy) return;
@@ -1167,6 +1211,8 @@ else {
     rounds = board.rounds;
     revisions = board.revisions || {};
     readRound();
+    if (graph) { graph.mount(); viewport.scrollLeft=0;viewport.scrollTop=0; }
+    else { const b=document.createElement('button');b.type='button';b.textContent='Enable organization…';b.onclick=()=>enableOrganization(appConfig);document.querySelector('.info-actions').append(b); }
     currentRound = Math.max(0, rounds.length - 1);
     buildCanvas();
     await loadNotes();
@@ -1174,8 +1220,8 @@ else {
     setType(readerView.type, false);
     const requested = parseHash();
     if (requested.view === 'experiment') {
-      const concept = all.find(item => item.key === requested.key);
-      currentRound = concept.row;
+      const concept = all.find(item => item.key === requested.key) || graph?.ownerConcept(requested.key) || graph?.aliasConcept(requested.key);
+      currentRound = concept?.row || 0;
       renderNav();
       jump(concept.key);
       openReader(requested.key, requested.revision || 'original', { history: 'replace' });

@@ -2,6 +2,98 @@
 
 Tinka is a review surface. An experiment belongs to the product it is exploring, not to this review app. The app reads a board manifest and files; an experiment must remain runnable without the Tinka server, browser messages, or a host SDK.
 
+## Schema 2 workspace
+
+Schema 2 separates canonical items from board placements. It is explicitly enabled through `workspace init --apply` or `workspace migrate --apply`; merely installing the app does not convert a project. The metadata directory is `config.workspaceRoot` or `boardsRoot/.tinka`. Resource files remain outside that metadata and outside the replaceable app. Node 22+, ordinary JSON and files are sufficient; no SDK, dependency install, global registry or master process is required.
+
+### Initialize, migrate and recover
+
+```sh
+node /absolute/app/cli.mjs workspace migrate --config /absolute/config.json --dry-run
+node /absolute/app/cli.mjs workspace migrate --config /absolute/config.json --apply
+node /absolute/app/cli.mjs workspace show --config /absolute/config.json
+```
+
+Dry-run is the default; only `--apply` writes. `workspace init` is an alias that also initializes a project with zero legacy boards. Back up the external boards, complete workspace metadata and resource folders before applying. Conversion retains original manifests, files, review notes and build history, including orphan feedback and revision lineage. It preserves legacy board IDs and records original round/concept keys on migrated items. Repeated conversion is safe and does not create duplicate migrated identities. Inspect the migration report before accepting it. After conversion, the canonical store owns organization, revisions, build state and feedback. Original board manifests, notes and AGENTS guides are preserved historical sources; editing them does not update migrated metadata. Detect the enabled workspace with GET `/api/workspace` or `workspace show`, then follow this schema 2 contract even when an older board guide says to edit rounds or notes directly. Prototype HTML/assets remain live editable resources.
+
+CLI and HTTP share a locked transaction store, journal recovery and revision checks. Reopening the store rolls an interrupted journal forward after lock ownership is established. A lock is reclaimed automatically only when its recorded owner is provably dead. A crash before owner metadata is written, unverifiable ownership, or an orphan recovery guard fails closed with 409 instead of breaking a lock after a timeout. Stop and verify all server/CLI writers for this workspace before manual recovery; inspect and archive or rename only the orphan lock/guard metadata, preserving the complete workspace and `pending.json`, then reopen to apply the journal. This is redo recovery, not a guarantee against every crash or power-loss scenario. Back up and restore the complete metadata directory, rather than selected JSON files. For rollback to the unchanged legacy folders, stop only this instance, move the metadata directory to a recoverable archive outside its configured workspaceRoot, and restart. Graph-only items and later canonical feedback reappear when that metadata archive is restored. App replacement and data conversion are separate actions.
+
+### Items, resources and children
+
+An item has a stable `id`, `title`, `description`, optional `content`, optional `preview`, `revisions`, `review:{note,star,updatedAt}`, and `build:{state,message,updatedAt}`. It can have a `childBoardId` as well as content. Boards have an `ownerItemId`, `placements`, `reviewOrder`, `rounds`, `decorations` and optional `background`. A placement has `id,itemId,x,y,width,height,z`; archive/removal timestamps are local to it. Canonical archive/delete timestamps affect the item across references. Dates and original legacy records remain available for inspection.
+
+Run operations from an agent with JSON or a file:
+
+```sh
+node /absolute/app/cli.mjs workspace op --config /absolute/config.json \
+  --json '{"type":"createBoard","id":"ideas","title":"Ideas"}'
+node /absolute/app/cli.mjs workspace op --config /absolute/config.json \
+  --json '{"type":"createItem","boardId":"ideas","item":{"id":"opening-idea","title":"A better opening"}}'
+node /absolute/app/cli.mjs workspace op --config /absolute/config.json --file /absolute/operation.json
+```
+
+Register named roots with `updateWorkspace`. Paths are relative to the workspace metadata directory, so projects can retain their existing folders. For example, if the metadata is `design/boards/.tinka` and the payload folder is `design/boards/experiments`, the registration is:
+
+```json
+{"type":"updateWorkspace","patch":{"resourceRoots":{"experiments":{"path":"../experiments"}}}}
+```
+
+An HTML item references its canonical entry point; ordinary relative assets resolve under the same named root:
+
+```json
+{"type":"createItem","boardId":"ideas","item":{"title":"Quiet opening","content":{"kind":"html","resource":{"rootId":"experiments","path":"quiet/index.html"}},"preview":{"resource":{"rootId":"experiments","path":"quiet/preview.png"}}}}
+```
+
+Other local kinds are `image`, `video`, `audio`, `pdf`, `markdown` and `file`. Inline notes use `{"kind":"note","text":"The thought to retain."}` or `text`. A title-only idea needs no image or content. File payloads never go into board JSON. Named-root serving rejects dotfiles, unsafe paths and symlink escapes and supports byte ranges for media. Declare only the project folders intended for this workspace.
+
+An external document can open separately:
+
+```json
+{"type":"createItem","boardId":"ideas","item":{"title":"Research document","content":{"kind":"url","url":"https://example.org/document","openMode":"external"}}}
+```
+
+A local server may retain a screenshot and declarative start instructions:
+
+```json
+{"type":"createItem","boardId":"ideas","item":{"title":"Interactive prototype","content":{"kind":"html","url":"http://127.0.0.1:5173/","openMode":"preview","startInstructions":"In the prototype folder run its documented development command, then retry."},"preview":{"resource":{"rootId":"experiments","path":"prototype/preview.png"}}}}
+```
+
+The independently managed app owns startup, shutdown and hot updates. Tinka supplies a representation, instructions and retry/open actions when it is offline; it never executes instructions or fetches arbitrary URLs server-side. Embedding may depend on the target server's headers; external opening remains available. Each experiment retains its own README, assets and run instructions and can run without Tinka.
+
+Attach children to an existing item with `{"type":"createBoard","itemId":"opening-idea","title":"Opening details","parentBoardId":"ideas"}`. The item keeps its content while gaining a Board view. Creating a board without `parentBoardId` adds it to home. Board containment is a directed acyclic graph; references that create a cycle fail.
+
+### Organization and review
+
+`reference` adds placements for the same canonical items; notes, stars and build state are shared. `move` changes memberships without moving files. Use `sourceBoardId` plus `placementIds`, or `itemIds`; supply `targetBoardId` or `newBoard:{title,parentBoardId?,id?}`. To group selected placements inside their current board atomically, set `newBoard.parentBoardId` to `sourceBoardId`; board creation, owner placement and move/reference commit in one revision, with source geometry retained inside the new board. With no target, only board-owner items can move/reference onto home. Moving a board owner into another board removes its home membership; referencing it keeps home membership.
+
+```json
+{"type":"reference","sourceBoardId":"ideas","placementIds":["PLACEMENT_ID"],"targetBoardId":"shortlist"}
+```
+
+```json
+{"type":"move","sourceBoardId":"ideas","placementIds":["PLACEMENT_ID"],"newBoard":{"title":"Next round"}}
+```
+
+`duplicate` takes `itemId` and optional `targetBoardId` and creates an independent canonical item pointing at the same files. A board duplicate copies its arrangement while retaining references to its children. `archive` takes `boardId,placementIds,archived`; `archiveItem` takes `itemIds,archived`. `remove` detaches placements. `deleteItem` marks canonical items deleted across placements. None deletes resource files. Restore archives with `archived:false`; removal/deletion remains recoverable in metadata backups/history and the resource payload remains intact.
+
+`updatePlacement` patches `x,y,width,height,z`. `updateBoard` patches `title,description,reviewOrder,decorations,background`; `background.resource` is a named-root reference. Decorations are board-local presentation metadata. `updateItem` changes title, description, content, preview, revisions or build metadata. Review is `{"type":"review","itemId":"opening-idea","patch":{"note":"Try a shorter introduction.","star":true}}`. `status --board BOARD ITEM_ID reserved|building|review|ready [MESSAGE]` also updates canonical build state; migrated `ROUND/CONCEPT` keys remain accepted.
+
+Grid and Canvas use the same placements. Review order is separate from freeform geometry and remains suitable for comparison. Graph boards retain the comparison reader's previous/next, dots, revisions, notes/star, sizing, standalone opening and browser Back/Forward behavior. Search, recent, starred and archive views operate on canonical items; a shared reference does not create another source of truth.
+
+### HTTP and concurrent agents
+
+GET `/api/workspace` returns `{enabled:false,revision:0}` before initialization, or the schema 2 snapshot with `enabled:true`, `items:[]`, `boards:[]`, `homeBoardIds` and `resourceRoots`. GET `/api/boards` lists home graph boards and unmigrated legacy boards; the complete destination catalog is in `/api/workspace.boards`. GET `/api/boards/:id` returns the schema 2 board snapshot with canonical `items` keyed by ID, or the legacy response for an unmigrated board. GET `/api/items/:id` returns one canonical item. `/resources/:rootId/PATH` serves declared local resources and preserves relative HTML asset URLs.
+
+POST `/api/operations` accepts one operation as its JSON body. PATCH `/api/items/:id/review` accepts `{patch:{note,star},expectedRevision?,operationId?}`. POST `/api/workspace/migrate` requires explicit `{dryRun:true}` or `{dryRun:false}`. Legacy notes endpoints remain supported for legacy boards.
+
+Every HTTP write requires `Content-Type: application/json` and `x-tinka-workspace` equal to the **live `/api/config.workspaceId`**. That machine identity preserves the existing config/boards namespace for the default metadata location, and additionally scopes a genuinely custom workspaceRoot. It is distinct from the durable `/api/workspace.workspaceId`. Same-origin Host/Origin checks and a 1 MB request limit apply. A stale tab or changed live config cannot save into a different project. CLI operations address their explicit config and use the same locks.
+
+Each operation may include `expectedRevision` and a unique `operationId`. A stale revision returns 409; reload and reconcile the intended edit before retrying. A repeated operation ID with identical payload replays its result; reuse with different input fails. Idempotence receipts retain the most recent 64 operations. Successful operations return `{revision,result}` with created IDs. Invalid operations return 400, unknown targets 404, cycles/conflicts 409; no partial metadata change is committed.
+
+## Legacy boards
+
+The sections below describe schema 1 folders. They remain readable without migration. For schema 2 items and direct organization operations, see the workspace contract above.
+
 ## Start a board
 
 Create a board with `node cli.mjs board create SLUG --config /absolute/config.json --title "Title"`. Its immediate folder under `boardsRoot` contains `AGENTS.md`, `board.json`, `rounds.json`, `build-state.json`, and `.state/notes.json`. The portable guide stays with the board. Use `board guide SLUG --config PATH` to add it to an older board without overwriting an existing guide. No installed skill is required. The app never executes a manifest or an experiment start command. Keep source and evidence in that external board folder; keep the application installation replaceable.
@@ -74,6 +166,6 @@ Use `building` while implementation is active, `review` when the artifact is run
 
 ## Remove an item
 
-Each experiment and board has a **Remove…** action that prepares a copyable agent prompt. The browser does not delete or move files. The prompt identifies the project, workspace, config, board and, for an experiment, its round and stable ID. Verify that identity against `/api/health` before editing.
+Each experiment and board has a **Remove…** action that prepares a copyable agent prompt. In legacy boards, the browser does not delete or move files. The prompt identifies the project, workspace, config, board and, for an experiment, its round and stable ID. Verify that identity against `/api/health` before editing.
 
 When the owner supplies a removal prompt, remove exactly that target. For an experiment, save a recoverable manifest copy in the board's `.state` folder, then remove its concept and revision entries from `rounds.json`. Keep its files, shared dependencies, notes and build history; leave other IDs, numbering and rounds intact. For a board, move its complete folder to a recoverable archive outside `boardsRoot`, preserving all contents. Report the archive or snapshot location and verify that the target has disappeared from the review surface. Do not recreate removed reference material. An already absent target is a completed removal, not permission to choose a substitute.

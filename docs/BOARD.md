@@ -1,3 +1,17 @@
+# Board instructions and workspace compatibility
+
+For a schema 2 board, the authoritative arrangement is its document in the external
+workspace metadata directory. Items are canonical documents; placements reference
+them. Resource files may remain in this folder or another named root. Use the
+selected app's `workspace show` and `workspace op` commands, preserve stable IDs,
+and read `docs/PROTOCOL.md` before moves, references or review edits. Removing a
+placement or deleting Tinka metadata never deletes its files. Notes/stars/status
+are shared across references; placement geometry and local archive state are not.
+
+The legacy folder guide below remains applicable to unmigrated boards and to the
+source material preserved by migration. Do not rewrite legacy manifests to make
+a schema 2 organizational change.
+
 # Working with this Tinka board
 
 This folder is a portable design archive. No agent skill is required. Read its

@@ -1,6 +1,6 @@
 # Tinka
 
-Tinka is a **free, local canvas for trying designs with your AI agent**. Ask for a few different approaches, try them on one board, and find your direction. A **Tinka Board** keeps experiments, images, prototypes, earlier rounds, and notes together.
+Tinka is a **free, project-local workspace for ideas, resources and experiments created with your AI agent**. Keep title-only ideas, notes, HTML, images, videos, documents, external links and live applications together. Arrange the same item on several boards, open its content or children, and collect review notes without moving its files. Existing design rounds and comparison readers remain supported.
 
 Each project gets its own instance. You can run `Tinka / Atlas` and `Tinka / Orchard` at the same time, with separate boards, notes, configuration, processes, and saved URLs. There is no master service or shared port allocator.
 
@@ -95,11 +95,41 @@ node /absolute/project/tinka/app/cli.mjs board create first-ideas \
 
 Or copy [`examples/first-steps`](examples/first-steps) into the external boards root for two small, runnable experiments. The home page's **+ New board** button produces a copyable agent prompt containing this instance's label, URL, and paths.
 
-New workspaces and boards start empty. Reference boards and starter experiments are optional. Use **Remove…** on a board or experiment to copy a prompt for your agent to remove that exact item while keeping it recoverable.
+New workspaces and boards start empty. Reference boards and starter experiments are optional. Legacy boards retain their copyable removal prompts. In schema 2 workspaces, removal changes metadata and keeps resource files.
 
 Each board can have its own cover image instead of the default paper artwork. Use **Change cover…** for an agent prompt, or set `"cover": "assets/cover.svg"` in that board's `board.json`. A **1200 × 600** image is recommended; see [cover images](docs/PROTOCOL.md#board-cover-image) for the file and design guidance.
 
 Stop only this instance with `node /absolute/project/tinka/app/cli.mjs stop --config /absolute/project/tinka/local/config.json`. Use `serve` for a foreground process and Ctrl-C to stop it. PID and log files live beside the config. Managed stop checks the recorded PID, CLI path, config path, and unique process token before signaling anything.
+
+## Initialize the flexible workspace
+
+Version 0.5.0 adds a schema 2 workspace while preserving legacy board folders.
+Initialization and migration are explicit; an app upgrade alone changes no project data.
+
+```sh
+node /absolute/app/cli.mjs workspace migrate --config /absolute/config.json --dry-run
+node /absolute/app/cli.mjs workspace migrate --config /absolute/config.json --apply
+node /absolute/app/cli.mjs workspace show --config /absolute/config.json
+```
+
+With no legacy boards, `workspace init --apply` initializes an empty workspace.
+Metadata lives in `boardsRoot/.tinka` unless the external config specifies an
+absolute `workspaceRoot`. Keep this durable directory, original board folders,
+and named resource folders in project version control or an explicit backup.
+App replacement never includes them. Default metadata under boardsRoot travels with committed boards; a custom absolute workspaceRoot needs deliberate backup and restoration on another machine. A copied workspace retains stable graph IDs;
+this machine's config identity remains separate.
+
+An item may have content, a child board, both, or only a title. References share
+notes, stars and status. Each placement has its own position and size. Grid and
+Canvas show the same board; moving or removing a placement does not move or delete
+files. An external URL can open in a separate tab. A stopped local app retains its
+preview and start instructions, with retry when its independently managed server
+returns. Tinka does not run commands from item metadata.
+
+Agents use the same operations as the browser through HTTP or
+`workspace op --json JSON` / `workspace op --file PATH`. See the
+[schema 2 protocol](docs/PROTOCOL.md#schema-2-workspace) for resource declarations,
+content examples, shared references, conflicts and migration rollback.
 
 ## If you're an agent
 
@@ -119,7 +149,7 @@ The optional Tinka skill is a small discovery pointer. Install it only if useful
 app upgrades do not require updating it. No global registry is needed for portable
 projects. Legacy workspace pointers and external data layouts remain supported.
 
-Browser storage keys include an identity derived from this config's canonical path and boards root. A different project later using the same port cannot inherit its notes or view settings. Note writes also check the workspace identity, so stale tabs cannot write into a project that later takes their old port. Server notes remain in each board's `.state/notes.json`; older unscoped browser caches are left untouched and are not automatically imported. Export any browser-only notes from the old app before upgrading.
+Browser storage keys include an identity derived from this config's canonical path and boards root, adding a custom workspace metadata root when it differs from the default. A different project later using the same port cannot inherit its notes or view settings. Note writes also check the workspace identity, so stale tabs cannot write into a project that later takes their old port. Legacy server notes remain in each board's `.state/notes.json`; schema 2 review notes are canonical item metadata. Older unscoped browser caches are left untouched and are not automatically imported. Export any browser-only notes from the old app before upgrading.
 
 ## Upgrade one project
 

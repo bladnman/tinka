@@ -29,6 +29,30 @@ Before claiming a running workspace, verify `/api/health` matches the selected
 canonical config path and project label. Report the actual URL printed by start.
 Do not kill, adopt or reconfigure another instance to resolve a collision.
 
+## Schema 2 agent operations
+
+Read [the workspace protocol](PROTOCOL.md#schema-2-workspace) before changing an
+initialized workspace. Use `workspace show` or GET `/api/workspace` to obtain IDs,
+board membership, resource roots and the current revision. Use `workspace op`
+instead of hand-editing transaction metadata. After migration, original board
+AGENTS guides, rounds, status and note files are historical snapshots. Follow the
+schema 2 contract for organization/feedback even if an older guide instructs direct
+manifest writes; those writes do not update canonical metadata. Prototype files
+and assets remain live editable resources. `board create` creates a graph board
+when initialized and a legacy folder otherwise. `status --board BOARD ITEM_ID STATE`
+updates an initialized item's status; migrated `ROUND/CONCEPT` keys also work.
+
+Register the project-controlled resource folder once through `updateWorkspace`,
+then reference files by `{rootId,path}`. Keep file payloads, app processes and
+start instructions owned by the controlling project. A title-only item is valid.
+An item with a child board can also have content. Use `reference` to share canonical
+review; use `duplicate` for independent feedback without copying source files.
+
+Keep resource folders and workspace metadata outside the replaceable app and in
+an explicit backup. Migration requires a reviewed dry-run and explicit apply;
+never convert production data merely to inspect a candidate. See the protocol for
+backup/rollback and note lineage. No operation authorizes deleting resource files.
+
 ## Build and review
 
 Read [PROTOCOL.md](PROTOCOL.md) and the board's own `AGENTS.md`. Create only the
@@ -61,5 +85,5 @@ version pin only after a successful installation. Commit that deliberate change.
 
 Keep boards, config, notes and runtime state outside the replaceable app. App
 replacement never includes user content. Before upgrading an old app, export
-any browser-only notes; disk notes remain with each board. Installation does
+any browser-only notes; legacy disk notes remain with each board and schema 2 notes remain in canonical metadata. Installation does
 not publish a release or authorize changes to the project's designs.

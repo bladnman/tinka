@@ -4,6 +4,7 @@ const kind = query.get('kind') || 'html';
 const boardId = query.get('board') || '';
 const path = query.get('path') || '';
 const remote = query.get('url') || '';
+const resourceRoot = query.get('root') || '';
 const name = query.get('name') || 'Experiment';
 const content = $('media-content');
 const openOriginal = $('open-original');
@@ -26,10 +27,10 @@ function sourceUrl() {
       return ['http:', 'https:'].includes(url.protocol) ? url.href : null;
     } catch { return null; }
   }
-  if (!/^[a-z0-9][a-z0-9-]*$/.test(boardId)) return null;
+  if (!/^[a-z0-9][a-z0-9-]*$/.test(resourceRoot || boardId)) return null;
   const parts = path.split('/');
   if (!parts.length || parts.some(part => !part || part === '.' || part === '..' || part.includes('\\') || part.includes('\0'))) return null;
-  return `/boards/${encodeURIComponent(boardId)}/files/${parts.map(encodeURIComponent).join('/')}`;
+  return resourceRoot ? `/resources/${encodeURIComponent(resourceRoot)}/${parts.map(encodeURIComponent).join('/')}` : `/boards/${encodeURIComponent(boardId)}/files/${parts.map(encodeURIComponent).join('/')}`;
 }
 
 function applyPreferences(theme, scale) {
@@ -40,7 +41,7 @@ function applyPreferences(theme, scale) {
 function markdownAssetUrl(value, baseUrl) {
   try {
     const candidate = new URL(value, baseUrl);
-    const boardPath = `/boards/${encodeURIComponent(boardId)}/files/`;
+    const boardPath = resourceRoot ? `/resources/${encodeURIComponent(resourceRoot)}/` : `/boards/${encodeURIComponent(boardId)}/files/`;
     if (['http:', 'https:'].includes(candidate.protocol) && (candidate.origin !== location.origin || candidate.pathname.startsWith(boardPath))) return candidate.href;
   } catch {}
   return null;
@@ -169,6 +170,8 @@ else {
     const video = document.createElement('video'); video.src = asset; video.controls = true; video.playsInline = true; video.preload = 'metadata';
     video.onerror = () => showError('The video could not be loaded.');
     stage.append(video); content.append(stage);
+  } else if (kind === 'audio') {
+    const audio = document.createElement('audio'); audio.src = asset; audio.controls = true; audio.preload = 'metadata'; audio.setAttribute('aria-label', name); content.append(audio);
   } else if (kind === 'pdf' || kind === 'html') {
     const frame = document.createElement('iframe'); frame.className = kind === 'pdf' ? 'pdf-frame' : 'app-frame'; frame.src = asset; frame.title = name;
     content.append(frame);

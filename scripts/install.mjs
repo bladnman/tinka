@@ -164,7 +164,15 @@ async function validateExternal(configInput, installCanonical) {
   if (settings.schemaVersion !== 1 || typeof settings.boardsRoot !== 'string' || !path.isAbsolute(settings.boardsRoot)) throw new Error('Invalid external config.');
   const boardsRoot = await realpath(settings.boardsRoot);
   if (inside(installCanonical, configPath) || inside(installCanonical, boardsRoot) || inside(boardsRoot, installCanonical)) throw new Error('Config and boards must remain outside the app directory.');
-  return { configPath, boardsRoot };
+  if(settings.workspaceRoot!==undefined&&(typeof settings.workspaceRoot!=='string'||!path.isAbsolute(settings.workspaceRoot)))throw new Error('workspaceRoot must be absolute.');
+  const workspaceRoot=await canonicalFuturePath(settings.workspaceRoot||path.join(boardsRoot,'.tinka'));
+  if(inside(installCanonical,workspaceRoot)||inside(workspaceRoot,installCanonical))throw new Error('Workspace metadata must remain outside the app directory.');
+  return { configPath, boardsRoot, workspaceRoot };
+}
+
+async function canonicalFuturePath(input){
+  const absolute=path.resolve(input);
+  try{return await realpath(absolute);}catch(error){if(error.code!=='ENOENT')throw error;const parent=path.dirname(absolute);if(parent===absolute)throw error;return path.join(await canonicalFuturePath(parent),path.basename(absolute));}
 }
 
 export async function installArchive({ zipBytes, checksumText, zipName, installDir, configPath }) {
