@@ -126,6 +126,12 @@ files. An external URL can open in a separate tab. A stopped local app retains i
 preview and start instructions, with retry when its independently managed server
 returns. Tinka does not run commands from item metadata.
 
+New graph boards open in Canvas unless you have already chosen Grid. Scroll with
+a mouse or trackpad to pan; Shift-scroll moves sideways. On a touch screen, swipe
+the background. Pinch or Control/⌘-scroll zooms. Drag a card’s body to move it;
+a click opens its preview, while notes, links and buttons keep their normal
+behavior. Move / resize provides keyboard and touch alternatives.
+
 Agents use the same operations as the browser through HTTP or
 `workspace op --json JSON` / `workspace op --file PATH`. See the
 [schema 2 protocol](docs/PROTOCOL.md#schema-2-workspace) for resource declarations,

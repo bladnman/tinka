@@ -945,3 +945,19 @@ html[data-theme="night"] .item-representation p {
 .workspace-question {
   font-style: italic;
 }
+
+/* Canvas scrolls; cards supply the drag affordance. Interactive controls stay independent. */
+.workspace-board[data-board-layout="canvas"] #viewport {
+  cursor: default;
+}
+.workspace-board[data-board-layout="canvas"] .workspace-card {
+  cursor: grab;
+}
+.workspace-board[data-board-layout="canvas"] .workspace-preview-launch {
+  cursor: grab;
+}
+.workspace-board .workspace-dragging,
+.workspace-board .workspace-dragging * {
+  cursor: grabbing !important;
+  user-select: none !important;
+}

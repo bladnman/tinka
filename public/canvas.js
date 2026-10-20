@@ -1078,19 +1078,19 @@ track.addEventListener('pointerout', event => { if (!scrub && event.target.close
 track.addEventListener('focusin', event => { if (event.target.matches('[data-dot]:focus-visible')) showTooltip(event.target); });
 track.addEventListener('focusout', () => { if (!scrub) hideTooltip(); });
 
-// Canvas: drag to pan (after a small threshold, so clicks still work), two-finger pinch to zoom.
+// Legacy canvas: background drag pans. Graph Canvas uses ordinary scrolling; both keep two-finger pinch zoom.
 const pointers = new Map();
 let pan = null;
 let pinch = null;
 viewport.addEventListener('pointerdown', event => {
   if (graph?.mode === 'grid') return;
-  if (graph && event.target.closest('button')) return;
+  if (graph && (event.pointerType !== 'touch' || (event.target.closest('button') && !event.target.closest('.workspace-preview-launch')))) return;
   if (event.pointerType === 'mouse' && event.button !== 0) return;
   if (event.target.closest('textarea,input,select,a')) return;
   stopGlide();
-  pointers.set(event.pointerId, { x: event.clientX, y: event.clientY });
+  pointers.set(event.pointerId, { x: event.clientX, y: event.clientY, canPan: !graph || !event.target.closest('.workspace-card') });
   if (pointers.size === 1) {
-    pan = { id: event.pointerId, x: event.clientX, y: event.clientY, left: view.x, top: view.y, active: false };
+    pan = graph && event.target.closest('.workspace-card') ? null : { id: event.pointerId, x: event.clientX, y: event.clientY, left: view.x, top: view.y, active: false };
     pinch = null;
   } else if (pointers.size === 2) {
     const [a, b] = [...pointers.values()];
@@ -1102,7 +1102,7 @@ viewport.addEventListener('pointerdown', event => {
 });
 viewport.addEventListener('pointermove', event => {
   if (!pointers.has(event.pointerId)) return;
-  pointers.set(event.pointerId, { x: event.clientX, y: event.clientY });
+  pointers.set(event.pointerId, { ...pointers.get(event.pointerId), x: event.clientX, y: event.clientY });
   if (pinch && pointers.size >= 2) {
     const [a, b] = [...pointers.values()];
     const [mx, my] = viewportPoint((a.x + b.x) / 2, (a.y + b.y) / 2);
@@ -1126,7 +1126,7 @@ function endPointer(event) {
   if (pointers.size < 2) pinch = null;
   if (pointers.size === 1) {
     const [id, point] = [...pointers.entries()][0];
-    pan = { id, x: point.x, y: point.y, left: view.x, top: view.y, active: true };
+    pan = graph && !point.canPan ? null : { id, x: point.x, y: point.y, left: view.x, top: view.y, active: true };
   } else if (!pointers.size) { pan = null; viewport.classList.remove('panning'); }
 }
 viewport.addEventListener('pointerup', endPointer);

@@ -23,14 +23,12 @@ export class WorkspaceBoard {
       recent: false,
       archive: false,
     };
-    this.mode = "grid";
+    this.mode = "canvas";
     try {
-      if (
-        localStorage.getItem(
-          `tinka/${config.workspaceId}/${snapshot.id}/layout`,
-        ) === "canvas"
-      )
-        this.mode = "canvas";
+      const stored = localStorage.getItem(
+        `tinka/${config.workspaceId}/${snapshot.id}/layout`,
+      );
+      if (["grid", "canvas"].includes(stored)) this.mode = stored;
     } catch {}
     this.draftKey = `tinka/${config.workspaceId}/item-review-drafts`;
     let drafts = {};
@@ -136,6 +134,12 @@ export class WorkspaceBoard {
   }
   mount() {
     document.body.classList.add("workspace-board");
+    $("viewport").setAttribute(
+      "aria-label",
+      "Board canvas: scroll to pan, pinch or Control-scroll to zoom; drag a card to move it",
+    );
+    $("help-panel").innerHTML =
+      "<strong>Make yourself at home.</strong> Scroll with your mouse or trackpad, or swipe the background on a touch screen, to move around Canvas; Shift-scroll moves sideways. Pinch, or hold Control or ⌘ while scrolling, to zoom. Drag a card’s body to move it; notes and buttons keep their usual behavior. A click opens a preview. Move / resize offers keyboard and touch controls. Grid keeps comparison order. Open an item to try it, then step with Previous, Next or the dots. Escape returns here. Stars and notes follow the item across references.";
     const bar = document.createElement("section");
     bar.id = "workspace-toolbar";
     bar.className = "workspace-toolbar";
@@ -602,84 +606,160 @@ export class WorkspaceBoard {
     );
   }
   pointer() {
-    let drag;
+    let drag = null;
+    let suppressedClick = null;
     const viewport = $("viewport");
+    const cancel = () => {
+      if (!drag) return;
+      const { element, p, pointerId } = drag;
+      element.classList.remove("workspace-dragging");
+      Object.assign(element.style, {
+        left: `${p.x + this.origin.x}px`,
+        top: `${p.y + this.origin.y}px`,
+        width: `${p.width}px`,
+        height: `${p.height}px`,
+      });
+      try {
+        viewport.releasePointerCapture(pointerId);
+      } catch {}
+      drag = null;
+    };
+    // A fresh pointer gesture cannot inherit the click suppressed after a drag.
+    document.addEventListener(
+      "pointerdown",
+      () => {
+        suppressedClick = null;
+      },
+      true,
+    );
+    document.addEventListener(
+      "click",
+      (e) => {
+        if (!suppressedClick || e.detail === 0) return;
+        if (e.target === viewport || suppressedClick.contains(e.target)) {
+          e.preventDefault();
+          e.stopImmediatePropagation();
+          suppressedClick = null;
+        }
+      },
+      true,
+    );
     viewport.addEventListener(
       "pointerdown",
       (e) => {
-        if (this.mode !== "canvas") return;
+        if (this.mode !== "canvas" || e.button !== 0) return;
+        if (drag && drag.pointerId !== e.pointerId) {
+          cancel();
+          return;
+        }
+        const card = e.target.closest(".workspace-card");
+        if (!card) return;
         const handle = e.target.closest("[data-drag],[data-resize]");
-        if (!handle) return;
-        e.preventDefault();
-        e.stopImmediatePropagation();
-        const id = handle.dataset.drag || handle.dataset.resize,
-          p = this.snapshot.placements.find((p) => p.id === id);
+        const preview = e.target.closest(".workspace-preview-launch");
+        if (
+          !handle &&
+          !preview &&
+          e.target.closest(
+            "button,a,input,textarea,select,label,[contenteditable],.workspace-review",
+          )
+        )
+          return;
+        const id = card.dataset.placement;
+        const p = this.snapshot.placements.find((p) => p.id === id);
+        if (!p) return;
         drag = {
           id,
           p: { ...p },
           x: e.clientX,
           y: e.clientY,
-          resize: !!handle.dataset.resize,
-          element: handle.closest(".workspace-card"),
+          pointerId: e.pointerId,
+          resize: !!handle?.dataset.resize,
+          element: card,
           zoom: this.hooks.zoom(),
+          active: false,
         };
-        try {
-          viewport.setPointerCapture(e.pointerId);
-        } catch {}
+        if (drag.resize) {
+          e.preventDefault();
+          e.stopImmediatePropagation();
+        }
       },
       true,
     );
-    viewport.addEventListener(
+    document.addEventListener(
       "pointermove",
       (e) => {
-        if (!drag) return;
+        if (!drag || drag.pointerId !== e.pointerId) return;
+        const screenX = e.clientX - drag.x,
+          screenY = e.clientY - drag.y;
+        if (
+          !drag.active &&
+          Math.hypot(screenX, screenY) < (e.pointerType === "touch" ? 8 : 6)
+        )
+          return;
+        if (!drag.active) {
+          drag.active = true;
+          drag.element.classList.add("workspace-dragging");
+          const selection = window.getSelection();
+          if (
+            selection?.anchorNode &&
+            drag.element.contains(selection.anchorNode)
+          )
+            selection.removeAllRanges();
+          try {
+            viewport.setPointerCapture(e.pointerId);
+          } catch {}
+        }
         e.preventDefault();
         e.stopImmediatePropagation();
-        const dx = (e.clientX - drag.x) / drag.zoom,
-          dy = (e.clientY - drag.y) / drag.zoom;
+        const dx = screenX / drag.zoom,
+          dy = screenY / drag.zoom;
         drag.patch = drag.resize
           ? {
               width: Math.max(160, Math.round(drag.p.width + dx)),
               height: Math.max(180, Math.round(drag.p.height + dy)),
             }
           : { x: Math.round(drag.p.x + dx), y: Math.round(drag.p.y + dy) };
-        for (const [k, v] of Object.entries(drag.patch))
-          drag.element.style[k === "x" ? "left" : k === "y" ? "top" : k] =
-            (k === "x"
-              ? v + this.origin.x
-              : k === "y"
-                ? v + this.origin.y
-                : v) + "px";
+        for (const [key, value] of Object.entries(drag.patch))
+          drag.element.style[key === "x" ? "left" : key === "y" ? "top" : key] =
+            (key === "x"
+              ? value + this.origin.x
+              : key === "y"
+                ? value + this.origin.y
+                : value) + "px";
       },
       true,
     );
-    const end = async (e) => {
-      if (!drag) return;
-      e.stopImmediatePropagation();
-      const done = drag;
-      drag = null;
-      if (!done.patch) return;
-      try {
-        await this.client.write("updatePlacement", {
-          boardId: this.snapshot.id,
-          placementId: done.id,
-          patch: done.patch,
-        });
-        await this.refresh();
-      } catch (error) {
-        showFailure(error);
-        this.rebuild();
-      }
-    };
-    viewport.addEventListener("pointerup", end, true);
-    viewport.addEventListener(
-      "pointercancel",
-      (e) => {
-        if (drag) {
-          e.stopImmediatePropagation();
-          drag = null;
+    document.addEventListener(
+      "pointerup",
+      async (e) => {
+        if (!drag || drag.pointerId !== e.pointerId) return;
+        const done = drag;
+        drag = null;
+        done.element.classList.remove("workspace-dragging");
+        if (!done.active || !done.patch) return;
+        e.preventDefault();
+        suppressedClick = done.element;
+        try {
+          viewport.releasePointerCapture(e.pointerId);
+        } catch {}
+        try {
+          await this.client.write("updatePlacement", {
+            boardId: this.snapshot.id,
+            placementId: done.id,
+            patch: done.patch,
+          });
+          await this.refresh();
+        } catch (error) {
+          showFailure(error);
           this.rebuild();
         }
+      },
+      true,
+    );
+    document.addEventListener(
+      "pointercancel",
+      (e) => {
+        if (drag?.pointerId === e.pointerId) cancel();
       },
       true,
     );

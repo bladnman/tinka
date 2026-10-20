@@ -149,7 +149,20 @@ try {
   const errors = [];
   page.on("pageerror", (e) => errors.push(e.message));
   await page.goto(base + `/boards/${board.id}/`);
+  await page.locator(".workspace-card").first().waitFor();
+  assert.equal(
+    await page.locator("body").getAttribute("data-board-layout"),
+    "canvas",
+    "Unconfigured graph board defaults to Canvas",
+  );
+  await page.getByRole("button", { name: "Grid", exact: true }).click();
+  await page.reload();
   await page.locator(".workspace-grid-round").first().waitFor();
+  assert.equal(
+    await page.locator("body").getAttribute("data-board-layout"),
+    "grid",
+    "Explicit Grid preference survives reload",
+  );
   assert.equal(
     await page.locator(".workspace-grid-round>header h2").first().textContent(),
     "Five directions",
@@ -740,11 +753,394 @@ try {
       .getByText("Stored settings representation", { exact: true })
       .isVisible(),
   );
+  // Natural Canvas input uses a dedicated board, independent of comparison data.
+  revision = (await (await fetch(base + "/api/workspace")).json()).revision;
+  const inputBoard = await op("createBoard", { title: "Canvas input fixture" });
+  const inputItem = await op("createItem", {
+    boardId: inputBoard.boardId,
+    item: {
+      title: "A card to move",
+      description: "Drag this ordinary card body.",
+      content: { kind: "text", text: "Primary idea content." },
+    },
+    placement: { x: 0, y: 0, width: 290, height: 500, z: 0 },
+  });
+  await op("createItem", {
+    boardId: inputBoard.boardId,
+    item: { title: "Room to scroll", description: "A second distant card." },
+    placement: { x: 700, y: 0, width: 290, height: 500, z: 1 },
+  });
+  const inputPlacement = async () => {
+    const b = await (
+      await fetch(base + `/api/boards/${inputBoard.boardId}`)
+    ).json();
+    return b.placements.find((p) => p.itemId === inputItem.itemId);
+  };
+  const waitPlacement = async (test) => {
+    for (let i = 0; i < 80; i++) {
+      const p = await inputPlacement();
+      if (test(p)) return p;
+      await new Promise((resolve) => setTimeout(resolve, 25));
+    }
+    throw new Error("Canvas placement did not persist");
+  };
+  const planePosition = () =>
+    page.locator("#plane").evaluate((el) => {
+      const m = new DOMMatrix(getComputedStyle(el).transform);
+      return { x: m.e, y: m.f };
+    });
+  const dragPointer = async (box, dx, dy) => {
+    await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+    await page.mouse.down();
+    await page.mouse.move(
+      box.x + box.width / 2 + dx,
+      box.y + box.height / 2 + dy,
+      { steps: 8 },
+    );
+    await page.mouse.up();
+  };
+  let placementWrites = 0;
+  page.on("request", (request) => {
+    if (
+      request.url().endsWith("/api/operations") &&
+      request.method() === "POST" &&
+      request.postDataJSON().type === "updatePlacement"
+    )
+      placementWrites++;
+  });
+  for (const width of [390, 1440]) {
+    await page.setViewportSize({ width, height: 960 });
+    await page.goto(base + `/boards/${inputBoard.boardId}/`);
+    await page.locator(".workspace-card").first().waitFor();
+    assert.equal(
+      await page.locator("body").getAttribute("data-board-layout"),
+      "canvas",
+    );
+    const vp = await page.locator("#viewport").boundingBox();
+    const empty = {
+      x: vp.x + vp.width - 12,
+      y: vp.y + vp.height - 12,
+      width: 1,
+      height: 1,
+    };
+    let before = await planePosition();
+    await dragPointer(empty, -55, -45);
+    assert.deepEqual(
+      await planePosition(),
+      before,
+      "Background pointer drag does not grab Canvas",
+    );
+    await page.mouse.move(empty.x, empty.y);
+    await page.mouse.wheel(0, 70);
+    await page.waitForFunction(
+      (previous) =>
+        new DOMMatrix(
+          getComputedStyle(document.getElementById("plane")).transform,
+        ).f < previous,
+      before.y,
+    );
+    let after = await planePosition();
+    assert.equal(Math.round(after.y - before.y), -70);
+    before = after;
+    await page.mouse.wheel(55, 0);
+    await page.waitForFunction(
+      (previous) =>
+        new DOMMatrix(
+          getComputedStyle(document.getElementById("plane")).transform,
+        ).e < previous,
+      before.x,
+    );
+    after = await planePosition();
+    assert.equal(Math.round(after.x - before.x), -55);
+    before = after;
+    await page.keyboard.down("Shift");
+    await page.mouse.wheel(0, 40);
+    await page.keyboard.up("Shift");
+    await page.waitForFunction(
+      (previous) =>
+        new DOMMatrix(
+          getComputedStyle(document.getElementById("plane")).transform,
+        ).e < previous,
+      before.x,
+    );
+    after = await planePosition();
+    assert.equal(Math.round(after.x - before.x), -40);
+    assert.equal(
+      Math.round(after.y - before.y),
+      0,
+      "Shift wheel moves sideways",
+    );
+    const beforeZoom = await page
+      .locator("#world")
+      .evaluate((el) => new DOMMatrix(getComputedStyle(el).transform).a);
+    await page.keyboard.down("Control");
+    await page.mouse.wheel(0, -20);
+    await page.keyboard.up("Control");
+    await page.waitForFunction(
+      (previous) =>
+        new DOMMatrix(
+          getComputedStyle(document.getElementById("world")).transform,
+        ).a > previous,
+      beforeZoom,
+    );
+    if (width === 390) {
+      const cdp = await context.newCDPSession(page);
+      await cdp.send("Emulation.setTouchEmulationEnabled", {
+        enabled: true,
+        maxTouchPoints: 2,
+      });
+      const touchPoint = await page.locator("#viewport").evaluate((vp) => {
+        const r = vp.getBoundingClientRect();
+        for (const x of [r.left + 10, r.right - 10])
+          for (const y of [r.top + 20, r.bottom - 20]) {
+            const el = document.elementFromPoint(x, y);
+            if (el && !el.closest(".workspace-card")) return { x, y };
+          }
+        throw new Error("No background touch point");
+      });
+      before = await planePosition();
+      await cdp.send("Input.dispatchTouchEvent", {
+        type: "touchStart",
+        touchPoints: [{ id: 1, x: touchPoint.x, y: touchPoint.y }],
+      });
+      await cdp.send("Input.dispatchTouchEvent", {
+        type: "touchMove",
+        touchPoints: [{ id: 1, x: touchPoint.x + 20, y: touchPoint.y + 30 }],
+      });
+      await cdp.send("Input.dispatchTouchEvent", {
+        type: "touchEnd",
+        touchPoints: [],
+      });
+      after = await planePosition();
+      assert.equal(Math.round(after.x - before.x), 20);
+      assert.equal(
+        Math.round(after.y - before.y),
+        30,
+        "One-finger background swipe pans on touch",
+      );
+      const pinchPoints = await page.locator("#viewport").evaluate((vp) => {
+        const r = vp.getBoundingClientRect(),
+          points = [];
+        for (const x of [r.left + 30, r.right - 30])
+          for (let y = r.top + 45; y < r.bottom - 45; y += 90) {
+            const el = document.elementFromPoint(x, y);
+            if (el && !el.closest(".workspace-card")) points.push({ x, y });
+          }
+        for (const a of points)
+          for (const b of points)
+            if (Math.hypot(a.x - b.x, a.y - b.y) >= 120) return [a, b];
+        throw new Error("No two background pinch points");
+      });
+      const mid = {
+        x: (pinchPoints[0].x + pinchPoints[1].x) / 2,
+        y: (pinchPoints[0].y + pinchPoints[1].y) / 2,
+      };
+      const expanded = pinchPoints.map((p) => ({
+        x: mid.x + (p.x - mid.x) * 1.15,
+        y: mid.y + (p.y - mid.y) * 1.15,
+      }));
+      const pinchBefore = await page
+        .locator("#world")
+        .evaluate((el) => new DOMMatrix(getComputedStyle(el).transform).a);
+      await cdp.send("Input.dispatchTouchEvent", {
+        type: "touchStart",
+        touchPoints: [
+          { id: 1, ...pinchPoints[0] },
+          { id: 2, ...pinchPoints[1] },
+        ],
+      });
+      await cdp.send("Input.dispatchTouchEvent", {
+        type: "touchMove",
+        touchPoints: [
+          { id: 1, ...expanded[0] },
+          { id: 2, ...expanded[1] },
+        ],
+      });
+      await cdp.send("Input.dispatchTouchEvent", {
+        type: "touchEnd",
+        touchPoints: [],
+      });
+      const pinchAfter = await page
+        .locator("#world")
+        .evaluate((el) => new DOMMatrix(getComputedStyle(el).transform).a);
+      assert(pinchAfter > pinchBefore, "Two-finger touch pinch retains zoom");
+      await cdp.detach();
+    }
+    await page.reload();
+    await page.locator(".workspace-card").first().waitFor();
+    let p = await inputPlacement(),
+      writes = placementWrites;
+    await dragPointer(
+      await page.locator(".workspace-card-copy>p").first().boundingBox(),
+      20,
+      15,
+    );
+    p = await waitPlacement(
+      (next) => next.x === p.x + 20 && next.y === p.y + 15,
+    );
+    assert.equal(
+      placementWrites - writes,
+      1,
+      "One body drag produces one placement write",
+    );
+    assert.equal(await page.locator("#reader-dialog").isVisible(), false);
+    writes = placementWrites;
+    const prior = p;
+    await dragPointer(
+      await page.locator(".workspace-preview-launch").first().boundingBox(),
+      -10,
+      -5,
+    );
+    p = await waitPlacement(
+      (next) => next.x === prior.x - 10 && next.y === prior.y - 5,
+    );
+    assert.equal(
+      placementWrites - writes,
+      1,
+      "Preview surface drags without opening",
+    );
+    assert.equal(await page.locator("#reader-dialog").isVisible(), false);
+    const preview = await page
+      .locator(".workspace-preview-launch")
+      .first()
+      .boundingBox();
+    await page.mouse.move(
+      preview.x + preview.width / 2,
+      preview.y + preview.height / 2,
+    );
+    await page.mouse.down();
+    await page.mouse.move(
+      preview.x + preview.width / 2 + 2,
+      preview.y + preview.height / 2 + 1,
+    );
+    await page.mouse.up();
+    await page.locator("#reader-dialog[open]").waitFor();
+    assert.equal(
+      await page.locator("#reader-name").textContent(),
+      "A card to move",
+    );
+    await page.locator("#close-reader").click();
+    assert.equal(
+      (await inputPlacement()).x,
+      p.x,
+      "A click below drag threshold only opens",
+    );
+    const note = page.locator("[data-note]").first();
+    await note.fill("Notes remain selectable");
+    await note.focus();
+    await page.keyboard.press("Meta+A");
+    assert.deepEqual(
+      await note.evaluate((el) => [el.selectionStart, el.selectionEnd]),
+      [0, "Notes remain selectable".length],
+    );
+    await page.waitForFunction(
+      () =>
+        document.getElementById("save-status").textContent ===
+        "Item notes saved on this Mac",
+    );
+    const beforeControls = await inputPlacement();
+    await page.locator("[data-star]").first().click();
+    await page
+      .getByRole("button", { name: "Edit", exact: true })
+      .first()
+      .click();
+    await page
+      .getByRole("heading", { name: "Edit item", exact: true })
+      .waitFor();
+    await page
+      .getByRole("button", { name: "Close dialog", exact: true })
+      .click();
+    assert.deepEqual(
+      await inputPlacement(),
+      beforeControls,
+      "Notes, stars and editor controls do not drag",
+    );
+    // Bring the resize grip into view with ordinary scrolling, as a person would.
+    const grip = await page.locator(".workspace-resize").first().boundingBox(),
+      area = await page.locator("#viewport").boundingBox();
+    const background = await page.locator("#viewport").evaluate((vp) => {
+      const r = vp.getBoundingClientRect();
+      for (const x of [r.left + 8, r.right - 8])
+        for (const y of [r.top + 8, r.bottom - 8]) {
+          const el = document.elementFromPoint(x, y);
+          if (el && !el.closest(".workspace-card")) return { x, y };
+        }
+      throw new Error("No background point");
+    });
+    await page.mouse.move(background.x, background.y);
+    await page.mouse.wheel(
+      Math.max(0, grip.x + grip.width - area.x - area.width + 25),
+      Math.max(0, grip.y + grip.height - area.y - area.height + 25),
+    );
+    await page.waitForFunction(() => {
+      const grip = document
+          .querySelector(".workspace-resize")
+          .getBoundingClientRect(),
+        vp = document.getElementById("viewport").getBoundingClientRect();
+      return grip.right <= vp.right && grip.bottom <= vp.bottom;
+    });
+    writes = placementWrites;
+    await dragPointer(
+      await page.locator(".workspace-resize").first().boundingBox(),
+      15,
+      20,
+    );
+    const sized = await waitPlacement(
+      (next) => next.width === p.width + 15 && next.height === p.height + 20,
+    ).catch(async (error) => {
+      console.log(
+        JSON.stringify({
+          phase: "resize",
+          width,
+          expected: p,
+          actual: await inputPlacement(),
+          view: await page.evaluate(() => ({
+            dialogs: [...document.querySelectorAll("dialog[open]")].map(
+              (d) => d.textContent,
+            ),
+            viewport: document
+              .getElementById("viewport")
+              .getBoundingClientRect()
+              .toJSON(),
+            resize: document
+              .querySelector(".workspace-resize")
+              ?.getBoundingClientRect()
+              .toJSON(),
+            plane: document.getElementById("plane").style.transform,
+          })),
+        }),
+      );
+      throw error;
+    });
+    assert.equal(
+      placementWrites - writes,
+      1,
+      "Resize stays independent of body drag",
+    );
+    await page.reload();
+    await page.locator(".workspace-card").first().waitFor();
+    assert.equal((await inputPlacement()).width, sized.width);
+    assert.equal(
+      await page.locator("body").getAttribute("data-board-layout"),
+      "canvas",
+    );
+    await page.getByRole("button", { name: "Grid", exact: true }).click();
+    await page.reload();
+    await page.locator(".workspace-grid-round").waitFor();
+    assert.equal(
+      await page.locator("body").getAttribute("data-board-layout"),
+      "grid",
+    );
+    await page.getByRole("button", { name: "Canvas", exact: true }).click();
+    await page.screenshot({
+      path: path.join(evidence, `canvas-input-${width}.png`),
+    });
+  }
   assert.equal(errors.length, 0, errors.join("\n"));
   console.log(
     JSON.stringify({
       passed:
-        "graph reader/revisions/history/navigation, durable canonical drafts across immediate navigation/503/409/owner routes, shared review, moved revision aliases, geometry/decorations, archive/restore, mobile, title-only creation, atomic grouping, mixed legacy discovery, offline URL precedence and isolated copy/retry",
+        "Canvas default and explicit Grid persistence, mouse background no-grab, wheel/horizontal/Shift-wheel/Ctrl zoom, real touch pan and pinch, threshold body/preview drag and click, notes/controls/resize persistence at390/1440; graph reader/history/revisions/shared durable review/moved aliases/geometry/archive/mixed legacy/offline content",
       evidence,
       fixture,
       errors,
