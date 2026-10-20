@@ -118,7 +118,7 @@ async function fetchBoard() {
   if (!response.ok) throw new Error(`Board metadata unavailable (${response.status})`);
   const data = await response.json();
   if (data.schemaVersion === 2) {
-    if (!graph) graph = new WorkspaceBoard(appConfig, data, { concepts:()=>all, active:()=>active, zoom:()=>zoom, shiftOrigin:(dx,dy)=>{if(dx||dy){view.x-=dx*zoom;view.y-=dy*zoom;resting=false;}}, preview:c=>previewHref(c), layout:()=>{ if(resting)rest();else applyView(); }, mode:mode=>{ if(mode==='canvas')zoom=1; }, reloadReader:()=>loadRevision(), saveStatus:setSaveStatus, openOwner:()=>{const c=graph.ownerConcept();if(c)openReader(c.key);}, closeReader:()=>closeReader(), data:acceptGraphData });
+    if (!graph) graph = new WorkspaceBoard(appConfig, data, { concepts:()=>all, active:()=>active, zoom:()=>zoom, shiftOrigin:(dx,dy)=>{if(dx||dy){view.x-=dx*zoom;view.y-=dy*zoom;resting=false;}}, preview:c=>previewHref(c), layout:()=>{ if(resting)rest();else applyView(); }, mode:mode=>{ if(mode==='canvas'){zoom=1;settleCushion();}else{viewport.scrollLeft=0;viewport.scrollTop=0;} }, reloadReader:()=>loadRevision(), saveStatus:setSaveStatus, openOwner:()=>{const c=graph.ownerConcept();if(c)openReader(c.key);}, closeReader:()=>closeReader(), data:acceptGraphData });
     return graph.adapt(data);
   }
   if (!Array.isArray(data.rounds)) throw new Error('The board manifest is invalid.');
@@ -188,6 +188,7 @@ let glideTarget = null;
 let roundFrame = 0;
 
 function settleCushion() {
+  if (graph?.mode === 'grid') return;
   viewport.scrollLeft = CUSHION;
   viewport.scrollTop = CUSHION;
 }
@@ -1211,7 +1212,7 @@ else {
     rounds = board.rounds;
     revisions = board.revisions || {};
     readRound();
-    if (graph) { graph.mount(); viewport.scrollLeft=0;viewport.scrollTop=0; }
+    if (graph) { graph.mount(); if(graph.mode==='grid'){viewport.scrollLeft=0;viewport.scrollTop=0;}else settleCushion(); }
     else { const b=document.createElement('button');b.type='button';b.textContent='Enable organization…';b.onclick=()=>enableOrganization(appConfig);document.querySelector('.info-actions').append(b); }
     currentRound = Math.max(0, rounds.length - 1);
     buildCanvas();

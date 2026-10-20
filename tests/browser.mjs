@@ -189,6 +189,8 @@ try{
   await a.page.setViewportSize({width:1440,height:960});
   await a.page.goto(`${a.url}boards/first-steps/`);
   await a.page.locator('[data-note="first/one-step"]').waitFor();
+  // Card markup appears before the asynchronous server-note hydration completes.
+  await a.page.waitForFunction(()=>document.querySelector('#save-status').textContent==='Notes saved on this Mac');
   assert.equal(await a.page.locator('[data-note="first/one-step"]').inputValue(),'Glade only');
   await a.page.locator('.card-actions [data-open="first/one-step"]').click();
   const frame=a.page.frameLocator('#active-reader');

@@ -438,6 +438,47 @@ try {
     () => document.getElementById("workspace-retry-drafts").hidden,
   );
   await page.locator("[data-mode=canvas]").click();
+  await page.locator("#fit").click();
+  await page.waitForFunction(
+    () =>
+      document.getElementById("viewport").scrollLeft === 100000 &&
+      document.getElementById("viewport").scrollTop === 100000,
+  );
+  const canvasViewport = await page.locator("#viewport").boundingBox(),
+    canvasCard = await page.locator(".workspace-card").first().boundingBox();
+  assert(
+    canvasCard.x >= canvasViewport.x - 2 &&
+      canvasCard.y >= canvasViewport.y - 2 &&
+      canvasCard.x + canvasCard.width <=
+        canvasViewport.x + canvasViewport.width + 2 &&
+      canvasCard.y + canvasCard.height <=
+        canvasViewport.y + canvasViewport.height + 2,
+    "Grid to Canvas Fit has no uncompensated cushion offset",
+  );
+  for (const width of [390, 1440]) {
+    await page.setViewportSize({ width, height: 960 });
+    await page.reload();
+    await page.locator(".workspace-card").first().waitFor();
+    assert.equal(
+      await page.locator("body").getAttribute("data-board-layout"),
+      "canvas",
+    );
+    await page.locator("#fit").click();
+    await page.waitForFunction(
+      () =>
+        document.getElementById("viewport").scrollLeft === 100000 &&
+        document.getElementById("viewport").scrollTop === 100000,
+    );
+    const vp = await page.locator("#viewport").boundingBox(),
+      card = await page.locator(".workspace-card").first().boundingBox();
+    assert(
+      card.x >= vp.x - 2 &&
+        card.y >= vp.y - 2 &&
+        card.x + card.width <= vp.x + vp.width + 2 &&
+        card.y + card.height <= vp.y + vp.height + 2,
+      "Persisted Canvas reload fits visible card at " + width,
+    );
+  }
   await page.locator("[data-geometry]").first().click();
   await page.locator("[name=x]").fill("-2000");
   await page.locator("[name=width]").fill("380");
