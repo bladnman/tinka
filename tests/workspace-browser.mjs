@@ -177,7 +177,7 @@ try {
   };
   const errors = [];
   page.on("pageerror", (e) => errors.push(e.message));
-  if (!process.env.TINKA_FOCUSED_ONLY && !process.env.TINKA_COVERS_ONLY && !process.env.TINKA_DRAG_BOARDS_ONLY && !process.env.TINKA_DRAG_OUT_ONLY) {
+  if (!process.env.TINKA_FOCUSED_ONLY && !process.env.TINKA_COVERS_ONLY && !process.env.TINKA_DRAG_BOARDS_ONLY && !process.env.TINKA_DRAG_OUT_ONLY && !process.env.TINKA_MULTI_DRAG_ONLY) {
   await page.goto(base + `/boards/${board.id}/`);
   await page.locator(".workspace-card").first().waitFor();
   assert.equal(
@@ -1147,7 +1147,7 @@ try {
     });
   }
   }
-  if (!process.env.TINKA_COVERS_ONLY && !process.env.TINKA_DRAG_BOARDS_ONLY && !process.env.TINKA_DRAG_OUT_ONLY) {
+  if (!process.env.TINKA_COVERS_ONLY && !process.env.TINKA_DRAG_BOARDS_ONLY && !process.env.TINKA_DRAG_OUT_ONLY && !process.env.TINKA_MULTI_DRAG_ONLY) {
   // Quiet header and stable preview regression: isolated graph fixtures only.
   revision = (await (await fetch(base + "/api/workspace")).json()).revision;
   const parentA = await op("createBoard", { title: "Parent A" });
@@ -1361,7 +1361,7 @@ try {
 
   }
 
-  if (!process.env.TINKA_DRAG_BOARDS_ONLY && !process.env.TINKA_DRAG_OUT_ONLY) {
+  if (!process.env.TINKA_DRAG_BOARDS_ONLY && !process.env.TINKA_DRAG_OUT_ONLY && !process.env.TINKA_MULTI_DRAG_ONLY) {
   // Automatic collection covers: current children, bounded work, stable mounts.
   revision = (await (await fetch(base + "/api/workspace")).json()).revision;
   const coverParent = await op("createBoard", { title: "Collection cover fixture" });
@@ -1499,7 +1499,7 @@ try {
     const left=await page.locator(".workspace-card").evaluateAll(cards=>Math.min(...cards.map(card=>card.getBoundingClientRect().left)));
     if(left<20) {await page.mouse.move(width-10,850);await page.mouse.wheel(left-20,0);await page.waitForFunction(()=>Math.min(...[...document.querySelectorAll(".workspace-card")].map(card=>card.getBoundingClientRect().left))>=19);}
   };
-  if (!process.env.TINKA_DRAG_OUT_ONLY) {
+  if (!process.env.TINKA_DRAG_OUT_ONLY && !process.env.TINKA_MULTI_DRAG_ONLY) {
   const dragReceipts=[];
   for (const [width,zoom] of [[1440,50],[1440,100],[1440,125],[390,100]].filter(([width])=>!process.env.TINKA_DRAG_NARROW_ONLY||width===390)) {
     revision=(await snapshot()).revision;
@@ -1624,6 +1624,7 @@ try {
     const placed=next.boards.find(b=>b.id===targetBoard).placements.find(p=>p.itemId===itemId&&!p.removedAt);
     assert(placed,"Moved item is present on destination board");return {next,placed};
   };
+  if (!process.env.TINKA_MULTI_DRAG_ONLY) {
   for(const width of [1440,390]){
     const f=await makeOutFixture(`Parent return ${width}`),before=await snapshot(),canonical=before.items.find(i=>i.id===f.focus.itemId);
     await showBoard(f.group.boardId,width,100);
@@ -1701,12 +1702,56 @@ try {
   assert.equal(await tileFor(f).count(),1,"409 restores the same source child tile");
   await page.unroute("**/api/operations");await page.evaluate(key=>localStorage.removeItem(key),draftKey);
   await writeFile(path.join(evidence,"drag-out-receipt.json"),JSON.stringify({gestures:outReceipts,cancel:true,conflict:true},null,2));
+  }
+  // Selected placements travel as one gesture and one store transaction.
+  const multiReceipts=[];
+  const makeMulti=async(title,narrow=false)=>{
+    revision=(await snapshot()).revision;const parent=await op("createBoard",{title}),group=await op("createBoard",{title:"READ FIRST",parentBoardId:parent.boardId});
+    await op("updatePlacement",{boardId:parent.boardId,placementId:group.placementIds[0],patch:{x:narrow?0:500,y:narrow?300:0,width:280,height:260}});
+    const kept=await op("createItem",{boardId:group.boardId,item:{title:"Existing design",content:first.content}}),children=[];
+    for(const index of [0,1])children.push(await op("createItem",{boardId:parent.boardId,item:{title:index?"Notebook":"Focus reader",content:first.content,review:{note:"Keep review "+index,star:true},build:{state:"ready",message:"Keep build"}},placement:{x:index*60,y:index*40,width:190,height:160,z:5-index,presentation:{mode:"card",paper:"#f4ead9"}}}));
+    const references=[];for(const child of children)references.push(await op("reference",{sourceBoardId:parent.boardId,placementIds:child.placementIds,targetBoardId:second.boardId}));return {parent,group,kept,children,references};
+  };
+  const bringControl=async control=>{const b=await control.boundingBox(),vp=await page.locator("#viewport").boundingBox();let dx=0,dy=0;if(b.x+b.width/2<vp.x+15||b.x+b.width/2>vp.x+vp.width-15)dx=b.x+b.width/2-(vp.x+vp.width/2);if(b.y+b.height/2<vp.y+15||b.y+b.height/2>vp.y+vp.height-15)dy=b.y+b.height/2-(vp.y+vp.height/2);if(dx||dy){await page.mouse.move(vp.x+vp.width-8,vp.y+vp.height-8);await page.mouse.wheel(dx,dy);await page.waitForFunction(el=>{const b=el.getBoundingClientRect(),v=document.getElementById("viewport").getBoundingClientRect();return b.x+b.width/2>v.left+10&&b.x+b.width/2<v.right-10&&b.y+b.height/2>v.top+10&&b.y+b.height/2<v.bottom-10;},await control.elementHandle());}};
+  const selectMany=async ids=>{for(const id of ids){const button=page.locator(`[data-placement-select="${id}"]`);await bringControl(button);if(await button.getAttribute("aria-pressed")!=="true")await button.click();}assert.equal(await page.locator(".workspace-card.selected").count(),ids.length);};
+  const beginMany=async(id,target,right=false)=>{const preview=cardFor(id).locator(".workspace-preview-launch");await bringControl(preview);const a=await preview.boundingBox(),b=await target.boundingBox();await page.mouse.move(right?a.x+a.width-12:a.x+a.width/2,a.y+a.height/2);await page.mouse.down();await page.mouse.move(b.x+b.width/2,b.y+Math.min(65,b.height/3),{steps:12});await page.waitForTimeout(70);};
+  const activeBoard=(ws,id)=>ws.boards.find(b=>b.id===id);
+  const activePlacements=(ws,id)=>activeBoard(ws,id).placements.filter(p=>!p.removedAt&&!p.archivedAt);
+  const assertCanonical=(before,after,ids)=>{for(const id of ids)assert.deepEqual(after.items.find(i=>i.id===id),before.items.find(i=>i.id===id),"Batch gesture retains canonical content/review/star/build/resources");};
+  for(const [width,zoom,lead] of [[1440,50,0],[1440,100,1],[1440,125,0],[390,50,1]]){
+    const f=await makeMulti(`Selected gesture ${width} ${zoom}`,width===390);await showBoard(f.parent.boardId,width,zoom);await coverReady(f);const ids=f.children.map(c=>c.placementIds[0]),itemIds=f.children.map(c=>c.itemId);await selectMany(ids);
+    const group=cardFor(f.group.placementIds[0]);await group.evaluate(card=>{const frame=card.querySelector("iframe");window.multiKept={frame,loads:0};frame.addEventListener("load",()=>window.multiKept.loads++);});const frameToken=await group.locator("iframe").contentFrame().locator("body").evaluate(()=>window.multiToken=crypto.randomUUID());
+    let before=await snapshot(),start=writes.length;await beginMany(ids[lead],group,lead===1);await page.locator(".workspace-drop-target").waitFor();assert.equal(await page.locator(".workspace-dragging").count(),2,"Both selected rendered cards follow the pointer");assert.match(await page.locator("#workspace-drop-hint").textContent(),/2 items/);
+    if(width===1440&&zoom===100)await page.screenshot({path:path.join(evidence,"multi-into-hover-1440.png")});await page.mouse.up();let after=await waitGraph(ws=>ids.every(id=>activeBoard(ws,f.parent.boardId).placements.find(p=>p.id===id)?.removedAt));
+    assert.deepEqual(writes.slice(start).map(w=>w?.type),["move"]);assert.deepEqual([...writes[start].placementIds].sort(),[...ids].sort(),"One batch move carries both placement IDs");assert.equal(after.revision,before.revision+1,"Containment is one revision");assertCanonical(before,after,itemIds);
+    const moved=itemIds.map(id=>activePlacements(after,f.group.boardId).find(p=>p.itemId===id));for(let i=0;i<2;i++){assert.deepEqual(moved[i].presentation,activeBoard(before,f.parent.boardId).placements.find(p=>p.id===ids[i]).presentation);assert(activePlacements(after,second.boardId).some(p=>p.id===f.references[i].placementIds[0]));}
+    await page.waitForFunction(id=>document.querySelectorAll(`[data-placement="${id}"] [data-cover-tile]`).length===3,f.group.placementIds[0]);await coverReady(f);assert.equal(await page.evaluate(()=>window.multiKept.frame.isConnected&&window.multiKept.loads===0),true,"Existing cover frame stays mounted during selected drop");assert.equal(await group.locator("iframe").first().contentFrame().locator("body").evaluate(()=>window.multiToken),frameToken);
+    assert.equal(page.url(),base+`/boards/${f.parent.boardId}/`);if(width===1440&&zoom===100)await page.screenshot({path:path.join(evidence,"multi-into-after-1440.png")});
+    await group.locator(".workspace-preview-launch").click();await page.waitForURL(base+`/boards/${f.group.boardId}/?from=${f.parent.boardId}`);await cardFor(moved[0].id).waitFor();await selectMany(moved.map(p=>p.id));await page.waitForFunction(()=>document.getElementById("workspace-parent")?.getAttribute("href")?.startsWith("/boards/"));
+    before=await snapshot();start=writes.length;const offset={x:moved[1].x-moved[0].x,y:moved[1].y-moved[0].y};await beginMany(moved[lead].id,page.locator("#workspace-parent"));await page.locator("#workspace-parent.workspace-drop-target").waitFor();if(width===1440&&zoom===100)await page.screenshot({path:path.join(evidence,"multi-parent-hover-1440.png")});await page.mouse.up();after=await waitGraph(ws=>moved.every(p=>activeBoard(ws,f.group.boardId).placements.find(q=>q.id===p.id)?.removedAt));
+    assert.deepEqual(writes.slice(start).map(w=>w?.type),["move"]);assert.equal(writes[start].placementIds.length,2);assert.equal(after.revision,before.revision+1);assertCanonical(before,after,itemIds);assert.equal(page.url(),base+`/boards/${f.group.boardId}/?from=${f.parent.boardId}`);
+    const returned=itemIds.map(id=>activePlacements(after,f.parent.boardId).find(p=>p.itemId===id));assert.deepEqual({x:returned[1].x-returned[0].x,y:returned[1].y-returned[0].y},offset,"Parent batch preserves relative child positions");const owner=activePlacements(after,f.parent.boardId).find(p=>p.id===f.group.placementIds[0]);assert(returned.every(p=>p.x>=owner.x+owner.width||p.x+p.width<=owner.x||p.y>=owner.y+owner.height||p.y+p.height<=owner.y),"Parent batch is clear of collection cover");
+    await page.locator("#workspace-parent").click();await page.waitForURL(base+`/boards/${f.parent.boardId}/`);await coverReady(f);assert.equal(await group.locator("[data-cover-tile]").count(),1,"Source collection cover removes both returned members");multiReceipts.push({width,zoom,lead,intoCount:3,outCount:1,offset,moveRequests:2});
+  }
+  // Representative ordinary geometry, cancellation, and held-child compatibility.
+  const f=await makeMulti("Selected controls fixture");revision=(await snapshot()).revision;const single=await op("createItem",{boardId:f.parent.boardId,item:{title:"Unselected",content:first.content},placement:{x:0,y:260,width:190,height:160}});await showBoard(f.parent.boardId,1440,100);await coverReady(f);const ids=f.children.map(c=>c.placementIds[0]);await selectMany(ids);
+  let before=await snapshot(),start=writes.length;const lead=cardFor(ids[0]),a=await lead.locator(".workspace-preview-launch").boundingBox();await page.mouse.move(a.x+a.width/2,a.y+a.height/2);await page.mouse.down();await page.mouse.move(a.x+a.width/2+25,a.y+a.height/2+30,{steps:8});await page.mouse.up();let after=await waitGraph(ws=>ws.revision>before.revision);assert.deepEqual(writes.slice(start).map(w=>w?.type),["translatePlacements"],"Selected canvas move is one atomic geometry transaction");assert.equal(after.revision,before.revision+1);for(const id of ids){const p=activeBoard(before,f.parent.boardId).placements.find(p=>p.id===id),q=activeBoard(after,f.parent.boardId).placements.find(p=>p.id===id);assert.deepEqual([q.x-p.x,q.y-p.y],[25,30]);}
+  before=after;start=writes.length;await dragPointer(await cardFor(single.placementIds[0]).locator(".workspace-preview-launch").boundingBox(),15,10);after=await waitGraph(ws=>ws.revision>before.revision);assert.deepEqual(writes.slice(start).map(w=>w?.type),["updatePlacement"],"Unselected card still drags singly");for(const id of ids)assert.deepEqual(activeBoard(after,f.parent.boardId).placements.find(p=>p.id===id),activeBoard(before,f.parent.boardId).placements.find(p=>p.id===id));await selectMany(ids);
+  before=after;start=writes.length;await dragPointer(await lead.locator(".workspace-resize").boundingBox(),15,10);after=await waitGraph(ws=>ws.revision>before.revision);assert.deepEqual(writes.slice(start).map(w=>w?.type),["updatePlacement"],"Resize remains one selected card only");assert.deepEqual(activeBoard(after,f.parent.boardId).placements.find(p=>p.id===ids[1]),activeBoard(before,f.parent.boardId).placements.find(p=>p.id===ids[1]));
+  for(const cancel of ["Escape","pointercancel"]){await selectMany(ids);before=await snapshot();start=writes.length;await beginMany(ids[0],cardFor(f.group.placementIds[0]));await page.locator(".workspace-drop-target").waitFor();if(cancel==="Escape")await page.keyboard.press("Escape");else await page.evaluate(()=>document.getElementById("viewport").dispatchEvent(new PointerEvent("pointercancel",{pointerId:1,pointerType:"mouse",bubbles:true})));await page.mouse.up();assert.equal(writes.length,start);assert.equal((await snapshot()).revision,before.revision);assert.equal(await page.locator(".workspace-card.selected").count(),2,`${cancel} preserves the selected pair`);}
+  start=writes.length;await holdChild(tileFor(f,f.kept));const blank=await blankPoint();await page.mouse.move(blank.x,blank.y,{steps:8});await page.mouse.up();after=await waitGraph(ws=>activeBoard(ws,f.group.boardId).placements.some(p=>p.id===f.kept.placementIds[0]&&p.removedAt));assert.deepEqual(writes.slice(start).map(w=>w?.type),["move"]);assert.deepEqual(writes[start].placementIds,f.kept.placementIds,"Held collection child remains single despite an outside selection");assert.equal(await page.locator(".workspace-card.selected").count(),2);
+  // Any selected member's descendant cycle rejects the entire containment move.
+  revision=(await snapshot()).revision;const ancestor=await op("createBoard",{title:"Selected ancestor",parentBoardId:f.parent.boardId}),descendant=await op("createBoard",{title:"Descendant",parentBoardId:ancestor.boardId}),alias=await op("reference",{sourceBoardId:ancestor.boardId,placementIds:descendant.placementIds,targetBoardId:f.parent.boardId});await op("updatePlacement",{boardId:f.parent.boardId,placementId:ancestor.placementIds[0],patch:{x:260,y:260,width:190,height:160}});await op("updatePlacement",{boardId:f.parent.boardId,placementId:alias.placementIds[0],patch:{x:650,y:260,width:230,height:220}});await showBoard(f.parent.boardId,1440,100);await selectMany([ids[0],ancestor.placementIds[0]]);before=await snapshot();start=writes.length;await beginMany(ids[0],cardFor(alias.placementIds[0]));assert.equal(await page.locator(".workspace-drop-target").count(),0);await page.mouse.up();assert.equal(writes.length,start,"A cycle of either selected member rejects all placements");assert.equal((await snapshot()).revision,before.revision);assert.equal(await page.locator(".workspace-card.selected").count(),2);
+  start=writes.length;await beginMany(ids[0],cardFor(ancestor.placementIds[0]));await page.mouse.up();after=await waitGraph(ws=>ws.revision>before.revision);assert.deepEqual(writes.slice(start).map(w=>w?.type),["translatePlacements"],"Moving selected board surfaces are ignored as containment destinations");
+  // A stale batch response keeps both placements, selection and local review drafts.
+  const draftKey=`tinka/${cfg.workspaceId}/item-review-drafts`,drafts=JSON.stringify({[f.children[0].itemId]:{note:"Unsaved selected review"}});await page.addInitScript(({key,value,path})=>{if(location.pathname===path&&!sessionStorage.getItem(key+"/multi-injected")){localStorage.setItem(key,value);sessionStorage.setItem(key+"/multi-injected","1");}},{key:draftKey,value:drafts,path:`/boards/${f.parent.boardId}/`});await page.reload();await cardFor(ids[0]).waitFor();await selectMany(ids);before=await snapshot();await page.route("**/api/operations",async route=>{if(route.request().postDataJSON()?.type==="move")await route.fulfill({status:409,contentType:"application/json",body:JSON.stringify({error:"Stale batch"})});else await route.continue();});start=writes.length;await beginMany(ids[0],cardFor(f.group.placementIds[0]));await page.locator(".workspace-drop-target").waitFor();await page.mouse.up();await page.waitForFunction(()=>document.getElementById("workspace-toast")?.textContent.includes("Move not saved"));assert.deepEqual(writes.slice(start).map(w=>w?.type),["move"]);assert.equal((await snapshot()).revision,before.revision);assert.equal(await page.locator(".workspace-card.selected").count(),2);assert.equal(await page.evaluate(key=>localStorage.getItem(key),draftKey),drafts);for(const id of ids)assert.deepEqual(activeBoard(await snapshot(),f.parent.boardId).placements.find(p=>p.id===id),activeBoard(before,f.parent.boardId).placements.find(p=>p.id===id));await page.unroute("**/api/operations");
+  await writeFile(path.join(evidence,"multi-drag-receipt.json"),JSON.stringify({gestures:multiReceipts,translation:true,singleCompatibility:true,cancel:true,cycle:true,conflict:true},null,2));
   page.off("request",observeMove);
   }
   assert.equal(errors.length, 0, errors.join("\n"));
   console.log(
     JSON.stringify({
-      passed: process.env.TINKA_DRAG_OUT_ONLY ? "Parent header drop and long-press child pullout: atomic moves, cover updates, zoom50/100/125, narrow, normal whole-group drag, cancellation and409 draft preservation" : process.env.TINKA_DRAG_BOARDS_ONLY ? "Pointer drag into board: atomic move, zoom50/100/125, narrow, stable 2-to-3 cover documents, Escape, overlap, cycle and 409 rollback" : process.env.TINKA_COVERS_ONLY ? "Automatic collection covers for 1/2/4/5 children, script-built HTML in opaque sandbox, full viewport fit, stable geometry/review/reorder mounts, targeted sibling CSS refresh, immediate grouping, explicit preview precedence, archive/remove and bounded nested-board fallbacks" : process.env.TINKA_FOCUSED_ONLY ? "Quiet header/Tools/parent routes at 390/900/1440; mounted previews across geometry/review/decorations, targeted content reload, Grid filter/reorder, attached appearance popup and targeted image refresh" :
+      passed: process.env.TINKA_MULTI_DRAG_ONLY ? "Selected group drag into collections/Parent, atomic translation, representative zoom/narrow, stable covers, single compatibility, union cycles and409 cancellation" : process.env.TINKA_DRAG_OUT_ONLY ? "Parent header drop and long-press child pullout: atomic moves, cover updates, zoom50/100/125, narrow, normal whole-group drag, cancellation and409 draft preservation" : process.env.TINKA_DRAG_BOARDS_ONLY ? "Pointer drag into board: atomic move, zoom50/100/125, narrow, stable 2-to-3 cover documents, Escape, overlap, cycle and 409 rollback" : process.env.TINKA_COVERS_ONLY ? "Automatic collection covers for 1/2/4/5 children, script-built HTML in opaque sandbox, full viewport fit, stable geometry/review/reorder mounts, targeted sibling CSS refresh, immediate grouping, explicit preview precedence, archive/remove and bounded nested-board fallbacks" : process.env.TINKA_FOCUSED_ONLY ? "Quiet header/Tools/parent routes at 390/900/1440; mounted previews across geometry/review/decorations, targeted content reload, Grid filter/reorder, attached appearance popup and targeted image refresh" :
         "Canvas default and explicit Grid persistence, mouse background no-grab, wheel/horizontal/Shift-wheel/Ctrl zoom, real touch pan and pinch, threshold body/preview drag and click, notes/controls/resize persistence at390/1440; graph reader/history/revisions/shared durable review/moved aliases/geometry/archive/mixed legacy/offline content",
       assertions,
       evidence,
