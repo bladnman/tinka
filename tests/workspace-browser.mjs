@@ -177,7 +177,7 @@ try {
   };
   const errors = [];
   page.on("pageerror", (e) => errors.push(e.message));
-  if (!process.env.TINKA_FOCUSED_ONLY && !process.env.TINKA_COVERS_ONLY) {
+  if (!process.env.TINKA_FOCUSED_ONLY && !process.env.TINKA_COVERS_ONLY && !process.env.TINKA_DRAG_BOARDS_ONLY) {
   await page.goto(base + `/boards/${board.id}/`);
   await page.locator(".workspace-card").first().waitFor();
   assert.equal(
@@ -1147,7 +1147,7 @@ try {
     });
   }
   }
-  if (!process.env.TINKA_COVERS_ONLY) {
+  if (!process.env.TINKA_COVERS_ONLY && !process.env.TINKA_DRAG_BOARDS_ONLY) {
   // Quiet header and stable preview regression: isolated graph fixtures only.
   revision = (await (await fetch(base + "/api/workspace")).json()).revision;
   const parentA = await op("createBoard", { title: "Parent A" });
@@ -1359,6 +1359,7 @@ try {
 
   }
 
+  if (!process.env.TINKA_DRAG_BOARDS_ONLY) {
   // Automatic collection covers: current children, bounded work, stable mounts.
   revision = (await (await fetch(base + "/api/workspace")).json()).revision;
   const coverParent = await op("createBoard", { title: "Collection cover fixture" });
@@ -1462,10 +1463,144 @@ try {
   const homeParent=page.locator(`a.board-link[href="/boards/${coverParent.boardId}/"]`);
   await homeParent.locator(".board-collage").waitFor();
   assert.equal(await homeParent.locator("iframe").count(),0,"Nested board tiles do not recurse into iframes");
+
+  }
+  if (!process.env.TINKA_COVERS_ONLY && !process.env.TINKA_FOCUSED_ONLY) {
+  // One real pointer gesture moves the placement atomically, keeping existing cover media.
+  const writes = [];
+  const observeMove = request => {
+    if (request.method() === "POST" && request.url().endsWith("/api/operations")) writes.push(request.postDataJSON());
+  };
+  page.on("request", observeMove);
+  const snapshot = async () => (await fetch(base + "/api/workspace")).json();
+  const waitGraph = async test => {
+    for (let i=0;i<100;i++) { const next=await snapshot(); if(test(next)) return next; await new Promise(resolve=>setTimeout(resolve,30)); }
+    throw new Error("Drag graph change did not persist");
+  };
+  const setZoom = async percent => {
+    await page.locator("#zoom-slider").evaluate((el,value)=>{el.value=String(value);el.dispatchEvent(new Event("input",{bubbles:true}));},percent);
+    await page.waitForFunction(value=>Math.round(new DOMMatrix(getComputedStyle(document.getElementById("world")).transform).a*100)===value,percent);
+  };
+  const beginDrag = async (source,target,offset={x:0,y:0}) => {
+    const a=await source.locator(".workspace-preview-launch").boundingBox(),b=await target.boundingBox();
+    await page.mouse.move(a.x+a.width/2,a.y+a.height/2);
+    await page.mouse.down();
+    await page.mouse.move(b.x+b.width/2+offset.x,b.y+Math.min(70,b.height/3)+offset.y,{steps:12});
+    await page.waitForTimeout(80); // Actual pressed-button hover must precede pointerup.
+  };
+  const showBoard = async (id,width,zoom) => {
+    await page.setViewportSize({width,height:960});
+    await page.goto(base+`/boards/${id}/`);
+    await page.locator(".workspace-card").first().waitFor();
+    await page.locator("#fit").click();
+    await setZoom(zoom);
+    const left=await page.locator(".workspace-card").evaluateAll(cards=>Math.min(...cards.map(card=>card.getBoundingClientRect().left)));
+    if(left<20) {await page.mouse.move(width-10,850);await page.mouse.wheel(left-20,0);await page.waitForFunction(()=>Math.min(...[...document.querySelectorAll(".workspace-card")].map(card=>card.getBoundingClientRect().left))>=19);}
+  };
+  const dragReceipts=[];
+  for (const [width,zoom] of [[1440,50],[1440,100],[1440,125],[390,100]].filter(([width])=>!process.env.TINKA_DRAG_NARROW_ONLY||width===390)) {
+    revision=(await snapshot()).revision;
+    const parent=await op("createBoard",{title:`Drop gesture ${width} ${zoom}`});
+    const target=await op("createBoard",{title:"READ FIRST",parentBoardId:parent.boardId});
+    await op("updatePlacement",{boardId:parent.boardId,placementId:target.placementIds[0],patch:{x:width===390?0:250,y:width===390?200:0,width:260,height:270}});
+    for(const index of [0,1]) await op("createItem",{boardId:target.boardId,item:{title:`Existing design ${index}`,content:{kind:"html",resource:{...first.content.resource,path:first.content.resource.path.replace(/previews\/0\.html$/,`previews/${index===0?0:2}.html`)}}}});
+    const moving=await op("createItem",{boardId:parent.boardId,item:{title:"Focus reader",content:first.content,review:{note:"Keep this review",star:true},build:{state:"ready",message:"Keep build"}},placement:{x:0,y:0,width:190,height:160,presentation:{mode:"card",paper:"#f4ead9"}}});
+    const shared=await op("reference",{sourceBoardId:parent.boardId,placementIds:moving.placementIds,targetBoardId:second.boardId});
+    const before=await snapshot(),canonical=before.items.find(i=>i.id===moving.itemId),original=before.boards.find(b=>b.id===parent.boardId).placements.find(p=>p.id===moving.placementIds[0]);
+    await showBoard(parent.boardId,width,zoom);
+    const source=page.locator(`[data-placement="${moving.placementIds[0]}"]`),card=page.locator(`[data-placement="${target.placementIds[0]}"]`);
+    for(const frame of await card.locator("iframe").all()) await frame.contentFrame().getByRole("heading").waitFor();
+    await card.evaluate(el=>{window.dropCoverMounts=[...el.querySelectorAll("iframe")].map(frame=>{const proof={frame,loads:0};frame.addEventListener("load",()=>proof.loads++);return proof;});});
+    const start=writes.length;
+    if(width===1440&&zoom===100) {
+      await beginDrag(source,card);
+      await page.locator(".workspace-drop-target").waitFor();
+      const liveBefore=await (await fetch(base+`/api/boards/${parent.boardId}/live`)).json();
+      const changedDuringDrag=page.waitForResponse(async response=>response.url()===base+`/api/boards/${parent.boardId}/live`&&response.ok()&&(await response.json()).manifestRevision!==liveBefore.manifestRevision);
+      await post("/api/operations",{type:"updateBoard",boardId:parent.boardId,patch:{title:"Updated while dragging"}});
+      await changedDuringDrag;
+      await page.waitForTimeout(50);
+      await page.keyboard.press("Escape");await page.mouse.up();
+      await page.waitForFunction(()=>document.getElementById("board-title").textContent==="Updated while dragging");
+      assert.equal(writes.length,start,"Escape drains a deferred live edit and cancels without writes");
+      assert.deepEqual((await snapshot()).boards.find(b=>b.id===parent.boardId).placements.find(p=>p.id===original.id),original);
+      // Mere rectangle overlap is ordinary positioning when the pointer stays outside.
+      const a=await source.locator(".workspace-preview-launch").boundingBox(),b=await card.boundingBox();
+      await page.mouse.move(a.x+10,a.y+15);await page.mouse.down();
+      await page.mouse.move(b.x-8,a.y+15,{steps:10});
+      assert.equal(await page.locator(".workspace-drop-target").count(),0,"Overlapping dragged bounds do not select a board outside the pointer");
+      await page.mouse.up();
+      await waitGraph(ws=>ws.boards.find(b=>b.id===parent.boardId).placements.find(p=>p.id===original.id).x!==original.x);
+      assert.equal(writes.at(-1).type,"updatePlacement","Ordinary overlap remains a single geometry operation");
+      revision=(await snapshot()).revision;
+      await op("updatePlacement",{boardId:parent.boardId,placementId:original.id,patch:{x:original.x,y:original.y}});
+      await page.waitForFunction(({id,x})=>parseFloat(document.querySelector(`[data-placement="${id}"]`).style.left)===x,{id:original.id,x:await source.evaluate(el=>parseFloat(el.style.left))});
+      await page.reload();await source.waitFor();await setZoom(zoom);
+      for(const frame of await card.locator("iframe").all()) await frame.contentFrame().getByRole("heading").waitFor();
+      await card.evaluate(el=>{window.dropCoverMounts=[...el.querySelectorAll("iframe")].map(frame=>{const proof={frame,loads:0};frame.addEventListener("load",()=>proof.loads++);return proof;});});
+    }
+    const moveStart=writes.length;
+    await beginDrag(source,card);
+    await page.locator(".workspace-drop-target").waitFor({timeout:5000}).catch(async error=>{await page.screenshot({path:path.join(evidence,`drag-target-failure-${width}-${zoom}.png`)});console.log(JSON.stringify({width,zoom,source:await source.boundingBox(),target:await card.boundingBox()}));throw error;});
+    assert.match(await page.locator("#workspace-drop-hint").textContent(),/Move into READ FIRST/);
+    assert.equal(await page.evaluate(()=>window.dropCoverMounts.every(p=>p.frame.isConnected&&p.loads===0)),true,"Hover keeps existing cover documents mounted");
+    if(width===1440&&zoom===100) await page.screenshot({path:path.join(evidence,"drag-board-hover-1440.png")});
+    await page.mouse.up();
+    const after=await waitGraph(ws=>!ws.boards.find(b=>b.id===parent.boardId).placements.some(p=>p.id===original.id&&!p.removedAt));
+    await page.waitForFunction(id=>document.querySelectorAll(`[data-placement="${id}"] [data-cover-tile]`).length===3,target.placementIds[0]);
+    const movedTile=card.locator("[data-cover-tile]").last();
+    await movedTile.locator("iframe").contentFrame().getByRole("heading").first().waitFor();
+    const placed=after.boards.find(b=>b.id===target.boardId).placements.find(p=>p.itemId===moving.itemId);
+    assert(placed&&placed.id!==original.id,"Move creates its normal destination placement and removes source");
+    assert.deepEqual(after.items.find(i=>i.id===moving.itemId),canonical,"Canonical content/review/star/build identity stays unchanged");
+    assert.deepEqual(placed.presentation,original.presentation,"Move retains placement presentation");
+    assert(after.boards.find(b=>b.id===second.boardId).placements.some(p=>p.id===shared.placementIds[0]&&p.itemId===moving.itemId),"Other reference remains intact");
+    assert.deepEqual(writes.slice(moveStart).map(w=>w.type),["move"],"Drop sends exactly one atomic move and no geometry write");
+    assert.equal(await page.evaluate(()=>window.dropCoverMounts.length===2&&window.dropCoverMounts.every(p=>p.frame.isConnected&&p.loads===0)),true,"Drop appends third cover without reloading the two mounted documents");
+    assert.equal(page.url(),base+`/boards/${parent.boardId}/`,"Drop stays on the containing board");
+    if(width===1440&&zoom===100) await page.screenshot({path:path.join(evidence,"drag-board-after-1440.png")});
+    dragReceipts.push({width,zoom,types:writes.slice(moveStart).map(w=>w.type),coverCount:3,existingCoverLoads:0});
+    await card.locator(".workspace-preview-launch").click();
+    await page.waitForURL(base+`/boards/${target.boardId}/?from=${parent.boardId}`);
+    await page.locator(`[data-placement="${placed.id}"]`).waitFor();
+    assert.equal(await page.locator(`[data-placement="${placed.id}"]`).count(),1,"Nested board contains the moved item");
+  }
+  // Client-side cycle guard and an authoritative server rejection both restore arrangement.
+  revision=(await snapshot()).revision;
+  const cycleRoot=await op("createBoard",{title:"Cycle and conflict fixture"});
+  const ancestor=await op("createBoard",{title:"Ancestor",parentBoardId:cycleRoot.boardId});
+  const descendant=await op("createBoard",{title:"Descendant",parentBoardId:ancestor.boardId});
+  const childAlias=await op("reference",{sourceBoardId:ancestor.boardId,placementIds:descendant.placementIds,targetBoardId:cycleRoot.boardId});
+  await op("updatePlacement",{boardId:cycleRoot.boardId,placementId:ancestor.placementIds[0],patch:{x:0,y:0,width:190,height:160}});
+  await op("updatePlacement",{boardId:cycleRoot.boardId,placementId:childAlias.placementIds[0],patch:{x:260,y:0,width:260,height:270}});
+  await showBoard(cycleRoot.boardId,1440,100);
+  const ancestorCard=page.locator(`[data-placement="${ancestor.placementIds[0]}"]`),descendantCard=page.locator(`[data-placement="${childAlias.placementIds[0]}"]`);
+  let n=writes.length;
+  await beginDrag(ancestorCard,descendantCard);
+  assert.equal(await page.locator(".workspace-drop-target").count(),0,"Descendant is not a valid drop target for its ancestor");
+  await page.mouse.up();await page.waitForTimeout(120);
+  assert.equal(writes.length,n,"Cycle rejection causes no geometry or move writes");
+  revision=(await snapshot()).revision;
+  const rejected=await op("createItem",{boardId:cycleRoot.boardId,item:{title:"Conflict card",content:first.content},placement:{x:0,y:350,width:190,height:160}});
+  await page.reload();await page.locator(`[data-placement="${rejected.placementIds[0]}"]`).waitFor();await setZoom(100);
+  const beforeConflict=await snapshot(),rejectedPlacement=beforeConflict.boards.find(b=>b.id===cycleRoot.boardId).placements.find(p=>p.id===rejected.placementIds[0]);
+  await page.route("**/api/operations",async route=>{if(route.request().postDataJSON().type==="move") await route.fulfill({status:409,contentType:"application/json",body:JSON.stringify({error:"Workspace changed during this drag"})});else await route.continue();});
+  n=writes.length;
+  await beginDrag(page.locator(`[data-placement="${rejectedPlacement.id}"]`),descendantCard);
+  await page.locator(".workspace-drop-target").waitFor();await page.mouse.up();
+  await page.waitForTimeout(200);
+  assert.deepEqual(writes.slice(n).map(w=>w.type),["move"],"409 rejection does not fall back to a geometry write");
+  assert.deepEqual((await snapshot()).boards.find(b=>b.id===cycleRoot.boardId).placements.find(p=>p.id===rejectedPlacement.id),rejectedPlacement,"409 leaves source placement unchanged");
+  assert.equal(await page.locator(`[data-placement="${rejectedPlacement.id}"]`).count(),1,"409 restores the source card");
+  assert.equal(await page.locator(".workspace-drop-target").count(),0,"Conflict clears target feedback");
+  await page.unroute("**/api/operations");
+  await writeFile(path.join(evidence,"drag-board-receipt.json"),JSON.stringify({gestures:dragReceipts,escape:true,pointerOutsideOverlap:true,cycle:true,conflict:true},null,2));
+  page.off("request",observeMove);
+  }
   assert.equal(errors.length, 0, errors.join("\n"));
   console.log(
     JSON.stringify({
-      passed: process.env.TINKA_COVERS_ONLY ? "Automatic collection covers for 1/2/4/5 children, script-built HTML in opaque sandbox, full viewport fit, stable geometry/review/reorder mounts, targeted sibling CSS refresh, immediate grouping, explicit preview precedence, archive/remove and bounded nested-board fallbacks" : process.env.TINKA_FOCUSED_ONLY ? "Quiet header/Tools/parent routes at 390/900/1440; mounted previews across geometry/review/decorations, targeted content reload, Grid filter/reorder, attached appearance popup and targeted image refresh" :
+      passed: process.env.TINKA_DRAG_BOARDS_ONLY ? "Pointer drag into board: atomic move, zoom50/100/125, narrow, stable 2-to-3 cover documents, Escape, overlap, cycle and 409 rollback" : process.env.TINKA_COVERS_ONLY ? "Automatic collection covers for 1/2/4/5 children, script-built HTML in opaque sandbox, full viewport fit, stable geometry/review/reorder mounts, targeted sibling CSS refresh, immediate grouping, explicit preview precedence, archive/remove and bounded nested-board fallbacks" : process.env.TINKA_FOCUSED_ONLY ? "Quiet header/Tools/parent routes at 390/900/1440; mounted previews across geometry/review/decorations, targeted content reload, Grid filter/reorder, attached appearance popup and targeted image refresh" :
         "Canvas default and explicit Grid persistence, mouse background no-grab, wheel/horizontal/Shift-wheel/Ctrl zoom, real touch pan and pinch, threshold body/preview drag and click, notes/controls/resize persistence at390/1440; graph reader/history/revisions/shared durable review/moved aliases/geometry/archive/mixed legacy/offline content",
       assertions,
       evidence,

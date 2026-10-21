@@ -138,10 +138,10 @@ export class WorkspaceBoard {
     document.body.classList.add("workspace-board");
     $("viewport").setAttribute(
       "aria-label",
-      "Board canvas: scroll to pan, pinch or Control-scroll to zoom; drag a card to move it",
+      "Board canvas: scroll to pan, pinch or Control-scroll to zoom; drag a card to move it or drop it into a board",
     );
     $("help-panel").innerHTML =
-      "<strong>Make yourself at home.</strong> Scroll with your mouse or trackpad, or swipe the background on a touch screen, to move around Canvas; Shift-scroll moves sideways. Pinch, or hold Control or ⌘ while scrolling, to zoom. Drag a card’s body to move it; notes and buttons keep their usual behavior. A click opens a preview. Select an item and use arrow keys to move it, or drag its corner to resize. Double-click text or a region label to edit it. Grid keeps comparison order. Open an item to try it, then step with Previous, Next or the dots. Escape returns here. Stars and notes follow the item across references.";
+      "<strong>Make yourself at home.</strong> Scroll with your mouse or trackpad, or swipe the background on a touch screen, to move around Canvas; Shift-scroll moves sideways. Pinch, or hold Control or ⌘ while scrolling, to zoom. Drag a card’s body to move it; drop inside a highlighted board to move the item into it. Escape cancels a drag. Notes and buttons keep their usual behavior. A click opens a preview. Select an item and use arrow keys to move it, or drag its corner to resize. Move… in the selection toolbar also moves items into boards. Double-click text or a region label to edit it. Grid keeps comparison order. Open an item to try it, then step with Previous, Next or the dots. Escape returns here. Stars and notes follow the item across references.";
     const bar = document.createElement("section");
     bar.id = "workspace-toolbar";
     bar.className = "workspace-toolbar";
@@ -302,6 +302,8 @@ export class WorkspaceBoard {
   async loadCrumb() {
     try {
       const ws = await this.client.get("/api/workspace?covers=0");
+      if (!this.workspaceGraph || ws.revision >= this.workspaceGraph.revision)
+        this.workspaceGraph = ws;
       const parents = ws.boards.filter((b) =>
         b.placements.some(
           (p) =>
@@ -359,11 +361,17 @@ export class WorkspaceBoard {
   rebuild() {
     this.hooks.data(this.adapt());
   }
-  async refresh() {
-    if (this.pendingReview.size && !this.saving) await this.saveReview([], {});
+  async refresh({ saveReview = true } = {}) {
+    // A live refresh must not reset an in-progress pointer gesture.
+    if (this.pointerGesture || this.moveCommitting) { this.pointerRefreshPending = true; return; }
+    if (saveReview && this.pendingReview.size && !this.saving) await this.saveReview([], {});
     const snapshot = await this.client.get(
       `/api/boards/${encodeURIComponent(this.snapshot.id)}`,
     );
+    if (this.pointerGesture || this.moveCommitting) { this.pointerRefreshPending = true; return; }
+    // A read started before a completed operation must not roll its UI back.
+    if (snapshot.revision < Math.max(this.snapshot.revision, this.client.revision)) return;
+    this.pointerRefreshPending = false;
     this.hooks.data(this.adapt(snapshot));
     this.loadCrumb();
   }
@@ -717,24 +725,100 @@ export class WorkspaceBoard {
     buttons.forEach(b => b.setAttribute("aria-expanded", "false"));
     if (focus) buttons[0]?.focus({ preventScroll: true });
   }
+  boardDropTarget(gesture, x, y) {
+    if (gesture.resize) return null;
+    // Ignore the moving card, but respect the first visible surface beneath it.
+    // In particular, a board hidden by another item is not a drop destination.
+    const surface = document.elementsFromPoint(x, y)
+      .find(el => !gesture.element.contains(el));
+    const card = surface?.closest(".workspace-card");
+    if (!card || !$("viewport").contains(card)) return null;
+    const placement = this.snapshot.placements.find(p => p.id === card.dataset.placement);
+    const item = this.snapshot.items[placement?.itemId];
+    if (!item?.childBoardId) return null;
+    const rect = card.getBoundingClientRect(), inset = Math.min(10, rect.width / 6, rect.height / 6);
+    if (x <= rect.left + inset || x >= rect.right - inset ||
+        y <= rect.top + inset || y >= rect.bottom - inset) return null;
+    const graph = this.workspaceGraph;
+    if (graph && gesture.graph !== graph) {
+      gesture.graph = graph;
+      const byItem = new Map(graph.items.map(i => [i.id, i]));
+      const byBoard = new Map(graph.boards.map(b => [b.id, b]));
+      const forbidden = new Set([this.snapshot.id]);
+      const visit = id => {
+        if (!id || forbidden.has(id)) return;
+        forbidden.add(id);
+        for (const p of byBoard.get(id)?.placements || []) {
+          const child = byItem.get(p.itemId);
+          // Archived edges still participate in the server's DAG validation.
+          if (!p.removedAt && !p.deletedAt && !child?.deletedAt) visit(child?.childBoardId);
+        }
+      };
+      visit(this.snapshot.items[gesture.p.itemId]?.childBoardId);
+      gesture.forbiddenBoards = forbidden;
+      gesture.boards = byBoard;
+      gesture.items = byItem;
+    }
+    const board = gesture.boards?.get(item.childBoardId);
+    const owner = gesture.items?.get(board?.ownerItemId);
+    const source = this.snapshot.items[gesture.p.itemId];
+    const invalid = !board || gesture.forbiddenBoards.has(board.id) ||
+      placement.removedAt || placement.deletedAt || placement.archivedAt ||
+      item.deletedAt || item.archivedAt || owner?.deletedAt || owner?.archivedAt ||
+      gesture.p.archivedAt || source?.archivedAt || source?.deletedAt;
+    return { card, boardId: item.childBoardId, title: board?.title || item.title, invalid };
+  }
   pointer() {
     let drag = null;
     let suppressedClick = null;
+    let highlighted = null;
     const viewport = $("viewport");
-    const cancel = () => {
-      if (!drag) return;
-      const { element, p, pointerId } = drag;
+    const hint = document.createElement("div");
+    hint.id = "workspace-drop-hint";
+    hint.className = "workspace-drop-hint";
+    hint.setAttribute("role", "status");
+    hint.hidden = true;
+    document.body.append(hint);
+    const clearTarget = () => {
+      viewport.querySelectorAll(".workspace-drop-target").forEach(el => el.classList.remove("workspace-drop-target"));
+      highlighted = null;
+      hint.hidden = true;
+      hint.textContent = "";
+    };
+    const showTarget = target => {
+      const next = target && !target.invalid ? target.card : null;
+      if (highlighted === next) return;
+      clearTarget();
+      if (!next) return;
+      highlighted = next;
+      target.card.classList.add("workspace-drop-target");
+      hint.textContent = `Move into ${target.title}`;
+      hint.hidden = false;
+    };
+    const restore = ({ element, p }) => {
       element.classList.remove("workspace-dragging");
       Object.assign(element.style, {
-        left: `${p.x + this.origin.x}px`,
-        top: `${p.y + this.origin.y}px`,
-        width: `${p.width}px`,
-        height: `${p.height}px`,
+        left: `${p.x + this.origin.x}px`, top: `${p.y + this.origin.y}px`,
+        width: `${p.width}px`, height: `${p.height}px`,
       });
-      try {
-        viewport.releasePointerCapture(pointerId);
-      } catch {}
+    };
+    const drainRefresh = () => {
+      if (!this.pointerRefreshPending || this.pointerGesture || this.movePending) return;
+      this.pointerRefreshPending = false;
+      this.refresh({ saveReview: false }).catch(() => toast("The board could not refresh. Reload to see the latest changes."));
+    };
+    const cancel = () => {
+      if (!drag) return;
+      const done = drag;
       drag = null;
+      this.pointerGesture = false;
+      if (done.active) suppressedClick = true;
+      restore(done);
+      clearTarget();
+      try {
+        viewport.releasePointerCapture(done.pointerId);
+      } catch {}
+      drainRefresh();
     };
     // A fresh pointer gesture cannot inherit the click suppressed after a drag.
     document.addEventListener(
@@ -748,18 +832,18 @@ export class WorkspaceBoard {
       "click",
       (e) => {
         if (!suppressedClick || e.detail === 0) return;
-        if (e.target === viewport || suppressedClick.contains(e.target)) {
-          e.preventDefault();
-          e.stopImmediatePropagation();
-          suppressedClick = null;
-        }
+        // Pointer capture may synthesize this click on either the source,
+        // destination or viewport. A fresh pointerdown restores normal clicks.
+        e.preventDefault();
+        e.stopImmediatePropagation();
+        suppressedClick = null;
       },
       true,
     );
     viewport.addEventListener(
       "pointerdown",
       (e) => {
-        if (this.mode !== "canvas" || e.button !== 0) return;
+        if (this.mode !== "canvas" || e.button !== 0 || this.movePending) return;
         if (drag && drag.pointerId !== e.pointerId) {
           cancel();
           return;
@@ -790,6 +874,11 @@ export class WorkspaceBoard {
           zoom: this.hooks.zoom(),
           active: false,
         };
+        this.pointerGesture = true;
+        if (!this.workspaceGraph || this.workspaceGraph.revision !== this.snapshot.revision)
+          this.client.get("/api/workspace?covers=0").then(ws => {
+            if (!this.workspaceGraph || ws.revision >= this.workspaceGraph.revision) this.workspaceGraph = ws;
+          }).catch(() => {});
         if (drag.resize) {
           e.preventDefault();
           e.stopImmediatePropagation();
@@ -838,6 +927,7 @@ export class WorkspaceBoard {
               : key === "y"
                 ? value + this.origin.y
                 : value) + "px";
+        showTarget(this.boardDropTarget(drag, e.clientX, e.clientY));
       },
       true,
     );
@@ -846,14 +936,52 @@ export class WorkspaceBoard {
       async (e) => {
         if (!drag || drag.pointerId !== e.pointerId) return;
         const done = drag;
+        const target = done.active ? this.boardDropTarget(done, e.clientX, e.clientY) : null;
         drag = null;
+        this.pointerGesture = false;
         done.element.classList.remove("workspace-dragging");
-        if (!done.active || !done.patch) return;
+        clearTarget();
+        if (!done.active || !done.patch) { drainRefresh(); return; }
         e.preventDefault();
-        suppressedClick = done.element;
+        suppressedClick = true;
         try {
           viewport.releasePointerCapture(e.pointerId);
         } catch {}
+        if (target) {
+          // Keep the source in its saved position until the atomic move succeeds.
+          restore(done);
+          if (target.invalid) { drainRefresh(); return; }
+          this.movePending = true;
+          this.moveCommitting = true;
+          let moved = false;
+          try {
+            await this.client.write("move", {
+              sourceBoardId: this.snapshot.id,
+              placementIds: [done.id],
+              targetBoardId: target.boardId,
+            });
+            this.moveCommitting = false;
+            moved = true;
+            this.selection.delete(done.id);
+            if (this.contextPlacement === done.id) this.closeContext();
+            await this.refresh({ saveReview: false });
+            toast(`Moved into ${target.title}.`);
+          } catch (error) {
+            this.moveCommitting = false;
+            restore(done);
+            // Reconcile conflicts with the server without flushing or discarding
+            // local note drafts, and keep failure feedback nonmodal.
+            try { await this.refresh({ saveReview: false }); } catch {}
+            toast(moved ? `Moved into ${target.title}. The board could not refresh; reload to see it.`
+              : error.conflict ? `Move not saved. ${error.message}`
+              : `Could not confirm the move. Check the latest board before trying again. ${error.message}`);
+          } finally {
+            this.moveCommitting = false;
+            this.movePending = false;
+            drainRefresh();
+          }
+          return;
+        }
         try {
           await this.client.write("updatePlacement", {
             boardId: this.snapshot.id,
@@ -864,6 +992,8 @@ export class WorkspaceBoard {
         } catch (error) {
           showFailure(error);
           this.rebuild();
+        } finally {
+          drainRefresh();
         }
       },
       true,
@@ -871,6 +1001,8 @@ export class WorkspaceBoard {
     document.addEventListener(
       "pointercancel", (e) => { if (drag?.pointerId === e.pointerId) cancel(); }, true,
     );
+    viewport.addEventListener("lostpointercapture", e => { if (drag?.pointerId === e.pointerId) cancel(); });
+    window.addEventListener("blur", cancel);
     document.addEventListener("keydown", e => {
       if (drag && e.key === "Escape") { cancel(); e.preventDefault(); e.stopImmediatePropagation(); }
     }, true);

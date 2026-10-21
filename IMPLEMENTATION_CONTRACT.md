@@ -91,6 +91,16 @@ CSP blocks remote assets, network APIs, forms and frames. Local static dependenc
 are fingerprinted with bounded traversal and short shared caches. Keyed media DOM
 survives geometry/review updates; changed content updates only affected tiles.
 
+In Canvas, dragging a placement onto a visible board card's interior highlights
+the valid destination and shows “Move into…” feedback. Release submits one atomic
+move from the current board into that child board, then refreshes derived covers.
+Pointer position determines the target; overlapping card bounds alone do not.
+Self, source, archived and cyclic destinations are excluded using a cached graph;
+the transaction store remains authoritative. Escape/pointer cancellation makes no
+write. A rejected board drop restores the saved geometry and keeps local review
+drafts while reconciling the latest board. Ordinary canvas positioning, resizing
+and the keyboard-accessible Move… dialog remain available.
+
 ## Legacy data
 Each immediate subfolder with board.json is a board. Slug [a-z0-9][a-z0-9-]*.
 board.json: {schemaVersion:1,title,description,createdAt,cover?,legacyNotesKey?}.

@@ -135,7 +135,10 @@ New graph boards open in Canvas unless you have already chosen Grid. Scroll with
 a mouse or trackpad to pan; Shift-scroll moves sideways. On a touch screen, swipe
 the background. Pinch or Control/⌘-scroll zooms. Drag a card’s body to move it;
 a click opens its preview, while notes, links and buttons keep their normal
-behavior. Move / resize provides keyboard and touch alternatives.
+behavior. Drag onto the interior of a board card to move the item inside it;
+the destination outline and “Move into…” hint confirm the target. Its automatic
+cover updates after the move. Escape cancels a drag. Move / resize and the
+selection toolbar’s Move… action provide keyboard and touch alternatives.
 
 Agents use the same operations as the browser through HTTP or
 `workspace op --json JSON` / `workspace op --file PATH`. See the
