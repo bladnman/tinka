@@ -146,6 +146,11 @@ try {
     reducedMotion: "reduce",
   });
   const page = await context.newPage();
+  const cardNote = async () => {
+    const note = page.locator("#workspace-item-controls [data-note]");
+    if (!(await note.count())) await page.locator('[data-controls-focus="notes"]').first().click();
+    return note;
+  };
   const errors = [];
   page.on("pageerror", (e) => errors.push(e.message));
   await page.goto(base + `/boards/${board.id}/`);
@@ -331,7 +336,7 @@ try {
   await page.goto(base + `/boards/${second.boardId}/`);
   await page.locator(".workspace-card").first().waitFor();
   assert.equal(
-    await page.locator("[data-note]").first().inputValue(),
+    await (await cardNote()).inputValue(),
     "Owner feedback survives",
   );
   assert.equal(
@@ -340,16 +345,14 @@ try {
   );
   const reviewAtServer = async () =>
     (await (await fetch(base + "/api/items/" + first.id)).json()).review;
-  const revertBaseline = await page.locator("[data-note]").first().inputValue();
+  const revertBaseline = await (await cardNote()).inputValue();
   const starBaseline = await page
     .locator("[data-star]")
     .first()
     .getAttribute("aria-pressed");
-  await page
-    .locator("[data-note]")
-    .first()
+  await (await cardNote())
     .fill("Draft to undo before debounce");
-  await page.locator("[data-note]").first().fill(revertBaseline);
+  await (await cardNote()).fill(revertBaseline);
   await page.locator("[data-star]").first().click();
   await page.locator("[data-star]").first().click();
   await page.waitForFunction(
@@ -376,9 +379,9 @@ try {
     }
     await route.continue();
   });
-  await page.locator("[data-note]").first().fill("Delayed draft to undo");
+  await (await cardNote()).fill("Delayed draft to undo");
   await startedReview;
-  await page.locator("[data-note]").first().fill(revertBaseline);
+  await (await cardNote()).fill(revertBaseline);
   releaseReview();
   await page.waitForFunction(
     () =>
@@ -387,7 +390,7 @@ try {
   );
   assert.equal((await reviewAtServer()).note, revertBaseline);
   assert.equal(
-    await page.locator("[data-note]").first().inputValue(),
+    await (await cardNote()).inputValue(),
     revertBaseline,
   );
   assert.equal((await reviewAtServer()).star, starBaseline === "true");
@@ -404,12 +407,12 @@ try {
       });
     } else await route.continue();
   });
-  await page.locator("[data-note]").first().fill("Network failure draft");
+  await (await cardNote()).fill("Network failure draft");
   await page
     .getByRole("heading", { name: "Change not saved", exact: true })
     .waitFor();
   assert.equal(
-    await page.locator("[data-note]").first().inputValue(),
+    await (await cardNote()).inputValue(),
     "Network failure draft",
   );
   await page.getByRole("button", { name: "Close dialog", exact: true }).click();
@@ -421,7 +424,7 @@ try {
   await page.reload();
   await page.locator(".workspace-card").first().waitFor();
   assert.equal(
-    await page.locator("[data-note]").first().inputValue(),
+    await (await cardNote()).inputValue(),
     "Network failure draft",
   );
   let conflictSave = true;
@@ -436,13 +439,13 @@ try {
       });
     } else await route.continue();
   });
-  await page.locator("[data-note]").first().fill("Conflict draft retained");
+  await (await cardNote()).fill("Conflict draft retained");
   await page
     .getByRole("button", { name: "Reload latest", exact: true })
     .click();
   await page.locator(".workspace-card").first().waitFor();
   assert.equal(
-    await page.locator("[data-note]").first().inputValue(),
+    await (await cardNote()).inputValue(),
     "Conflict draft retained",
   );
   await page.unroute("**/api/operations");
@@ -492,24 +495,19 @@ try {
       "Persisted Canvas reload fits visible card at " + width,
     );
   }
-  await page.locator("[data-geometry]").first().click();
-  await page.locator("[name=x]").fill("-2000");
-  await page.locator("[name=width]").fill("380");
-  await page
-    .getByRole("button", { name: "Save placement", exact: true })
-    .click();
-  await page
-    .locator("dialog.workspace-dialog[open]")
-    .waitFor({ state: "hidden" });
-  assert.equal(
-    (
-      await (await fetch(base + `/api/boards/${second.boardId}`)).json()
-    ).placements.find((p) => !p.removedAt).x,
-    -2000,
-  );
+  await page.keyboard.press("Escape");
+  const beforeNudge = (await (await fetch(base + `/api/boards/${second.boardId}`)).json()).placements.find(p => !p.removedAt);
+  await page.locator("[data-placement-select]").first().click();
+  await page.keyboard.press("Shift+ArrowLeft");
+  await page.waitForFunction(async ({ id, x }) => (await (await fetch(`/api/boards/${id}`)).json()).placements.find(p => !p.removedAt).x === x, { id: second.boardId, x: beforeNudge.x - 10 });
+  // Keep negative-coordinate fit coverage while placement editing uses direct
+  // keyboard and resize gestures rather than a geometry form.
+  await post("/api/operations", { type: "updatePlacement", boardId: second.boardId,
+    placementId: beforeNudge.id, patch: { x: -2000, width: 380 } });
+  await page.reload();
   await page
     .waitForFunction(
-      () => document.querySelector(".workspace-card").style.left === "70px",
+      () => document.querySelector(".workspace-card")?.style.left === "70px",
       {},
       { timeout: 5000 },
     )
@@ -529,17 +527,17 @@ try {
   await page.waitForFunction(
     () => document.querySelector(".workspace-card")?.style.left === "70px",
   );
-  await page.locator("#workspace-tools").click();
-  await page.getByRole("button", { name: "Add text", exact: true }).click();
-  await page.locator("[name=text]").fill("Making this week");
-  await page.locator("[name=x]").fill("-2500");
-  await page.locator("[name=y]").fill("-1000");
-  await page.getByRole("button", { name: "Save text", exact: true }).click();
+  await page.locator("#workspace-add").click();
+  await page.getByRole("menuitem", { name: "Text", exact: true }).click();
+  const canvasText = page.locator('.workspace-decoration [contenteditable]');
+  await canvasText.fill("Making this week");
+  await canvasText.press("Enter");
   await page.locator(".workspace-decoration").waitFor();
-  assert.equal(
-    await page.locator(".workspace-decoration span").textContent(),
-    "Making this week",
-  );
+  await page.waitForFunction(() => document.querySelector(".workspace-decoration [data-decoration-label]")?.textContent === "Making this week");
+  assert.equal(await page.locator('dialog.workspace-dialog[open]').count(), 0, "Canvas text edits in place");
+  const mark = await page.locator(".workspace-decoration").boundingBox(), area = await page.locator("#viewport").boundingBox();
+  assert(mark.y >= area.y && mark.y + mark.height <= area.y + area.height, "Header Add text stays visible");
+  await page.keyboard.press("Escape");
   await page.locator("#fit").click();
   const bounds = await page.locator("#viewport").boundingBox();
   for (const selector of [".workspace-decoration", ".workspace-card"]) {
@@ -651,7 +649,8 @@ try {
   );
   await page.goto(base + `/boards/${second.boardId}/`);
   await page.locator(".workspace-card").first().waitFor();
-  await page.getByRole("button", { name: "+ Idea", exact: true }).click();
+  await page.locator("#workspace-add").click();
+  await page.getByRole("menuitem", { name: "Item…", exact: true }).click();
   await page.getByLabel("Title", { exact: true }).fill("A title is enough");
   await page.getByRole("button", { name: "Add idea", exact: true }).click();
   await page
@@ -1025,7 +1024,7 @@ try {
       p.x,
       "A click below drag threshold only opens",
     );
-    const note = page.locator("[data-note]").first();
+    const note = await cardNote();
     await note.fill("Notes remain selectable");
     await note.focus();
     await page.keyboard.press("Meta+A");
@@ -1040,10 +1039,8 @@ try {
     );
     const beforeControls = await inputPlacement();
     await page.locator("[data-star]").first().click();
-    await page
-      .getByRole("button", { name: "Edit", exact: true })
-      .first()
-      .click();
+    await page.locator('[data-controls-focus="appearance"]').first().click();
+    await page.getByRole("button", { name: "Edit item…", exact: true }).click();
     await page
       .getByRole("heading", { name: "Edit item", exact: true })
       .waitFor();

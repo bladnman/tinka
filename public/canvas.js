@@ -886,7 +886,7 @@ function acceptGraphData(fresh) {
 }
 
 async function refreshManifest() {
-  if (graph) { if (document.activeElement?.matches('textarea,input') || graph.saving || graph.pendingReview.size) return; await graph.refresh(); return; }
+  if (graph) { if (document.activeElement?.matches('textarea,input,[contenteditable]') || graph.saving || graph.pendingReview.size) return; await graph.refresh(); return; }
   const fresh = await fetchBoard();
   const selected = rounds[currentRound]?.id;
   const focused = document.activeElement;
@@ -930,7 +930,7 @@ function scheduleShellReload() {
   $('live-refresh').hidden = false;
   clearTimeout(shellReloadTimer);
   shellReloadTimer = setTimeout(() => {
-    if (document.querySelector('dialog[open]') || document.activeElement?.matches('textarea,input,[contenteditable="true"]')) { scheduleShellReload(); return; }
+    if (document.querySelector('dialog[open]') || document.activeElement?.matches('textarea,input,[contenteditable]')) { scheduleShellReload(); return; }
     reloadCanvas();
   }, 1200);
 }

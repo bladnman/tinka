@@ -36,7 +36,7 @@ No command execution, remote fetching or file deletion is performed.
 
 Boards have ownerItemId, placements [{id,itemId,x,y,width,height,z,...local state}],
 reviewOrder, retained rounds, decorations and optional background. Placements share
-canonical review; geometry, optional presentation and local archive state are board-scoped. Presentation accepts mode card/panel and an optional viewport with integer width/height from 40 to 10000. Absence retains cards; panels fit the complete HTML/image viewport without cropping, and expose notes on demand. Containment
+canonical review; geometry, optional presentation and local archive state are board-scoped. Presentation accepts mode card/panel/icon, an optional viewport with integer width/height from 40 to 10000, and an optional hexadecimal paper color. Absence retains cards; panels fit the complete HTML/image viewport without cropping. The item footer Notes control opens an attached nonmodal notes/appearance popup with Full preview, Compact card, Icon and paper choices. Notes/star remain canonical; appearance remains placement-local. Presentation patches replace the object, so clients preserve existing viewport and paper values when changing one field. Line decorations optionally accept boolean endArrow/flipX/flipY for an arrowhead and its endpoint orientation within the positive-size bounding box; absent flags preserve existing lines. Text/Region/Line/Arrow are available from Add with direct on-board controls. Containment
 is a DAG, with explicit homeBoardIds. Resource roots are named workspace-relative
 folder paths; files remain project-owned and standalone. Duplication creates a
 new canonical identity pointing at the same files; board duplication copies its

@@ -764,11 +764,62 @@ test("panel presentation is validated and local while references share canonical
   await operation(config,"updatePlacement",{boardId:b.boardId,placementId:referenced.placementIds[0],patch:{presentation:{mode:"card"}}});
   assert.deepEqual((await getBoardSnapshot(config,a.boardId)).placements[0].presentation,presentation);
   const revision=(await readWorkspace(config)).revision;
-  for(const invalid of [{mode:"icon"},{mode:"panel",viewport:{width:0,height:650}},
+  for(const invalid of [{mode:"unsupported"},{mode:"panel",viewport:{width:0,height:650}},
     {mode:"panel",viewport:{width:360.5,height:650}},{mode:"panel",viewport:{width:360,height:650,src:"x"}}]) {
     await assert.rejects(()=>operation(config,"updatePlacement",{boardId:a.boardId,placementId:local.id,patch:{presentation:invalid}}),{status:400});
   }
   assert.equal((await readWorkspace(config)).revision,revision);
   const copied=await operation(config,"reference",{sourceBoardId:a.boardId,placementIds:[local.id],targetBoardId:b.boardId});
   assert.deepEqual((await getBoardSnapshot(config,b.boardId)).placements.find(p=>p.id===copied.placementIds[0]).presentation,presentation);
+});
+
+
+test("icon and paper appearance stay placement-local and preserve viewports and canonical review", async (t) => {
+  const { config } = await fixture(t);
+  const a = await board(config), b = await board(config, "References");
+  const original = { mode: "panel", viewport: { width: 360, height: 650 }, paper: "#e7eddf" };
+  const created = await operation(config, "createItem", {
+    boardId: a.boardId, item: { title: "Shared design" }, placement: { presentation: original },
+  });
+  const referenced = await operation(config, "reference", {
+    sourceBoardId: a.boardId, placementIds: created.placementIds, targetBoardId: b.boardId,
+  });
+  const appearance = { ...original, mode: "icon", paper: "#f4e0e5" };
+  await operation(config, "updatePlacement", {
+    boardId: b.boardId, placementId: referenced.placementIds[0],
+    patch: { width: 190, height: 104, presentation: appearance },
+  });
+  await operation(config, "review", { itemId: created.itemId, patch: { note: "Keep this", star: true } });
+  const source = await getBoardSnapshot(config, a.boardId), target = await getBoardSnapshot(config, b.boardId);
+  assert.deepEqual(source.placements[0].presentation, original);
+  assert.deepEqual(target.placements[0].presentation, appearance);
+  assert.equal(target.placements[0].itemId, created.itemId);
+  assert.deepEqual(source.items[created.itemId].review, target.items[created.itemId].review);
+  assert.equal(target.items[created.itemId].review.note, "Keep this");
+  const revision = (await readWorkspace(config)).revision;
+  for (const paper of ["sage", "url(https://example.org/image)", "#12", null, 42]) {
+    await assert.rejects(() => operation(config, "updatePlacement", {
+      boardId: b.boardId, placementId: referenced.placementIds[0],
+      patch: { presentation: { ...appearance, paper } },
+    }), { status: 400 });
+  }
+  assert.equal((await readWorkspace(config)).revision, revision);
+  assert.deepEqual((await getBoardSnapshot(config, b.boardId)).placements[0].presentation, appearance);
+});
+
+test("line arrows retain ordinary lines and reject invalid arrow direction metadata atomically", async (t) => {
+  const { config } = await fixture(t), a = await board(config);
+  const line = { id: "line", type: "line", x: 0, y: 0, width: 300, height: 2, color: "#abc", text: "" };
+  const arrow = { ...line, id: "arrow", height: 120, endArrow: true, flipX: true, flipY: false };
+  await operation(config, "updateBoard", { boardId: a.boardId, patch: { decorations: [line, arrow] } });
+  assert.deepEqual((await getBoardSnapshot(config, a.boardId)).decorations, [line, arrow]);
+  const revision = (await readWorkspace(config)).revision;
+  for (const invalid of [{ ...arrow, endArrow: "yes" }, { ...arrow, flipX: 1 },
+    { ...arrow, flipY: null }, { ...arrow, type: "region" }]) {
+    await assert.rejects(() => operation(config, "updateBoard", {
+      boardId: a.boardId, patch: { decorations: [invalid] },
+    }), { status: 400 });
+  }
+  assert.equal((await readWorkspace(config)).revision, revision);
+  assert.deepEqual((await getBoardSnapshot(config, a.boardId)).decorations, [line, arrow]);
 });

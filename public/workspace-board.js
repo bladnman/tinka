@@ -2,7 +2,6 @@ import {
   WorkspaceClient,
   escape as esc,
   resourceURL,
-  contentURL,
   destinationDialog,
   itemForm,
   makeDialog,
@@ -40,6 +39,7 @@ export class WorkspaceBoard {
     this.saving = false;
     this.savePromise = null;
     this.surface = "content";
+    this.activeDecoration = null;
   }
   adapt(snapshot = this.snapshot) {
     this.snapshot = snapshot;
@@ -139,13 +139,21 @@ export class WorkspaceBoard {
       "Board canvas: scroll to pan, pinch or Control-scroll to zoom; drag a card to move it",
     );
     $("help-panel").innerHTML =
-      "<strong>Make yourself at home.</strong> Scroll with your mouse or trackpad, or swipe the background on a touch screen, to move around Canvas; Shift-scroll moves sideways. Pinch, or hold Control or ⌘ while scrolling, to zoom. Drag a card’s body to move it; notes and buttons keep their usual behavior. A click opens a preview. Move / resize offers keyboard and touch controls. Grid keeps comparison order. Open an item to try it, then step with Previous, Next or the dots. Escape returns here. Stars and notes follow the item across references.";
+      "<strong>Make yourself at home.</strong> Scroll with your mouse or trackpad, or swipe the background on a touch screen, to move around Canvas; Shift-scroll moves sideways. Pinch, or hold Control or ⌘ while scrolling, to zoom. Drag a card’s body to move it; notes and buttons keep their usual behavior. A click opens a preview. Select an item and use arrow keys to move it, or drag its corner to resize. Double-click text or a region label to edit it. Grid keeps comparison order. Open an item to try it, then step with Previous, Next or the dots. Escape returns here. Stars and notes follow the item across references.";
     const bar = document.createElement("section");
     bar.id = "workspace-toolbar";
     bar.className = "workspace-toolbar";
     bar.setAttribute("aria-label", "Organize this board");
-    bar.innerHTML = `<div class="workspace-segments"><button data-mode="grid">Grid</button><button data-mode="canvas">Canvas</button></div><label class="workspace-search"><span class="sr-only">Search items</span><input type="search" placeholder="Find a title or text…" id="workspace-search"></label><button id="workspace-favorites" aria-pressed="false">☆ Favorites</button><button id="workspace-recent" aria-pressed="false">Last 6 weeks</button><button id="workspace-archive" aria-pressed="false">Archive</button><button id="workspace-new">+ Idea</button><button id="workspace-new-board">+ Board</button><button id="workspace-tools">Board tools…</button><button id="workspace-owner" hidden>Open primary content</button><button id="workspace-retry-drafts" hidden>Retry unsaved feedback</button>`;
+    bar.innerHTML = `<div class="workspace-segments"><button data-mode="grid">Grid</button><button data-mode="canvas">Canvas</button></div><label class="workspace-search"><span class="sr-only">Search items</span><input type="search" placeholder="Find a title or text…" id="workspace-search"></label><button id="workspace-favorites" aria-pressed="false">☆ Favorites</button><button id="workspace-recent" aria-pressed="false">Last 6 weeks</button><button id="workspace-archive" aria-pressed="false">Archive</button><button id="workspace-owner" hidden>Open primary content</button><button id="workspace-retry-drafts" hidden>Retry unsaved feedback</button>`;
     $("canvas-header").after(bar);
+    const add = document.createElement("button");
+    add.id = "workspace-add";
+    add.type = "button";
+    add.textContent = "+ Add";
+    add.setAttribute("aria-haspopup", "menu");
+    add.setAttribute("aria-expanded", "false");
+    $("canvas-header").append(add);
+    add.onclick = () => this.addMenu(add);
     const selected = document.createElement("section");
     selected.id = "workspace-selection";
     selected.className = "workspace-selection";
@@ -177,19 +185,11 @@ export class WorkspaceBoard {
         this.selection.clear();
         this.rebuild();
       };
-    $("workspace-new").onclick = () =>
-      itemForm(this.client, {
-        boardId: this.snapshot.id,
-        refresh: () => this.refresh(),
-      });
-    $("workspace-new-board").onclick = () => this.newBoard();
-    $("workspace-tools").onclick = () => this.boardTools();
     document.addEventListener("click", (e) => {
       const select = e.target.closest("[data-placement-select]"),
-        geo = e.target.closest("[data-geometry]"),
+        context = e.target.closest("[data-item-controls]"),
         edit = e.target.closest("[data-edit-item]"),
-        child = e.target.closest("[data-child-board]"),
-        feedback = e.target.closest("[data-panel-feedback]");
+        child = e.target.closest("[data-child-board]");
       if (select) {
         const id = select.dataset.placementSelect;
         this.selection.has(id)
@@ -197,13 +197,7 @@ export class WorkspaceBoard {
           : this.selection.add(id);
         this.build(this.hooks.concepts());
       }
-      if (feedback) {
-        const details = feedback.closest(".workspace-panel").querySelector(".workspace-panel-feedback");
-        details.hidden = !details.hidden;
-        feedback.setAttribute("aria-expanded", String(!details.hidden));
-        if (!details.hidden) details.querySelector("textarea").focus();
-      }
-      if (geo) this.geometry(geo.dataset.geometry);
+      if (context) this.itemControls(context.dataset.itemControls, context.dataset.controlsFocus);
       if (edit)
         itemForm(this.client, {
           item: this.snapshot.items[edit.dataset.editItem],
@@ -213,6 +207,7 @@ export class WorkspaceBoard {
     });
     surfaces.querySelector("[data-surface=content]").onclick = () => {
       this.surface = "content";
+    this.activeDecoration = null;
       this.hooks.reloadReader();
     };
     surfaces.querySelector("[data-surface=board]").onclick = () => {
@@ -238,6 +233,7 @@ export class WorkspaceBoard {
     $("workspace-retry-drafts").onclick = () => this.saveReview([], {});
     window.addEventListener("pagehide", () => this.persistDrafts());
     this.pointer();
+    this.canvasEditing();
     this.setMode(this.mode, false);
     this.loadCrumb();
     $("workspace-owner").hidden =
@@ -395,28 +391,26 @@ export class WorkspaceBoard {
             ? resourceURL(item.content.resource)
             : null;
       const panel = p.presentation?.mode === "panel",
+        icon = p.presentation?.mode === "icon",
         viewport = p.presentation?.viewport || { width: 1000, height: 720 };
       const selected = this.selection.has(p.id),
         unavailable = ["reserved", "building"].includes(item.build?.state),
-        handoff = resourceURL(
-          item.resources?.find((r) => r.role === "handoff")?.resource,
-        ),
-        live =
-          (this.mode === "grid" || panel) &&
-          !unavailable &&
-          !img &&
-          item.content?.kind === "html" &&
-          item.content?.resource &&
-          !item.content?.url;
-      if (panel) {
-        const panelContent = unavailable
-          ? `<div class="workspace-build-placeholder"><strong>${item.build.state === "building" ? "Taking shape." : "A place for a new idea."}</strong><span>${esc(item.build.message || "This slot will open when it is ready for review.")}</span></div>`
-          : live ? `<iframe src="${esc(this.hooks.preview(c))}" title="${esc(item.title)} design preview" tabindex="-1" loading="lazy" inert></iframe>`
-          : img || (url && item.content.kind === "image") ? `<img src="${esc(img || url)}" alt="${esc(item.title)} design preview">`
-          : `<span class="workspace-title-art">${esc(item.preview?.text || item.title)}</span>`;
-        return `<article class="workspace-card workspace-panel ${selected ? "selected" : ""}" data-key="${esc(c.key)}" data-placement="${esc(p.id)}" data-build-state="${esc(item.build?.state || "ready")}" style="${this.mode === "canvas" ? `left:${p.x + this.origin.x}px;top:${p.y + this.origin.y}px;width:${p.width}px;height:${p.height}px;z-index:${p.z};` : `width:${p.width}px;height:${p.height}px;`}--panel-viewport-width:${viewport.width}px;--panel-viewport-height:${viewport.height}px;"><div class="workspace-card-preview workspace-panel-preview ${live ? "workspace-live-preview" : ""}" data-preview-width="${viewport.width}" data-preview-height="${viewport.height}">${panelContent}<button type="button" class="workspace-preview-launch" ${unavailable ? "disabled" : ""} data-open="${esc(c.key)}" aria-label="Open ${esc(item.title)}"><span>Open ${esc(item.title)} ↗</span></button></div><footer class="workspace-panel-caption"><button type="button" data-placement-select="${esc(p.id)}" aria-pressed="${selected}" aria-label="${selected ? "Deselect" : "Select"} ${esc(item.title)}">${selected ? "✓" : "□"}</button><button type="button" class="workspace-panel-title" ${unavailable ? "disabled" : ""} data-open="${esc(c.key)}">${esc(item.title)}</button><button type="button" class="shortlist" data-star="${esc(c.key)}" aria-label="Favorite ${esc(item.title)}" aria-pressed="${!!item.review?.star}">${item.review?.star ? "★" : "☆"}</button><button type="button" data-panel-feedback aria-expanded="false">Notes</button><button type="button" data-geometry="${esc(p.id)}" aria-label="Presentation and size of ${esc(item.title)}">⋯</button></footer><div class="workspace-panel-feedback" hidden><p>${esc(item.description)}</p><label><span class="sr-only">Notes on ${esc(item.title)}</span><textarea data-note="${esc(c.key)}" aria-label="Notes on ${esc(item.title)}" placeholder="A thought to return to…">${esc(item.review?.note || "")}</textarea></label><button data-edit-item="${esc(item.id)}" type="button">Edit item</button>${item.revisions?.length ? `<span>${item.revisions.length} versions</span>` : ""}</div>${this.mode === "canvas" ? `<button type="button" class="workspace-resize" data-resize="${esc(p.id)}" aria-label="Resize ${esc(item.title)}">◢</button>` : ""}</article>`;
-      }
-      return `<article class="workspace-card ${selected ? "selected" : ""}" data-key="${esc(c.key)}" data-placement="${esc(p.id)}" data-build-state="${esc(item.build?.state || "ready")}" style="${this.mode === "canvas" ? `left:${p.x + this.origin.x}px;top:${p.y + this.origin.y}px;width:${p.width}px;height:${p.height}px;z-index:${p.z};` : ""}"><header><button type="button" data-placement-select="${esc(p.id)}" aria-pressed="${selected}" aria-label="${selected ? "Deselect" : "Select"} ${esc(item.title)}">${selected ? "✓" : "□"}</button><span class="workspace-concept-number">${esc(c.number)}</span><span>${esc(item.category || item.content?.kind || "Idea")}${item.childBoardId ? " · Board" : ""}</span><button type="button" class="workspace-drag" data-drag="${esc(p.id)}" aria-label="Drag ${esc(item.title)}" title="Drag to move on canvas">⠿</button></header><div class="workspace-card-preview ${live ? "workspace-live-preview" : ""}">${unavailable ? `<div class="workspace-build-placeholder"><strong>${item.build.state === "building" ? "Taking shape." : "A place for a new idea."}</strong><span>${esc(item.build.message || "This slot will open when it is ready for review.")}</span></div>` : live ? `<iframe src="${esc(this.hooks.preview(c))}" title="${esc(item.title)} live preview" tabindex="-1" loading="lazy" inert></iframe>` : img || (url && item.content.kind === "image") ? `<img src="${esc(img || url)}" alt="">` : item.childBoardId ? '<span class="workspace-paper-art" aria-hidden="true">▱ ▱</span>' : `<span class="workspace-title-art">${esc(item.preview?.text || item.title)}</span>`}<button type="button" class="workspace-preview-launch" ${unavailable ? "disabled" : ""} data-open="${esc(c.key)}" aria-label="Open ${esc(item.title)}"><span>Open ${esc(item.title)} ↗</span></button></div><div class="workspace-card-copy"><h3><button type="button" ${unavailable ? "disabled" : ""} data-open="${esc(c.key)}">${esc(item.title)}</button></h3><p>${esc(item.description)}</p>${item.question ? `<p class="workspace-question">${esc(item.question)}</p>` : ""}${handoff ? `<a class="workspace-handoff" href="${esc(handoff)}" target="_blank" rel="noopener noreferrer">Handoff ↗</a>` : ""}${item.childBoardId && item.content ? `<button type="button" class="workspace-child" data-child-board="${esc(item.childBoardId)}">Open board ↗</button>` : ""}<div class="workspace-review"><button type="button" class="shortlist" data-star="${esc(c.key)}" aria-label="Favorite ${esc(item.title)}" aria-pressed="${!!item.review?.star}">${item.review?.star ? "★" : "☆"}</button><label><span class="sr-only">Notes on ${esc(item.title)}</span><textarea data-note="${esc(c.key)}" aria-label="Notes on ${esc(item.title)}" placeholder="A thought to return to…">${esc(item.review?.note || "")}</textarea></label></div><div class="workspace-card-meta"><span title="${esc(item.build?.message)}">${esc(item.build?.state || "ready")}${item.revisions?.length ? " · " + item.revisions.length + " versions" : ""}</span><button data-edit-item="${esc(item.id)}" type="button">Edit</button><button data-geometry="${esc(p.id)}" type="button">Move / resize</button></div></div>${this.mode === "canvas" ? `<button type="button" class="workspace-resize" data-resize="${esc(p.id)}" aria-label="Resize ${esc(item.title)}">◢</button>` : ""}</article>`;
+        live = !icon && (this.mode === "grid" || panel) && !unavailable && !img &&
+          item.content?.kind === "html" && item.content?.resource && !item.content?.url;
+      const review = { ...item.review, ...this.pendingReview.get(item.id) };
+      const handoff = resourceURL(item.resources?.find(r => r.role === "handoff")?.resource);
+      const footer = `<footer class="workspace-item-footer workspace-panel-caption"><button type="button" data-placement-select="${esc(p.id)}" aria-pressed="${selected}" aria-label="${selected ? "Deselect" : "Select"} ${esc(item.title)}">${selected ? "✓" : "□"}</button>${panel ? `<button type="button" class="workspace-panel-title" ${unavailable ? "disabled" : ""} data-open="${esc(c.key)}">${esc(item.title)}</button>` : '<span class="workspace-item-spacer" aria-hidden="true"></span>'}<button type="button" class="shortlist" data-star="${esc(c.key)}" aria-label="Favorite ${esc(item.title)}" aria-pressed="${!!review.star}">${review.star ? "★" : "☆"}</button><button type="button" data-item-controls="${esc(p.id)}" data-controls-focus="notes" aria-expanded="${this.contextPlacement === p.id}" aria-label="Notes on ${esc(item.title)}">Notes${review.note ? '<span class="workspace-note-dot" aria-hidden="true"></span>' : ""}</button><button type="button" data-item-controls="${esc(p.id)}" data-controls-focus="appearance" aria-label="Details and appearance of ${esc(item.title)}" aria-expanded="${this.contextPlacement === p.id}">⋯</button></footer>`;
+      const visual = unavailable
+        ? `<div class="workspace-build-placeholder"><strong>${item.build.state === "building" ? "Taking shape." : "A place for a new idea."}</strong><span>${esc(item.build.message || "This slot will open when it is ready for review.")}</span></div>`
+        : live ? `<iframe src="${esc(this.hooks.preview(c))}" title="${esc(item.title)} ${panel ? "design" : "live"} preview" tabindex="-1" loading="lazy" inert></iframe>`
+        : img || (url && item.content.kind === "image") ? `<img src="${esc(img || url)}" alt="${esc(item.title)} preview">`
+        : item.childBoardId ? '<span class="workspace-paper-art" aria-hidden="true">▱ ▱</span>'
+        : `<span class="workspace-title-art">${esc(item.preview?.text || item.title)}</span>`;
+      const paper = /^#[0-9a-f]{3,8}$/i.test(p.presentation?.paper || "") ? p.presentation.paper : "#f6f7f1";
+      const dimensions = this.mode === "canvas"
+        ? `left:${p.x + this.origin.x}px;top:${p.y + this.origin.y}px;width:${p.width}px;height:${p.height}px;z-index:${p.z};`
+        : panel || icon ? `width:${p.width}px;height:${p.height}px;` : "";
+      return `<article tabindex="-1" class="workspace-card ${panel ? "workspace-panel" : icon ? "workspace-icon" : "workspace-compact"} ${selected ? "selected" : ""}" data-key="${esc(c.key)}" data-placement="${esc(p.id)}" data-build-state="${esc(item.build?.state || "ready")}" style="${dimensions}--item-paper:${paper};--panel-viewport-width:${viewport.width}px;--panel-viewport-height:${viewport.height}px;">${icon ? `<button type="button" class="workspace-icon-entry" ${unavailable ? "disabled" : ""} data-open="${esc(c.key)}" aria-label="Open ${esc(item.title)}"><span aria-hidden="true">${item.childBoardId ? "▱" : item.content?.kind === "image" ? "▧" : item.content?.kind === "html" ? "▤" : "◇"}</span><strong>${esc(item.title)}</strong></button>` : `<div class="workspace-card-preview ${panel ? "workspace-panel-preview" : ""} ${live ? "workspace-live-preview" : ""}" ${panel ? `data-preview-width="${viewport.width}" data-preview-height="${viewport.height}"` : ""}>${visual}<button type="button" class="workspace-preview-launch" ${unavailable ? "disabled" : ""} data-open="${esc(c.key)}" aria-label="Open ${esc(item.title)}"><span>Open ${esc(item.title)} ↗</span></button></div>${!panel ? `<div class="workspace-card-copy"><div class="workspace-compact-meta"><span class="workspace-concept-number">${esc(c.number)}</span><span>${esc(item.category || item.content?.kind || "Idea")}</span></div><h3><button type="button" ${unavailable ? "disabled" : ""} data-open="${esc(c.key)}">${esc(item.title)}</button></h3>${item.description ? `<p>${esc(item.description)}</p>` : ""}${item.question ? `<p class="workspace-question">${esc(item.question)}</p>` : ""}${handoff ? `<a class="workspace-handoff" href="${esc(handoff)}" target="_blank" rel="noopener noreferrer">Handoff ↗</a>` : ""}${item.childBoardId && item.content ? `<button type="button" class="workspace-child" data-child-board="${esc(item.childBoardId)}">Open board ↗</button>` : ""}</div>` : ""}`}${footer}${this.mode === "canvas" ? `<button type="button" class="workspace-resize" data-resize="${esc(p.id)}" aria-label="Resize ${esc(item.title)}">◢</button>` : ""}</article>`;
     };
     const cards = concepts.map(renderCard).join("");
     const groups = new Map();
@@ -460,6 +454,7 @@ export class WorkspaceBoard {
     this.selectionMenu();
     this.sizePreviews();
     this.hooks.layout();
+    this.positionContext();
   }
   sizePreviews() {
     this.previewObserver?.disconnect();
@@ -607,27 +602,70 @@ export class WorkspaceBoard {
     el.querySelector("[data-reader-children]").hidden = !!item.childBoardId;
     $("notes-for").textContent = "Item notes · shared across placements";
   }
-  geometry(id) {
-    const p = this.snapshot.placements.find((p) => p.id === id);
-    if (!p) return;
-    makeDialog(
-      "Presentation and placement",
-      `<p>Choose how this item appears here. Other references keep their own presentation.</p><label>Presentation<select name="presentation"><option value="card" ${p.presentation?.mode !== "panel" ? "selected" : ""}>Compact card</option><option value="panel" ${p.presentation?.mode === "panel" ? "selected" : ""}>Full preview</option></select></label><div class="workspace-field-grid"><label>Preview viewport width<input name="viewportWidth" type="number" min="40" max="10000" step="1" value="${p.presentation?.viewport?.width || 1000}" required></label><label>Preview viewport height<input name="viewportHeight" type="number" min="40" max="10000" step="1" value="${p.presentation?.viewport?.height || 720}" required></label></div><div class="workspace-field-grid">${["x", "y", "width", "height", "z"].map((k) => `<label>${k[0].toUpperCase() + k.slice(1)}<input name="${k}" type="number" step="1" value="${p[k]}" ${["width", "height"].includes(k) ? 'min="160" max="10000"' : 'min="-100000" max="100000"'} required></label>`).join("")}</div><button type="submit" class="workspace-primary">Save placement</button>`,
-      async (f) => {
-        const patch = Object.fromEntries(
-          ["x", "y", "width", "height", "z"].map((k) => [k, Number(f.get(k))]),
-        );
-        patch.presentation = { mode: f.get("presentation"), viewport: {
-          width: Number(f.get("viewportWidth")), height: Number(f.get("viewportHeight")),
-        } };
-        await this.client.write("updatePlacement", {
-          boardId: this.snapshot.id,
-          placementId: id,
-          patch,
-        });
+  itemControls(id, focus = "notes") {
+    if (this.contextPlacement === id) { this.closeContext(); return; }
+    this.closeContext();
+    const p = this.snapshot.placements.find(p => p.id === id);
+    const item = this.snapshot.items[p?.itemId];
+    if (!item) return;
+    this.closeAddMenu();
+    this.contextPlacement = id;
+    const popover = document.createElement("section");
+    popover.id = "workspace-item-controls";
+    popover.className = "workspace-item-controls";
+    popover.setAttribute("role", "dialog");
+    popover.setAttribute("aria-label", `Notes and appearance of ${item.title}`);
+    const note = this.pendingReview.get(item.id)?.note ?? item.review?.note ?? "";
+    popover.innerHTML = `<header><strong>${esc(item.title)}</strong><button type="button" data-context-close aria-label="Close item details">×</button></header><label class="workspace-context-note">Notes<textarea data-note="items/${esc(id)}" aria-label="Notes on ${esc(item.title)}" placeholder="A thought to return to…">${esc(note)}</textarea></label><div class="workspace-context-row"><span>Appearance</span><div class="workspace-appearance-buttons" role="group" aria-label="Item appearance">${[["panel", "Full preview", '<rect x="3" y="3" width="18" height="18" rx="1"/><path d="M3 17h18"/>'], ["card", "Compact card", '<rect x="5" y="4" width="14" height="16" rx="1"/><path d="M5 13h14M8 16h8"/>'], ["icon", "Icon", '<rect x="7" y="7" width="10" height="10" rx="2"/>']].map(([mode, label, glyph]) => `<button type="button" data-presentation="${mode}" aria-label="${label}" title="${label}" aria-pressed="${(p.presentation?.mode || "card") === mode}"><svg viewBox="0 0 24 24" aria-hidden="true">${glyph}</svg></button>`).join("")}</div></div><div class="workspace-context-row"><span>Paper</span><div class="workspace-paper-swatches" role="group" aria-label="Paper color">${[["#f6f7f1", "Paper"], ["#e4ebdc", "Sage"], ["#f1e8d5", "Sand"], ["#f1e0dc", "Rose"], ["#dfe8ed", "Blue"]].map(([color,label]) => `<button type="button" data-paper="${color}" aria-label="${label} paper" title="${label}" aria-pressed="${(p.presentation?.paper || "#f6f7f1") === color}" style="--swatch:${color}"></button>`).join("")}</div></div><footer><button type="button" data-context-edit>Edit item…</button><span>${esc(item.build?.state || "ready")}${item.revisions?.length ? ` · ${item.revisions.length} versions` : ""}</span></footer>`;
+    document.body.append(popover);
+    this.context = popover;
+    popover.querySelector("[data-context-close]").onclick = () => this.closeContext(true);
+    popover.querySelector("[data-context-edit]").onclick = () => { this.closeContext(); itemForm(this.client, { item, refresh: () => this.refresh() }); };
+    popover.querySelectorAll("[data-presentation], [data-paper]").forEach(button => button.onclick = async () => {
+      const placement = this.snapshot.placements.find(p => p.id === id);
+      const presentation = { mode: "card", ...(placement.presentation || {}), ...(button.dataset.presentation ? { mode: button.dataset.presentation } : { paper: button.dataset.paper }) };
+      const patch = { presentation };
+      if (button.dataset.presentation && button.dataset.presentation !== (placement.presentation?.mode || "card")) {
+        const [width, height] = { panel: [560, 420], card: [320, 260], icon: [218, 112] }[presentation.mode];
+        Object.assign(patch, { width, height });
+      }
+      try {
+        await this.client.write("updatePlacement", { boardId: this.snapshot.id, placementId: id, patch });
+        Object.assign(placement, patch);
+        popover.querySelectorAll("[data-presentation]").forEach(b => b.setAttribute("aria-pressed", String(b.dataset.presentation === (presentation.mode || "card"))));
+        popover.querySelectorAll("[data-paper]").forEach(b => b.setAttribute("aria-pressed", String(b.dataset.paper === (presentation.paper || "#f6f7f1"))));
         await this.refresh();
-      },
-    );
+      } catch (error) { showFailure(error); }
+    });
+    this.positionContext();
+    document.querySelectorAll(`[data-item-controls="${CSS.escape(id)}"]`).forEach(b => b.setAttribute("aria-expanded", "true"));
+    if (focus === "notes") popover.querySelector("textarea").focus({ preventScroll: true });
+    else popover.querySelector("[data-presentation]").focus({ preventScroll: true });
+    const follow = () => { if (!this.context) return; this.positionContext(); this.contextFrame = requestAnimationFrame(follow); };
+    this.contextFrame = requestAnimationFrame(follow);
+  }
+  positionContext() {
+    if (!this.context) return;
+    const card = document.querySelector(`[data-placement="${CSS.escape(this.contextPlacement)}"]`);
+    if (!card) { this.closeContext(); return; }
+    const anchor = card.querySelector(".workspace-item-footer").getBoundingClientRect();
+    const bounds = $("viewport").getBoundingClientRect();
+    if (anchor.right < bounds.left || anchor.left > bounds.right || anchor.bottom < bounds.top || anchor.top > bounds.bottom) { this.closeContext(); return; }
+    this.context.hidden = false;
+    const width = this.context.offsetWidth, height = this.context.offsetHeight;
+    const left = Math.max(8, Math.min(innerWidth - width - 8, anchor.right - width));
+    const above = anchor.top - height - 7;
+    const top = above >= bounds.top + 5 ? above : Math.min(innerHeight - height - 8, anchor.bottom + 7);
+    Object.assign(this.context.style, { left: `${left}px`, top: `${Math.max(8, top)}px` });
+  }
+  closeContext(focus = false) {
+    if (!this.context) return;
+    const id = this.contextPlacement;
+    this.context.remove(); this.context = null; this.contextPlacement = null;
+    cancelAnimationFrame(this.contextFrame);
+    const buttons = document.querySelectorAll(`[data-item-controls="${CSS.escape(id)}"]`);
+    buttons.forEach(b => b.setAttribute("aria-expanded", "false"));
+    if (focus) buttons[0]?.focus({ preventScroll: true });
   }
   pointer() {
     let drag = null;
@@ -679,7 +717,7 @@ export class WorkspaceBoard {
         const card = e.target.closest(".workspace-card");
         if (!card) return;
         const handle = e.target.closest("[data-drag],[data-resize]");
-        const preview = e.target.closest(".workspace-preview-launch");
+        const preview = e.target.closest(".workspace-preview-launch,.workspace-icon-entry");
         if (
           !handle &&
           !preview &&
@@ -739,8 +777,8 @@ export class WorkspaceBoard {
           dy = screenY / drag.zoom;
         drag.patch = drag.resize
           ? {
-              width: Math.max(160, Math.round(drag.p.width + dx)),
-              height: Math.max(180, Math.round(drag.p.height + dy)),
+              width: Math.max(drag.p.presentation?.mode === "icon" ? 190 : 160, Math.round(drag.p.width + dx)),
+              height: Math.max(drag.p.presentation?.mode === "icon" ? 90 : 120, Math.round(drag.p.height + dy)),
             }
           : { x: Math.round(drag.p.x + dx), y: Math.round(drag.p.y + dy) };
         for (const [key, value] of Object.entries(drag.patch))
@@ -781,99 +819,224 @@ export class WorkspaceBoard {
       true,
     );
     document.addEventListener(
-      "pointercancel",
-      (e) => {
-        if (drag?.pointerId === e.pointerId) cancel();
-      },
-      true,
+      "pointercancel", (e) => { if (drag?.pointerId === e.pointerId) cancel(); }, true,
     );
+    document.addEventListener("keydown", e => {
+      if (drag && e.key === "Escape") { cancel(); e.preventDefault(); e.stopImmediatePropagation(); }
+    }, true);
   }
   decorations() {
-    return (this.snapshot.decorations || [])
-      .map(
-        (d) =>
-          `<div class="workspace-decoration decoration-${esc(d.type || "text")}" data-decoration="${esc(d.id)}" style="left:${Number(d.x || 0) + this.origin.x}px;top:${Number(d.y || 0) + this.origin.y}px;width:${Number(d.width || 300)}px;height:${Number(d.height || 80)}px;--decoration-color:${/^#[0-9a-f]{3,8}$/i.test(d.color) ? d.color : "#cfd8bf"}"><span>${esc(d.text || "")}</span><button type="button" data-decoration-edit="${esc(d.id)}" aria-label="Edit ${esc(d.type || "text")} decoration">Edit</button></div>`,
-      )
-      .join("");
+    return (this.snapshot.decorations || []).map(d => this.decorationMarkup(d)).join("");
   }
-  boardTools() {
-    makeDialog(
-      "Board tools",
-      `<p>Spatial marks describe your arrangement. They do not change an item’s workflow status.</p><div class="workspace-inline-actions"><button type="button" data-new-decoration="text">Add text</button><button type="button" data-new-decoration="region">Add region</button><button type="button" data-new-decoration="line">Add line</button><button type="button" data-background>Background…</button><button type="button" data-review-order>Comparison order…</button></div><p class="workspace-eyebrow">Decorations</p>${(this.snapshot.decorations || []).map((d) => `<p><button type="button" data-decoration-edit="${esc(d.id)}">Edit ${esc(d.text || d.type)}</button></p>`).join("")}`,
-    );
-    document.querySelectorAll("[data-new-decoration]").forEach(
-      (b) =>
-        (b.onclick = () => {
-          b.closest("dialog").close();
-          this.decorationForm({ type: b.dataset.newDecoration });
-        }),
-    );
-    document.querySelector("[data-background]").onclick = (e) => {
-      e.target.closest("dialog").close();
-      this.backgroundForm();
-    };
-    document.querySelector("[data-review-order]").onclick = (e) => {
-      e.target.closest("dialog").close();
-      this.orderForm();
-    };
-    document.querySelectorAll("[data-decoration-edit]").forEach(
-      (b) =>
-        (b.onclick = () => {
-          b.closest("dialog")?.close();
-          this.decorationForm(
-            this.snapshot.decorations.find(
-              (d) => d.id === b.dataset.decorationEdit,
-            ),
-          );
-        }),
-    );
+  decorationMarkup(d) {
+    const line = d.type === "line", selected = this.activeDecoration === d.id;
+    const color = /^#[0-9a-f]{3,8}$/i.test(d.color) ? d.color : "#cfd8bf";
+    const x1 = d.flipX ? 100 : 0, y1 = d.flipY ? 100 : 0;
+    const x2 = 100 - x1, y2 = 100 - y1;
+    const mark = line ? `<svg class="workspace-decoration-line" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true"><defs><marker id="arrow-${esc(d.id)}" markerWidth="10" markerHeight="10" refX="8" refY="5" orient="auto" markerUnits="userSpaceOnUse"><path d="M1 1L9 5L1 9" fill="none" stroke="${color}" stroke-width="2"/></marker></defs><line x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}" stroke="${color}" stroke-width="2" vector-effect="non-scaling-stroke" ${d.endArrow ? `marker-end="url(#arrow-${esc(d.id)})"` : ""}/></svg><span class="workspace-decoration-label" data-decoration-label>${esc(d.text || "")}</span>` : `<span class="workspace-decoration-label" data-decoration-label>${esc(d.text || "")}</span>`;
+    return `<div tabindex="0" role="group" aria-label="${esc(d.type === "line" && d.endArrow ? "Arrow" : d.type)}: ${esc(d.text || "Untitled")}" class="workspace-decoration decoration-${esc(d.type || "text")} ${selected ? "selected" : ""}" data-decoration="${esc(d.id)}" style="left:${Number(d.x || 0) + this.origin.x}px;top:${Number(d.y || 0) + this.origin.y}px;width:${Number(d.width || 300)}px;height:${Number(d.height || 80)}px;--decoration-color:${color}">${mark}${selected ? `<div class="workspace-decoration-actions"><input type="color" data-decoration-color aria-label="Decoration color" value="${color}"><button type="button" data-decoration-delete aria-label="Delete decoration">×</button></div>${line ? `<button type="button" class="workspace-endpoint" data-endpoint="start" aria-label="Move arrow start" style="left:${x1}%;top:${y1}%"></button><button type="button" class="workspace-endpoint" data-endpoint="end" aria-label="Move arrow end" style="left:${x2}%;top:${y2}%"></button>` : '<button type="button" class="workspace-decoration-resize" data-decoration-resize aria-label="Resize decoration">◢</button>'}` : ""}</div>`;
   }
-  decorationForm(input = { type: "text" }) {
-    const d = {
-      id: crypto.randomUUID(),
-      x: 30,
-      y: 30,
-      width: 320,
-      height: input.type === "line" ? 2 : 100,
-      color: "#cfd8bf",
-      text: "",
-      ...input,
+  updateDecorationElement(d) {
+    const old = document.querySelector(`[data-decoration="${CSS.escape(d.id)}"]`);
+    if (old) old.outerHTML = this.decorationMarkup(d);
+  }
+  closeAddMenu() {
+    this.addPopup?.remove(); this.addPopup = null;
+    $("workspace-add").setAttribute("aria-expanded", "false");
+  }
+  addMenu(anchor, point) {
+    if (this.addPopup) { this.closeAddMenu(); return; }
+    this.closeContext();
+    const menu = document.createElement("div");
+    menu.className = "workspace-add-menu"; menu.setAttribute("role", "menu");
+    menu.setAttribute("aria-label", "Add to board");
+    menu.innerHTML = `<button type="button" role="menuitem" data-add="text"><span aria-hidden="true">T</span>Text</button><button type="button" role="menuitem" data-add="region"><span aria-hidden="true">▧</span>Colored region</button><button type="button" role="menuitem" data-add="arrow"><span aria-hidden="true">↗</span>Arrow</button><hr><button type="button" role="menuitem" data-add="idea"><span aria-hidden="true">◇</span>Item…</button><button type="button" role="menuitem" data-add="board"><span aria-hidden="true">▱</span>Tinka / Board…</button><hr><button type="button" role="menuitem" data-add="background">Board background…</button><button type="button" role="menuitem" data-add="order">Comparison order…</button>`;
+    document.body.append(menu); this.addPopup = menu;
+    const rect = anchor?.getBoundingClientRect();
+    const screen = point || { x: rect.right - menu.offsetWidth, y: rect.bottom + 6 };
+    Object.assign(menu.style, { left: `${Math.max(8, Math.min(innerWidth - menu.offsetWidth - 8, screen.x))}px`, top: `${Math.max(8, Math.min(innerHeight - menu.offsetHeight - 8, screen.y))}px` });
+    $("workspace-add").setAttribute("aria-expanded", "true");
+    menu.querySelectorAll("[data-add]").forEach(button => button.onclick = () => {
+      const type = button.dataset.add;
+      this.closeAddMenu();
+      if (["text", "region", "arrow"].includes(type)) this.createDecoration(type, point);
+      else if (type === "board") this.newBoard();
+      else if (type === "idea") itemForm(this.client, { boardId: this.snapshot.id, refresh: () => this.refresh() });
+      else if (type === "background") this.backgroundForm();
+      else this.orderForm();
+    });
+    menu.onkeydown = e => {
+      const buttons = [...menu.querySelectorAll("button")], index = buttons.indexOf(document.activeElement);
+      if (["ArrowDown", "ArrowUp", "Home", "End"].includes(e.key)) {
+        e.preventDefault();
+        buttons[e.key === "Home" ? 0 : e.key === "End" ? buttons.length - 1 : (index + (e.key === "ArrowDown" ? 1 : -1) + buttons.length) % buttons.length].focus();
+      }
     };
-    makeDialog(
-      "Edit " + d.type,
-      `<label>Text<input name="text" value="${esc(d.text)}"></label><div class="workspace-field-grid">${["x", "y", "width", "height"].map((k) => `<label>${k}<input name="${k}" type="number" value="${d[k]}" min="${["width", "height"].includes(k) ? 1 : -100000}" max="100000" required></label>`).join("")}</div><label>Color<input name="color" type="color" value="${d.color}"></label><button type="submit" class="workspace-primary">Save ${d.type}</button>${input.id ? '<button type="button" data-delete-decoration>Remove decoration</button>' : ""}`,
-      async (f) => {
-        const value = { ...d, text: f.get("text"), color: f.get("color") };
-        for (const k of ["x", "y", "width", "height"])
-          value[k] = Number(f.get(k));
-        const list = this.snapshot.decorations.filter((x) => x.id !== d.id);
-        list.push(value);
-        await this.client.write("updateBoard", {
-          boardId: this.snapshot.id,
-          patch: { decorations: list },
-        });
-        this.setMode("canvas", false);
-        await this.refresh();
-      },
-    );
-    document
-      .querySelector("[data-delete-decoration]")
-      ?.addEventListener("click", async (e) => {
-        try {
-          await this.client.write("updateBoard", {
-            boardId: this.snapshot.id,
-            patch: {
-              decorations: this.snapshot.decorations.filter(
-                (x) => x.id !== d.id,
-              ),
-            },
-          });
-          e.target.closest("dialog").close();
+    menu.querySelector("button").focus({ preventScroll: true });
+  }
+  canvasPoint(screen) {
+    const viewport = $("viewport").getBoundingClientRect(), world = $("world").getBoundingClientRect();
+    const point = screen || { x: viewport.left + viewport.width / 2, y: viewport.top + viewport.height / 2 };
+    return { x: Math.round((point.x - world.left) / this.hooks.zoom() - (this.origin?.x || 0)), y: Math.round((point.y - world.top) / this.hooks.zoom() - (this.origin?.y || 0)) };
+  }
+  async createDecoration(type, screen) {
+    if (this.mode !== "canvas") this.setMode("canvas");
+    const point = this.canvasPoint(screen), region = type === "region";
+    const d = { id: crypto.randomUUID(), type: type === "arrow" ? "line" : type,
+      x: point.x, y: point.y, width: region ? 420 : type === "arrow" ? 200 : 280,
+      height: region ? 280 : type === "arrow" ? 90 : 70,
+      text: type === "text" ? "Write something" : region ? "A new area" : "",
+      color: region ? "#e1e8d5" : "#7a8a68", ...(type === "arrow" ? { endArrow: true, flipY: true } : {}) };
+    if (!screen) {
+      const occupied = [...this.snapshot.placements.filter(p => !p.removedAt && !p.archivedAt), ...(this.snapshot.decorations || []).filter(d => region || d.type !== "region")];
+      const free = point => !occupied.some(p => point.x < p.x + p.width + 16 && point.x + d.width + 16 > p.x && point.y < p.y + p.height + 16 && point.y + d.height + 16 > p.y);
+      const bounds = $("viewport").getBoundingClientRect();
+      const topLeft = this.canvasPoint({ x: bounds.left + 20, y: bounds.top + 20 });
+      const bottomRight = this.canvasPoint({ x: bounds.right - 20, y: bounds.bottom - 20 });
+      const candidates = [];
+      for (let y = topLeft.y; y + d.height <= bottomRight.y; y += 30)
+        for (let x = topLeft.x; x + d.width <= bottomRight.x; x += 30)
+          if (free({ x, y })) candidates.push({ x, y });
+      candidates.sort((a,b) => Math.hypot(a.x - point.x, a.y - point.y) - Math.hypot(b.x - point.x, b.y - point.y));
+      if (candidates.length) Object.assign(d, candidates[0]);
+      else { d.x = Math.max(point.x, ...occupied.map(p => p.x + p.width)) + 35; d.y = point.y; }
+    }
+    try {
+      this.activeDecoration = d.id; this.selection.clear();
+      await this.writeDecorations([...(this.snapshot.decorations || []), d]);
+      const element = document.querySelector(`[data-decoration="${CSS.escape(d.id)}"]`);
+      element?.scrollIntoView({ block: "nearest", inline: "nearest" });
+      element?.focus({ preventScroll: true });
+      if (type !== "arrow") this.editDecoration(d.id, true);
+    } catch (error) { showFailure(error); }
+  }
+  async writeDecorations(decorations) {
+    await this.client.write("updateBoard", { boardId: this.snapshot.id, patch: { decorations } });
+    this.snapshot.decorations = decorations;
+    await this.refresh();
+  }
+  editDecoration(id, select = false) {
+    const d = this.snapshot.decorations.find(d => d.id === id);
+    const label = document.querySelector(`[data-decoration="${CSS.escape(id)}"] [data-decoration-label]`);
+    if (!d || !label || label.isContentEditable) return;
+    const original = d.text || ""; let cancelled = false;
+    label.contentEditable = "plaintext-only"; label.setAttribute("role", "textbox"); label.setAttribute("aria-label", d.type === "region" ? "Region label" : "Canvas text");
+    label.focus({ preventScroll: true });
+    if (select) { const range = document.createRange(); range.selectNodeContents(label); const sel = getSelection(); sel.removeAllRanges(); sel.addRange(range); }
+    label.onkeydown = e => {
+      e.stopPropagation();
+      if (e.key === "Escape") { e.preventDefault(); cancelled = true; label.textContent = original; label.blur(); }
+      if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); label.blur(); }
+    };
+    label.onblur = async () => {
+      label.removeAttribute("contenteditable"); label.removeAttribute("role");
+      const text = cancelled ? original : label.innerText.trim();
+      if (text === original) return;
+      try { await this.writeDecorations(this.snapshot.decorations.map(x => x.id === id ? { ...x, text } : x)); }
+      catch (error) { showFailure(error); }
+    };
+  }
+  canvasEditing() {
+    const viewport = $("viewport"); let drag = null;
+    document.addEventListener("pointerdown", e => {
+      if (this.context && !e.target.closest("#workspace-item-controls,[data-item-controls]")) this.closeContext();
+      if (this.addPopup && !e.target.closest(".workspace-add-menu,#workspace-add")) this.closeAddMenu();
+    }, true);
+    viewport.addEventListener("contextmenu", e => {
+      if (e.target.closest(".workspace-card,.workspace-decoration,button,input,textarea")) return;
+      e.preventDefault(); this.addMenu(null, { x: e.clientX, y: e.clientY });
+    });
+    viewport.addEventListener("dblclick", e => {
+      const mark = e.target.closest("[data-decoration]");
+      if (mark && !e.target.closest("button,input")) { e.preventDefault(); this.editDecoration(mark.dataset.decoration); }
+    });
+    viewport.addEventListener("change", async e => {
+      if (!e.target.matches("[data-decoration-color]")) return;
+      const id = e.target.closest("[data-decoration]").dataset.decoration;
+      try { await this.writeDecorations(this.snapshot.decorations.map(d => d.id === id ? { ...d, color: e.target.value } : d)); } catch (error) { showFailure(error); }
+    });
+    viewport.addEventListener("click", e => {
+      if (e.target.closest("[data-decoration-delete]")) this.deleteDecoration();
+      if (!e.target.closest(".workspace-card,.workspace-decoration")) {
+        if (this.activeDecoration) { const old = this.snapshot.decorations.find(d => d.id === this.activeDecoration); this.activeDecoration = null; if (old) this.updateDecorationElement(old); }
+      }
+    });
+    viewport.addEventListener("pointerdown", e => {
+      if (this.mode !== "canvas" || e.button !== 0) return;
+      const element = e.target.closest("[data-decoration]");
+      if (!element || e.target.closest("input,[contenteditable],[data-decoration-delete]")) return;
+      const id = element.dataset.decoration, d = this.snapshot.decorations.find(d => d.id === id);
+      if (!d) return;
+      if (this.activeDecoration !== id) {
+        const old = this.snapshot.decorations.find(d => d.id === this.activeDecoration);
+        this.activeDecoration = id; this.selection.clear(); document.querySelectorAll(".workspace-card.selected").forEach(c => c.classList.remove("selected")); this.selectionMenu();
+        if (old) this.updateDecorationElement(old);
+        this.updateDecorationElement(d);
+      }
+      drag = { d: { ...d }, x: e.clientX, y: e.clientY, pointerId: e.pointerId,
+        endpoint: e.target.closest("[data-endpoint]")?.dataset.endpoint,
+        resize: !!e.target.closest("[data-decoration-resize]"), active: false };
+      document.querySelector(`[data-decoration="${CSS.escape(id)}"]`)?.focus({ preventScroll: true });
+      e.stopImmediatePropagation();
+    }, true);
+    document.addEventListener("pointermove", e => {
+      if (!drag || e.pointerId !== drag.pointerId) return;
+      const dx = (e.clientX - drag.x) / this.hooks.zoom(), dy = (e.clientY - drag.y) / this.hooks.zoom();
+      if (!drag.active && Math.hypot(e.clientX - drag.x, e.clientY - drag.y) < 5) return;
+      drag.active = true; e.preventDefault(); e.stopImmediatePropagation();
+      const d = drag.d;
+      if (drag.endpoint) {
+        const start = { x: d.x + (d.flipX ? d.width : 0), y: d.y + (d.flipY ? d.height : 0) };
+        const end = { x: d.x + (d.flipX ? 0 : d.width), y: d.y + (d.flipY ? 0 : d.height) };
+        const point = drag.endpoint === "start" ? start : end; point.x += dx; point.y += dy;
+        drag.next = { ...d, x: Math.round(Math.min(start.x, end.x)), y: Math.round(Math.min(start.y, end.y)), width: Math.max(1, Math.round(Math.abs(end.x - start.x))), height: Math.max(1, Math.round(Math.abs(end.y - start.y))), flipX: end.x < start.x, flipY: end.y < start.y };
+      } else drag.next = { ...d, ...(drag.resize ? { width: Math.max(60, Math.round(d.width + dx)), height: Math.max(35, Math.round(d.height + dy)) } : { x: Math.round(d.x + dx), y: Math.round(d.y + dy) }) };
+      this.updateDecorationElement(drag.next);
+    }, true);
+    document.addEventListener("pointerup", async e => {
+      if (!drag || e.pointerId !== drag.pointerId) return;
+      const done = drag; drag = null;
+      if (!done.active || !done.next) return;
+      e.preventDefault(); e.stopImmediatePropagation();
+      try { await this.writeDecorations(this.snapshot.decorations.map(d => d.id === done.d.id ? done.next : d)); }
+      catch (error) { showFailure(error); this.rebuild(); }
+    }, true);
+    document.addEventListener("pointercancel", () => { if (drag) { this.updateDecorationElement(drag.d); drag = null; } }, true);
+    document.addEventListener("keydown", async e => {
+      if (document.querySelector("#reader-dialog[open],dialog.workspace-dialog[open]")) return;
+      if (e.key === "Escape") {
+        if (drag) { this.updateDecorationElement(drag.d); drag = null; e.preventDefault(); e.stopImmediatePropagation(); return; }
+        if (this.context) { this.closeContext(true); e.preventDefault(); e.stopImmediatePropagation(); return; }
+        if (this.addPopup) { this.closeAddMenu(); $("workspace-add").focus(); e.preventDefault(); e.stopImmediatePropagation(); return; }
+        if (this.activeDecoration) { const old = this.snapshot.decorations.find(d => d.id === this.activeDecoration); this.activeDecoration = null; if (old) this.updateDecorationElement(old); e.preventDefault(); return; }
+        if (this.selection.size) { this.selection.clear(); this.build(this.hooks.concepts()); e.preventDefault(); return; }
+      }
+      if (e.target.closest("input,textarea,select,[contenteditable]")) return;
+      if (e.metaKey || e.ctrlKey || e.altKey) return;
+      const delta = { ArrowLeft: [-1,0], ArrowRight: [1,0], ArrowUp: [0,-1], ArrowDown: [0,1] }[e.key];
+      if (this.activeDecoration && ["Delete", "Backspace"].includes(e.key)) { e.preventDefault(); this.deleteDecoration(); return; }
+      if (this.selection.size && ["Delete", "Backspace"].includes(e.key)) { e.preventDefault(); this.bulk("remove"); return; }
+      if (!delta || (!this.activeDecoration && !this.selection.size)) return;
+      e.preventDefault(); e.stopImmediatePropagation();
+      const [dx,dy] = delta.map(v => v * (e.shiftKey ? 10 : 1));
+      try {
+        if (this.activeDecoration) await this.writeDecorations(this.snapshot.decorations.map(d => d.id === this.activeDecoration ? { ...d, x: d.x + dx, y: d.y + dy } : d));
+        else {
+          for (const id of this.selection) {
+            const p = this.snapshot.placements.find(p => p.id === id); if (!p) continue;
+            const patch = { x: p.x + dx, y: p.y + dy }; Object.assign(p, patch);
+            await this.client.write("updatePlacement", { boardId: this.snapshot.id, placementId: id, patch });
+          }
           await this.refresh();
-        } catch (error) {
-          showFailure(error);
         }
-      });
+      } catch (error) { showFailure(error); }
+    }, true);
+  }
+  async deleteDecoration() {
+    const id = this.activeDecoration; if (!id) return;
+    this.activeDecoration = null;
+    try { await this.writeDecorations(this.snapshot.decorations.filter(d => d.id !== id)); }
+    catch (error) { showFailure(error); }
   }
   backgroundForm() {
     const b = this.snapshot.background || {};
