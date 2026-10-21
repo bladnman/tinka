@@ -51,6 +51,12 @@ export class WorkspaceBoard {
     this.client.revision = Math.max(this.client.revision, snapshot.revision);
     const items = snapshot.items || {},
       byId = new Map(snapshot.placements.map((p) => [p.id, p]));
+    // Replays and external moves can detach selected placements. Keep valid
+    // selections, including filtered/archived ones, but never count absent cards.
+    for (const id of this.selection) {
+      const p = byId.get(id), item = items[p?.itemId];
+      if (!p || p.removedAt || p.deletedAt || !item || item.deletedAt) this.selection.delete(id);
+    }
     const placements = [
       ...(snapshot.reviewOrder || []).map((id) => byId.get(id)).filter(Boolean),
       ...snapshot.placements.filter(
