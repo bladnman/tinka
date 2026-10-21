@@ -41,7 +41,6 @@ test("one atomic positioned move preserves canonical state and presentation; inv
     {targetPosition:{x:0}},
     {targetPosition:{x:0,y:0,width:200}},
     {type:"reference",targetPosition:{x:0,y:0}},
-    {placementIds:board.placements.map(p => p.id),targetPosition:{x:0,y:0}},
     {targetBoardId:undefined,newBoard:{title:"Invalid"},targetPosition:{x:0,y:0}},
   ]) {
     await assert.rejects(() => applyOperation(config, {type:"move",sourceBoardId:target.boardId,

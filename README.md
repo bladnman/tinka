@@ -145,6 +145,11 @@ containing board identifies it. On a collection cover, hold a visible child tile
 briefly to lift that child, then drag it onto the current canvas or another board.
 Moving immediately still drags the entire collection. Releasing a held child
 without moving, or returning it to its original collection, cancels the gesture.
+Select several cards, then drag any selected card to move the visible selection
+together. Their arrangement stays intact on the canvas, inside a destination
+board, or when dropping onto Parent. Dragging an unselected card, resizing a card,
+or deliberately holding a cover child still acts on that one item. Group drags
+save together; a rejected move leaves the entire selection in place.
 
 Agents use the same operations as the browser through HTTP or
 `workspace op --json JSON` / `workspace op --file PATH`. See the

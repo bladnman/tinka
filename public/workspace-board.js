@@ -143,6 +143,7 @@ export class WorkspaceBoard {
     $("help-panel").innerHTML =
       "<strong>Make yourself at home.</strong> Scroll with your mouse or trackpad, or swipe the background on a touch screen, to move around Canvas; Shift-scroll moves sideways. Pinch, or hold Control or ⌘ while scrolling, to zoom. Drag a card’s body to move it; drop inside a highlighted board to move the item into it. Escape cancels a drag. Notes and buttons keep their usual behavior. A click opens a preview. Select an item and use arrow keys to move it, or drag its corner to resize. Move… in the selection toolbar also moves items into boards. Double-click text or a region label to edit it. Grid keeps comparison order. Open an item to try it, then step with Previous, Next or the dots. Escape returns here. Stars and notes follow the item across references.";
     const bar = document.createElement("section");
+    $("help-panel").append(" Select several cards and drag a selected card to carry them together, into a board or onto Parent. An unselected card, resize or held cover child still acts alone.");
     bar.id = "workspace-toolbar";
     bar.className = "workspace-toolbar";
     bar.setAttribute("aria-label", "Organize this board");
@@ -730,12 +731,14 @@ export class WorkspaceBoard {
     const graph = this.workspaceGraph, subject = gesture.lifted || {
       boardId:this.snapshot.id, p:gesture.p,
     };
+    const subjects = gesture.lifted ? [subject.p] : gesture.entries.map(entry => entry.p);
+    const subjectKey = gesture.lifted?.p || gesture.entries;
     if (!graph) return null;
-    if (gesture.dropGraph === graph && gesture.dropSubject === subject.p) return gesture.dropContext;
+    if (gesture.dropGraph === graph && gesture.dropSubject === subjectKey) return gesture.dropContext;
     const items = new Map(graph.items.map(i => [i.id, i]));
     const boards = new Map(graph.boards.map(b => [b.id, b]));
-    const p = boards.get(subject.boardId)?.placements.find(p => p.id === subject.p.id);
-    const item = items.get(p?.itemId);
+    const board = boards.get(subject.boardId);
+    const placements = subjects.map(subject => board?.placements.find(p => p.id === subject.id && p.itemId === subject.itemId));
     const forbidden = new Set([subject.boardId]);
     const visit = id => {
       if (!id || forbidden.has(id)) return;
@@ -746,12 +749,18 @@ export class WorkspaceBoard {
         if (!p.removedAt && !p.deletedAt && !child?.deletedAt) visit(child?.childBoardId);
       }
     };
-    visit(item?.childBoardId);
-    const available = p && !p.removedAt && !p.deletedAt && !p.archivedAt &&
-      item && !item.deletedAt && !item.archivedAt;
+    const available = placements.every(p => {
+      const item = items.get(p?.itemId);
+      visit(item?.childBoardId);
+      return p && !p.removedAt && !p.deletedAt && !p.archivedAt && item && !item.deletedAt && !item.archivedAt;
+    });
+    const valid = placements.filter(Boolean);
+    const x = Math.min(...valid.map(p => p.x)), y = Math.min(...valid.map(p => p.y));
+    const bounds = {x,y,width:Math.max(...valid.map(p => p.x + p.width)) - x,
+      height:Math.max(...valid.map(p => p.y + p.height)) - y};
     gesture.dropGraph = graph;
-    gesture.dropSubject = subject.p;
-    return gesture.dropContext = {items, boards, forbidden, p, item, available, sourceBoardId:subject.boardId};
+    gesture.dropSubject = subjectKey;
+    return gesture.dropContext = {items, boards, forbidden, placements, bounds, available, sourceBoardId:subject.boardId};
   }
   dropDestination(gesture, boardId, card, kind = "board") {
     const context = this.dropContext(gesture), board = context?.boards.get(boardId);
@@ -760,10 +769,10 @@ export class WorkspaceBoard {
       invalid:!context?.available || !board || context.forbidden.has(boardId) ||
         !owner || owner.deletedAt || owner.archivedAt};
   }
-  parentDropPosition(gesture, target) {
+  groupDropPosition(gesture, target) {
     const context = this.dropContext(gesture), board = context.boards.get(target.boardId);
-    const anchor = board.placements.find(p => !p.removedAt && !p.deletedAt && !p.archivedAt && p.itemId === this.snapshot.ownerItemId);
-    const p = context.p;
+    const anchor = target.kind === "parent" ? board.placements.find(p => !p.removedAt && !p.deletedAt && !p.archivedAt && p.itemId === this.snapshot.ownerItemId) : null;
+    const p = context.bounds;
     const occupied = board.placements.filter(p => !p.removedAt && !p.deletedAt && !p.archivedAt);
     const free = point => !occupied.some(other => point.x < other.x + other.width + 16 &&
       point.x + p.width + 16 > other.x && point.y < other.y + other.height + 16 && point.y + p.height + 16 > other.y);
@@ -778,7 +787,7 @@ export class WorkspaceBoard {
   boardDropTarget(gesture, x, y) {
     if (gesture.resize) return null;
     const surface = document.elementsFromPoint(x, y)
-      .find(el => gesture.lifted || !gesture.element.contains(el));
+      .find(el => gesture.lifted || !gesture.entries.some(entry => entry.element.contains(el)));
     const parent = $("workspace-parent");
     if (parent && !parent.hidden) {
       const rect = parent.getBoundingClientRect();
@@ -786,7 +795,7 @@ export class WorkspaceBoard {
           (parent.contains(surface) || surface === parent.parentElement)) {
         if (!this.resolvedParent) return {card:parent,invalid:true};
         const target = this.dropDestination(gesture, this.resolvedParent.id, parent, "parent");
-        if (!target.invalid) target.targetPosition = this.parentDropPosition(gesture, target);
+        if (!target.invalid) target.targetPosition = this.groupDropPosition(gesture, target);
         return target;
       }
     }
@@ -802,6 +811,8 @@ export class WorkspaceBoard {
           y <= rect.top + inset || y >= rect.bottom - inset) return gesture.lifted ? {invalid:true} : null;
       const target = this.dropDestination(gesture, item.childBoardId, card);
       target.invalid ||= placement.removedAt || placement.deletedAt || placement.archivedAt || item.deletedAt || item.archivedAt;
+      if (!target.invalid && !gesture.lifted && gesture.entries.length > 1)
+        target.targetPosition = this.groupDropPosition(gesture, target);
       return target;
     }
     if (gesture.lifted && surface && $("viewport").contains(surface) &&
@@ -842,29 +853,38 @@ export class WorkspaceBoard {
     };
     const showTarget = target => {
       const next = target && !target.invalid ? target.card : null;
-      if (highlighted === next) return;
+      const count = drag?.lifted ? 1 : drag?.entries.length || 1;
+      const idleHint = () => {
+        if (drag?.lifted) setHint(`Lifted ${drag.lifted.item.title} · drop on the canvas or a board`);
+        else if (count > 1) setHint(`Moving ${count} selected items`);
+      };
+      if (highlighted === next) { if (!next) idleHint(); return; }
       clearTarget();
       if (!next) {
-        if (drag?.lifted) setHint(`Lifted ${drag.lifted.item.title} · drop on the canvas or a board`);
+        idleHint();
         return;
       }
       highlighted = next;
       target.card.classList.add("workspace-drop-target");
-      setHint(target.kind === "canvas" ? `Place ${drag.lifted.item.title} on ${target.title}` : `Move into ${target.title}`);
+      setHint(target.kind === "canvas" ? `Place ${drag.lifted.item.title} on ${target.title}`
+        : count > 1 ? `Move ${count} items into ${target.title}` : `Move into ${target.title}`);
     };
     const stopHold = gesture => {
       clearTimeout(gesture.holdTimer);
       gesture.hold?.tile.classList.remove("workspace-cover-holding");
       gesture.holdTimer = null;
     };
-    const restore = ({ element, p }) => {
-      element.classList.remove("workspace-dragging");
-      Object.assign(element.style, {
-        left: `${p.x + this.origin.x}px`, top: `${p.y + this.origin.y}px`,
-        width: `${p.width}px`, height: `${p.height}px`,
-      });
+    const restore = gesture => {
+      for (const {element,p} of gesture.entries) {
+        element.classList.remove("workspace-dragging");
+        Object.assign(element.style, {
+          left: `${p.x + this.origin.x}px`, top: `${p.y + this.origin.y}px`,
+          width: `${p.width}px`, height: `${p.height}px`,
+        });
+      }
     };
     const finishVisuals = gesture => {
+      gesture.entries.forEach(entry => entry.element.classList.remove("workspace-dragging"));
       stopHold(gesture);
       gesture.lifted?.tile.classList.remove("workspace-cover-lifted");
       gesture.lifted?.proxy.remove();
@@ -998,6 +1018,16 @@ export class WorkspaceBoard {
           active: false,
           threshold:e.pointerType === "touch" ? 8 : 6,
         };
+        const visible = new Map([...$("world").querySelectorAll(".workspace-card[data-placement]")]
+          .map(element => [element.dataset.placement,element]));
+        const selected = !drag.resize && this.selection.has(id)
+          ? this.snapshot.placements.filter(p => {
+              const item = this.snapshot.items[p.itemId];
+              return this.selection.has(p.id) && visible.has(p.id) && !p.removedAt && !p.deletedAt && !p.archivedAt &&
+                item && !item.deletedAt && !item.archivedAt;
+            }) : [];
+        drag.entries = (selected.some(p => p.id === id) ? selected : [p])
+          .map(p => ({p:{...p},element:visible.get(p.id)}));
         this.pointerGesture = true;
         if (!this.workspaceGraph || this.workspaceGraph.revision !== this.snapshot.revision)
           this.client.get("/api/workspace?covers=0").then(ws => {
@@ -1023,7 +1053,7 @@ export class WorkspaceBoard {
           stopHold(drag);
           clearTarget();
           activate(drag);
-          drag.element.classList.add("workspace-dragging");
+          drag.entries.forEach(entry => entry.element.classList.add("workspace-dragging"));
         }
         e.preventDefault();
         e.stopImmediatePropagation();
@@ -1036,19 +1066,22 @@ export class WorkspaceBoard {
         }
         const dx = screenX / drag.zoom,
           dy = screenY / drag.zoom;
+        drag.translation = {dx:Math.round(dx),dy:Math.round(dy)};
         drag.patch = drag.resize
           ? {
               width: Math.max(drag.p.presentation?.mode === "icon" ? 190 : 160, Math.round(drag.p.width + dx)),
               height: Math.max(drag.p.presentation?.mode === "icon" ? 90 : 120, Math.round(drag.p.height + dy)),
             }
-          : { x: Math.round(drag.p.x + dx), y: Math.round(drag.p.y + dy) };
-        for (const [key, value] of Object.entries(drag.patch))
-          drag.element.style[key === "x" ? "left" : key === "y" ? "top" : key] =
-            (key === "x"
-              ? value + this.origin.x
-              : key === "y"
-                ? value + this.origin.y
-                : value) + "px";
+          : drag.entries.length === 1 ? {x:Math.round(drag.p.x + dx),y:Math.round(drag.p.y + dy)}
+          : { x:drag.p.x + drag.translation.dx, y:drag.p.y + drag.translation.dy };
+        for (const entry of drag.entries) {
+          const patch = drag.resize || drag.entries.length === 1 ? drag.patch : {
+            x:entry.p.x + drag.translation.dx, y:entry.p.y + drag.translation.dy,
+          };
+          for (const [key,value] of Object.entries(patch))
+            entry.element.style[key === "x" ? "left" : key === "y" ? "top" : key] =
+              (key === "x" ? value + this.origin.x : key === "y" ? value + this.origin.y : value) + "px";
+        }
         showTarget(this.boardDropTarget(drag, e.clientX, e.clientY));
       },
       true,
@@ -1076,25 +1109,26 @@ export class WorkspaceBoard {
           // Keep the source in its saved position until the atomic move succeeds.
           restore(done);
           if (!target || target.invalid) { drainRefresh(); return; }
-          const subject = done.lifted || {boardId:this.snapshot.id,p:done.p};
+          const subject = done.lifted || {boardId:this.snapshot.id};
+          const movedIds = done.lifted ? [done.lifted.p.id] : done.entries.map(entry => entry.p.id);
           this.movePending = true;
           this.moveCommitting = true;
           let moved = false;
           try {
             await this.client.write("move", {
               sourceBoardId: subject.boardId,
-              placementIds: [subject.p.id],
+              placementIds:movedIds,
               targetBoardId: target.boardId,
               ...(target.targetPosition ? {targetPosition:target.targetPosition} : {}),
             });
             this.moveCommitting = false;
             moved = true;
             if (!done.lifted) {
-              this.selection.delete(done.id);
-              if (this.contextPlacement === done.id) this.closeContext();
+              movedIds.forEach(id => this.selection.delete(id));
+              if (movedIds.includes(this.contextPlacement)) this.closeContext();
             }
             await this.refresh({ saveReview: false });
-            toast(`Moved into ${target.title}.`);
+            toast(movedIds.length > 1 ? `Moved ${movedIds.length} items into ${target.title}.` : `Moved into ${target.title}.`);
           } catch (error) {
             this.moveCommitting = false;
             restore(done);
@@ -1104,6 +1138,33 @@ export class WorkspaceBoard {
             toast(moved ? `Moved into ${target.title}. The board could not refresh; reload to see it.`
               : error.conflict ? `Move not saved. ${error.message}`
               : `Could not confirm the move. Check the latest board before trying again. ${error.message}`);
+          } finally {
+            this.moveCommitting = false;
+            this.movePending = false;
+            drainRefresh();
+          }
+          return;
+        }
+        if (!done.resize && done.entries.length > 1) {
+          this.movePending = true;
+          this.moveCommitting = true;
+          let saved = false;
+          try {
+            await this.client.write("translatePlacements", {
+              boardId:this.snapshot.id,
+              placementIds:done.entries.map(entry => entry.p.id),
+              ...done.translation,
+            });
+            saved = true;
+            this.moveCommitting = false;
+            await this.refresh({saveReview:false});
+          } catch (error) {
+            this.moveCommitting = false;
+            restore(done);
+            try { await this.refresh({saveReview:false}); } catch {}
+            toast(saved ? "Positions saved. The board could not refresh; reload to see it."
+              : error.conflict ? `Positions not saved. ${error.message}`
+              : `Could not confirm the positions. Check the latest board before trying again. ${error.message}`);
           } finally {
             this.moveCommitting = false;
             this.movePending = false;

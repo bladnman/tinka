@@ -60,7 +60,7 @@ accepts {patch:{note?,star?},expectedRevision?,operationId?}. POST
 /resources/:rootId/PATH uses named-root realpath/dotfile/symlink containment and media
 byte ranges; ordinary relative HTML assets resolve in the same namespace.
 
-Operations: createItem, updateItem, createBoard, updateBoard, updatePlacement,
+Operations: createItem, updateItem, createBoard, updateBoard, updatePlacement, translatePlacements,
 move, reference, duplicate, archive, archiveItem, remove, deleteItem, review,
 updateWorkspace. CLI workspace show/op and item show use these same transactions.
 Graph-aware board create/status preserve existing command usage. See
@@ -109,10 +109,24 @@ current canvas at its logical release position, another board or the resolved
 parent. Holding/releasing alone, returning to the original collection, Escape,
 pointer cancellation, blur and multiple pointers make no operation. Saved covers,
 empty collections and nested descendants do not expose hidden selectable tiles.
-The optional move targetPosition {x,y} is restricted to one source placement and
-an existing destination. Finite coordinates within ±10000000 are applied atomically
-with membership; source dimensions/presentation are retained and the placement is
-above existing destination placements. Existing operation shapes stay supported.
+The optional move targetPosition {x,y} requires source placements and an existing
+destination. It anchors the group’s minimum x/y; finite coordinates and all resulting
+placements are validated within supported bounds. Membership and geometry commit
+together, retaining offsets, dimensions, presentation and relative stacking above
+the destination’s existing placements. Results preserve input order, including
+multiple references to the same canonical item. Existing operation shapes and
+single-placement behavior stay supported.
+Dragging a selected card carries all valid selected placements currently rendered
+on the board; an unselected card, resize or deliberate held cover child remains
+single-placement. Hit testing ignores every moving card, and forbidden destinations
+combine the descendants of every selected item. Header returns place the complete
+group beside its containing board without navigating. Normal group positioning uses
+translatePlacements {boardId,placementIds,dx,dy}; finite supported deltas and every
+resulting coordinate are validated before one commit. Canonical items, dimensions,
+presentation and z are unchanged. Cancellation/conflicts restore all cards, preserve
+selection/drafts and reconcile the latest board. Moving away clears only moved
+selection/context; ordinary positioning retains selection. Keyed previews remain
+mounted throughout dragging and reconciliation.
 
 ## Legacy data
 Each immediate subfolder with board.json is a board. Slug [a-z0-9][a-z0-9-]*.
