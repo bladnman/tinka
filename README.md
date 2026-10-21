@@ -119,7 +119,10 @@ and named resource folders in project version control or an explicit backup.
 App replacement never includes them. Default metadata under boardsRoot travels with committed boards; a custom absolute workspaceRoot needs deliberate backup and restoration on another machine. A copied workspace retains stable graph IDs;
 this machine's config identity remains separate.
 
-An item may have content, a child board, both, or only a title. References share
+An item may have content, a child board, both, or only a title. Collection boards
+automatically show up to four of their current items as an uncropped cover grid,
+using saved previews, local images or local HTML. Existing covers take priority;
+no cover image or extra agent task is required. References share
 notes, stars and status. Each placement has its own position and size. Grid and
 Canvas show the same board; moving or removing a placement does not move or delete
 files. An external URL can open in a separate tab. A stopped local app retains its

@@ -81,6 +81,16 @@ Board-only primary cover/title actions open their child board directly; composit
 review order. Graph and legacy readers retain previous/next, dots, versions,
 notes/star, sizing, standalone links and browser history semantics described below.
 
+Graph collection covers are read-time representations of up to four visible child
+placements in review order. They fit complete saved previews, local images or local
+HTML viewports, with title fallbacks and a remaining count. Explicit owner previews
+win; composites keep primary content. No migration or cover file is generated.
+Derived boardCovers accompany workspace, board and live responses. Local HTML
+cover-thumbnail responses run render helpers in an opaque-origin inert sandbox;
+CSP blocks remote assets, network APIs, forms and frames. Local static dependencies
+are fingerprinted with bounded traversal and short shared caches. Keyed media DOM
+survives geometry/review updates; changed content updates only affected tiles.
+
 ## Legacy data
 Each immediate subfolder with board.json is a board. Slug [a-z0-9][a-z0-9-]*.
 board.json: {schemaVersion:1,title,description,createdAt,cover?,legacyNotesKey?}.

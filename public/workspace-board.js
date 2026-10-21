@@ -1,3 +1,5 @@
+import {reconcileChildren} from "./reconcile.js";
+import {coverMarkup, observeCovers} from "./board-covers.js";
 import {
   WorkspaceClient,
   escape as esc,
@@ -105,7 +107,7 @@ export class WorkspaceBoard {
         placement: p,
         kind: item.content?.kind || "text",
         hint: item.hint || item.build?.message || "",
-        category: item.category || item.content?.kind || "Idea",
+        category: item.category || item.content?.kind || (item.childBoardId ? "Board" : "Idea"),
       };
       roundMap.get(roundId).concepts.push(concept);
       notes[key] = {
@@ -299,7 +301,7 @@ export class WorkspaceBoard {
   }
   async loadCrumb() {
     try {
-      const ws = await this.client.get("/api/workspace");
+      const ws = await this.client.get("/api/workspace?covers=0");
       const parents = ws.boards.filter((b) =>
         b.placements.some(
           (p) =>
@@ -430,13 +432,13 @@ export class WorkspaceBoard {
         ? `<div class="workspace-build-placeholder"><strong>${item.build.state === "building" ? "Taking shape." : "A place for a new idea."}</strong><span>${esc(item.build.message || "This slot will open when it is ready for review.")}</span></div>`
         : live ? `<iframe src="${esc(preview)}" data-preview-source="${esc(previewSource)}" title="${esc(item.title)} ${panel ? "design" : "live"} preview" tabindex="-1" loading="lazy" inert></iframe>`
         : img || (url && item.content.kind === "image") ? `<img src="${esc(image)}" data-preview-source="${esc(imageSource)}" alt="${esc(item.title)} preview">`
-        : item.childBoardId ? '<span class="workspace-paper-art" aria-hidden="true">▱ ▱</span>'
+        : item.childBoardId && !item.content ? coverMarkup(this.snapshot.boardCovers?.[item.childBoardId],item.childBoardId)
         : `<span class="workspace-title-art">${esc(item.preview?.text || item.title)}</span>`;
       const paper = /^#[0-9a-f]{3,8}$/i.test(p.presentation?.paper || "") ? p.presentation.paper : "#f6f7f1";
       const dimensions = this.mode === "canvas"
         ? `left:${p.x + this.origin.x}px;top:${p.y + this.origin.y}px;width:${p.width}px;height:${p.height}px;z-index:${p.z};`
         : panel || icon ? `width:${p.width}px;height:${p.height}px;` : "";
-      return `<article tabindex="-1" class="workspace-card ${panel ? "workspace-panel" : icon ? "workspace-icon" : "workspace-compact"} ${selected ? "selected" : ""}" data-key="${esc(c.key)}" data-placement="${esc(p.id)}" data-build-state="${esc(item.build?.state || "ready")}" style="${dimensions}--item-paper:${paper};--panel-viewport-width:${viewport.width}px;--panel-viewport-height:${viewport.height}px;">${icon ? `<button type="button" class="workspace-icon-entry" ${unavailable ? "disabled" : ""} data-open="${esc(c.key)}" aria-label="Open ${esc(item.title)}"><span aria-hidden="true">${item.childBoardId ? "▱" : item.content?.kind === "image" ? "▧" : item.content?.kind === "html" ? "▤" : "◇"}</span><strong>${esc(item.title)}</strong></button>` : `<div class="workspace-card-preview ${panel ? "workspace-panel-preview" : ""} ${live ? "workspace-live-preview" : ""}" ${panel ? `data-preview-width="${viewport.width}" data-preview-height="${viewport.height}"` : ""}>${visual}<button type="button" class="workspace-preview-launch" ${unavailable ? "disabled" : ""} data-open="${esc(c.key)}" aria-label="Open ${esc(item.title)}"><span>Open ${esc(item.title)} ↗</span></button></div>${!panel ? `<div class="workspace-card-copy"><div class="workspace-compact-meta"><span class="workspace-concept-number">${esc(c.number)}</span><span>${esc(item.category || item.content?.kind || "Idea")}</span></div><h3><button type="button" ${unavailable ? "disabled" : ""} data-open="${esc(c.key)}">${esc(item.title)}</button></h3>${item.description ? `<p>${esc(item.description)}</p>` : ""}${item.question ? `<p class="workspace-question">${esc(item.question)}</p>` : ""}${handoff ? `<a class="workspace-handoff" href="${esc(handoff)}" target="_blank" rel="noopener noreferrer">Handoff ↗</a>` : ""}${item.childBoardId && item.content ? `<button type="button" class="workspace-child" data-child-board="${esc(item.childBoardId)}">Open board ↗</button>` : ""}</div>` : ""}`}${footer}${this.mode === "canvas" ? `<button type="button" class="workspace-resize" data-resize="${esc(p.id)}" aria-label="Resize ${esc(item.title)}">◢</button>` : ""}</article>`;
+      return `<article tabindex="-1" class="workspace-card ${panel ? "workspace-panel" : icon ? "workspace-icon" : "workspace-compact"} ${selected ? "selected" : ""}" data-key="${esc(c.key)}" data-placement="${esc(p.id)}" data-build-state="${esc(item.build?.state || "ready")}" style="${dimensions}--item-paper:${paper};--panel-viewport-width:${viewport.width}px;--panel-viewport-height:${viewport.height}px;">${icon ? `<button type="button" class="workspace-icon-entry" ${unavailable ? "disabled" : ""} data-open="${esc(c.key)}" aria-label="Open ${esc(item.title)}"><span aria-hidden="true">${item.childBoardId ? "▱" : item.content?.kind === "image" ? "▧" : item.content?.kind === "html" ? "▤" : "◇"}</span><strong>${esc(item.title)}</strong></button>` : `<div class="workspace-card-preview ${panel ? "workspace-panel-preview" : ""} ${live ? "workspace-live-preview" : ""}" ${panel ? `data-preview-width="${viewport.width}" data-preview-height="${viewport.height}"` : ""}>${visual}<button type="button" class="workspace-preview-launch" ${unavailable ? "disabled" : ""} data-open="${esc(c.key)}" aria-label="Open ${esc(item.title)}"><span>Open ${esc(item.title)} ↗</span></button></div>${!panel ? `<div class="workspace-card-copy"><div class="workspace-compact-meta"><span class="workspace-concept-number">${esc(c.number)}</span><span>${esc(item.category || item.content?.kind || (item.childBoardId ? "Board" : "Idea"))}</span></div><h3><button type="button" ${unavailable ? "disabled" : ""} data-open="${esc(c.key)}">${esc(item.title)}</button></h3>${item.description ? `<p>${esc(item.description)}</p>` : ""}${item.question ? `<p class="workspace-question">${esc(item.question)}</p>` : ""}${handoff ? `<a class="workspace-handoff" href="${esc(handoff)}" target="_blank" rel="noopener noreferrer">Handoff ↗</a>` : ""}${item.childBoardId && item.content ? `<button type="button" class="workspace-child" data-child-board="${esc(item.childBoardId)}">Open board ↗</button>` : ""}</div>` : ""}`}${footer}${this.mode === "canvas" ? `<button type="button" class="workspace-resize" data-resize="${esc(p.id)}" aria-label="Resize ${esc(item.title)}">◢</button>` : ""}</article>`;
     };
     const cards = concepts.map(renderCard).join("");
     const groups = new Map();
@@ -479,6 +481,7 @@ export class WorkspaceBoard {
       : "";
     this.selectionMenu();
     this.sizePreviews();
+    this.coverObserver = observeCovers(world,this.coverObserver);
     this.hooks.layout();
     this.positionContext();
   }
@@ -487,46 +490,21 @@ export class WorkspaceBoard {
     template.innerHTML = markup;
     this.reconcileChildren(parent, template.content);
   }
-  reconcileChildren(parent, fresh) {
-    const key = node => node.nodeType === Node.ELEMENT_NODE
-      ? ["placement", "decoration", "round"].map(name =>
-          node.hasAttribute(`data-${name}`) ? `${name}:${node.getAttribute(`data-${name}`)}` : "").find(Boolean)
-      : null;
-    const compatible = (before, after) => before.nodeType === after.nodeType &&
-      (before.nodeType !== Node.ELEMENT_NODE ||
-        (before.tagName === after.tagName && before.namespaceURI === after.namespaceURI &&
-         before.classList[0] === after.classList[0] &&
-         (before.tagName !== "IFRAME" || before.dataset.previewSource === after.dataset.previewSource)));
-    const old = [...parent.childNodes], used = new Set();
-    const keyed = new Map(old.filter(key).map(node => [key(node), node]));
-    const desired = [...fresh.childNodes].map(after => {
-      const id = key(after);
-      const before = id ? keyed.get(id) : old.find(node => !used.has(node) && !key(node) && compatible(node, after));
-      if (!before || !compatible(before, after)) return after;
-      used.add(before);
-      if (before.nodeType === Node.ELEMENT_NODE) {
-        // An in-progress decoration edit owns its text and selection until blur.
-        if (!before.isContentEditable) {
-          for (const attr of [...before.attributes])
-            if (!after.hasAttribute(attr.name)) before.removeAttribute(attr.name);
-          for (const attr of after.attributes)
-            if (before.getAttribute(attr.name) !== attr.value) before.setAttribute(attr.name, attr.value);
-          this.reconcileChildren(before, after);
-        }
-      } else if (before.nodeValue !== after.nodeValue) before.nodeValue = after.nodeValue;
-      return before;
-    });
-    // Remove absent siblings first, so a surviving preview never moves just to
-    // close the gap left by a removed item or decoration.
-    for (const node of old) if (!used.has(node)) node.remove();
-    let cursor = parent.firstChild;
-    for (const node of desired) {
-      if (node !== cursor) {
-        if (node.parentNode === parent && parent.moveBefore) parent.moveBefore(node, cursor);
-        else parent.insertBefore(node, cursor);
+  reconcileChildren(parent, fresh) { reconcileChildren(parent, fresh); }
+  updateCovers(covers) {
+    if (!covers) return;
+    this.snapshot.boardCovers = covers;
+    const world = $('world');
+    for (const el of world.querySelectorAll('[data-cover-board]')) {
+      const template = document.createElement('template');
+      template.innerHTML = coverMarkup(covers[el.dataset.coverBoard],el.dataset.coverBoard);
+      const fresh = template.content.firstElementChild;
+      if (fresh?.classList.contains('board-collage')) {
+        el.dataset.coverCount = fresh.dataset.coverCount;
+        this.reconcileChildren(el,fresh);
       }
-      cursor = node.nextSibling;
     }
+    this.coverObserver = observeCovers(world,this.coverObserver);
   }
   sizePreviews() {
     this.previewObserver?.disconnect();

@@ -825,6 +825,7 @@ function decorateBuildCards() {
 
 function applyBoardSnapshot(snapshot) {
   if (graph) {
+    graph.updateCovers(snapshot.boardCovers);
     const concepts = Object.fromEntries(all.map(c=>[c.key, {...(c.graphItem.build||{state:'ready'}), ...(snapshot.items?.[c.graphItem.id]||{})}]));
     liveSnapshot = {...snapshot,concepts};
     for (const concept of all) {

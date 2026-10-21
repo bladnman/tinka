@@ -1,6 +1,6 @@
 import http from 'node:http';
 import {createReadStream} from 'node:fs';
-import {realpath} from 'node:fs/promises';
+import {realpath,readFile} from 'node:fs/promises';
 import path from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {boardResponse,discoverBoards,loadBoard,readNotes,writeNotes} from './lib/boards.mjs';
@@ -9,7 +9,7 @@ import {createLiveState,createWorkspaceLiveState} from './lib/live.mjs';
 import {boardDirectory,existingInside,HttpError,safeRelative} from './lib/paths.mjs';
 import {readWorkspace,getBoardSnapshot,applyOperation} from './lib/workspace.mjs';
 import {migrateLegacy} from './lib/migrate.mjs';
-import {resolveResource} from './lib/resources.mjs';
+import {resolveResource,resourceUrl} from './lib/resources.mjs';
 import {withStore} from './lib/store.mjs';
 
 const appRoot=path.dirname(fileURLToPath(import.meta.url));
@@ -104,9 +104,23 @@ export function createAppServer(config){
       if(config.legacyBoard&&/^\/(rounds|shared|assets)\//.test(pathname))pathname=`/boards/${config.legacyBoard}/files${pathname}`;
       if(pathname==='/api/health'&&method==='GET'){sendJson(res,200,{app:'board-room',version:VERSION,configPath:config.configPath,boardsRoot:config.boardsRoot,projectLabel:config.projectLabel,workspaceId:config.workspaceId,port:server.address().port,url:`http://127.0.0.1:${server.address().port}/`});return;}
       if(pathname==='/api/config'&&method==='GET'){sendJson(res,200,publicConfig(config));return;}
-      if(pathname==='/api/workspace'&&method==='GET'){const workspace=await readWorkspace(config);sendJson(res,200,workspace?{...workspace,enabled:true}:{enabled:false,revision:0});return;}
+      if(pathname==='/api/workspace'&&method==='GET'){const workspace=await readWorkspace(config,{covers:url.searchParams.get('covers')!=='0'});sendJson(res,200,workspace?{...workspace,enabled:true}:{enabled:false,revision:0});return;}
       if(pathname==='/api/workspace/migrate'&&method==='POST'){await checkWrite(req,server,config);const input=await requestJson(req);if(!input||typeof input!=='object'||Array.isArray(input)||typeof input.dryRun!=='boolean')throw new HttpError(400,'Provide dryRun: true or false explicitly.');sendJson(res,200,await migrateLegacy(config,{dryRun:input.dryRun}));return;}
       if(pathname==='/api/operations'&&method==='POST'){await checkWrite(req,server,config);const operation=await requestJson(req);if(!operation||typeof operation!=='object'||Array.isArray(operation)||typeof operation.type!=='string')throw new HttpError(400,'Provide an operation object with type.');sendJson(res,200,await applyOperation(config,operation));return;}
+      const thumbnail=/^\/api\/items\/([^/]+)\/cover-thumbnail$/.exec(pathname);
+      if(thumbnail&&method==='GET'){
+        const item=await withStore(config,(_root,state)=>state?.items[decodeSegment(thumbnail[1])]);
+        if(item?.deletedAt||item?.archivedAt)throw new HttpError(404,'Item not found.');
+        if(!item?.content?.resource||item.content.kind!=='html'||item.content.url)throw new HttpError(404,'Local HTML preview not found.');
+        const file=await resolveResource(config,item.content.resource);
+        const base=resourceUrl(item.content.resource).split('/').slice(0,-1).join('/')+'/';
+        // Local render helpers run without access to the parent or storage.
+        // Nested documents, forms, network APIs and remote assets stay off.
+        // Strip metadata as well so a prototype's refresh cannot navigate a tile.
+        const html=(await readFile(file.path,'utf8')).replace(/<meta\b[^>]*>/gi,'').replace(/<base\b[^>]*>/gi,'');
+        res.writeHead(200,{...noStore,'Content-Type':'text/html; charset=utf-8','Content-Security-Policy':"default-src 'none'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self' data:; frame-src 'none'; object-src 'none'; form-action 'none'; base-uri 'self'; sandbox allow-scripts"});
+        res.end(/<head\b[^>]*>/i.test(html)?html.replace(/<head\b[^>]*>/i,head=>`${head}<base href="${base}">`):`<!doctype html><head><base href="${base}"></head>${html.replace(/<!doctype[^>]*>/i,'')}`);return;
+      }
       const itemApi=/^\/api\/items\/([^/]+)(?:\/(review))?$/.exec(pathname);
       if(itemApi){
         const id=decodeSegment(itemApi[1]);

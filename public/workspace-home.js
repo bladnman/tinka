@@ -1,3 +1,5 @@
+import {reconcileChildren} from "./reconcile.js";
+import {coverMarkup,observeCovers} from "./board-covers.js";
 import {
   WorkspaceClient,
   escape as esc,
@@ -110,12 +112,12 @@ export class WorkspaceHome {
     document.getElementById("board-count").textContent = String(
       boards.length + legacy.length,
     );
-    document.getElementById("board-grid").innerHTML =
+    const markup =
       boards
         .map((b) => {
           const i = items.get(b.ownerItemId),
             image = resourceURL(i.preview?.resource);
-          return `<article class="board-card ${this.selected.has(i.id) ? "workspace-home-selected" : ""}"><button type="button" class="workspace-home-select" data-home-select="${esc(i.id)}" aria-label="Select ${esc(b.title)}" aria-pressed="${this.selected.has(i.id)}">${this.selected.has(i.id) ? "✓" : "□"}</button><a class="board-link" href="/boards/${encodeURIComponent(b.id)}/"><div class="board-art" aria-hidden="true">${image ? `<img src="${esc(image)}" alt="">` : '<div class="sheet"></div><div class="sheet second"><b>Room for an idea.</b></div>'}<span class="art-label">${b.placements.filter((p) => !p.removedAt && !p.archivedAt).length} ITEMS</span></div><div class="board-info"><h3>${esc(b.title)}</h3><p>${esc(b.description || i.description || "A place to gather what you make.")}</p><div class="card-bottom"><span>${b.rounds.length} prior ${b.rounds.length === 1 ? "round" : "rounds"} retained</span><span class="arrow">↗</span></div></div></a></article>`;
+          return `<article data-home-board="${esc(b.id)}" class="board-card ${this.selected.has(i.id) ? "workspace-home-selected" : ""}"><button type="button" class="workspace-home-select" data-home-select="${esc(i.id)}" aria-label="Select ${esc(b.title)}" aria-pressed="${this.selected.has(i.id)}">${this.selected.has(i.id) ? "✓" : "□"}</button><a class="board-link" href="/boards/${encodeURIComponent(b.id)}/"><div class="board-art" aria-hidden="true">${image ? `<img src="${esc(image)}" alt="">` : coverMarkup(ws.boardCovers?.[b.id],b.id)}<span class="art-label">${b.placements.filter((p) => !p.removedAt && !p.archivedAt).length} ITEMS</span></div><div class="board-info"><h3>${esc(b.title)}</h3><p>${esc(b.description || i.description || "A place to gather what you make.")}</p><div class="card-bottom"><span>${b.rounds.length} prior ${b.rounds.length === 1 ? "round" : "rounds"} retained</span><span class="arrow">↗</span></div></div></a></article>`;
         })
         .join("") +
       legacy
@@ -125,6 +127,10 @@ export class WorkspaceHome {
         )
         .join("") +
       '<button class="new-board empty-card" type="button"><span class="plus" aria-hidden="true">+</span><strong>A fresh starting point.</strong><small>Create a board for the next idea.</small></button>';
+    const grid = document.getElementById("board-grid"), template = document.createElement("template");
+    template.innerHTML = markup;
+    reconcileChildren(grid,template.content);
+    this.coverObserver = observeCovers(grid,this.coverObserver);
     document.getElementById("shelf-status").textContent =
       boards.length + " boards · shared items, project-owned files";
     document.getElementById("connection").textContent = "Live on this Mac";

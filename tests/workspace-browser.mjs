@@ -177,7 +177,7 @@ try {
   };
   const errors = [];
   page.on("pageerror", (e) => errors.push(e.message));
-  if (!process.env.TINKA_FOCUSED_ONLY) {
+  if (!process.env.TINKA_FOCUSED_ONLY && !process.env.TINKA_COVERS_ONLY) {
   await page.goto(base + `/boards/${board.id}/`);
   await page.locator(".workspace-card").first().waitFor();
   assert.equal(
@@ -1147,6 +1147,7 @@ try {
     });
   }
   }
+  if (!process.env.TINKA_COVERS_ONLY) {
   // Quiet header and stable preview regression: isolated graph fixtures only.
   revision = (await (await fetch(base + "/api/workspace")).json()).revision;
   const parentA = await op("createBoard", { title: "Parent A" });
@@ -1356,10 +1357,115 @@ try {
   assert.equal(await page.evaluate(() => window.stableImages.every((img,index) => document.querySelectorAll(".workspace-card img")[index] === img)), true, "Live image refresh preserves image elements");
   await writeFile(path.join(evidence, "image-request-counts.json"), JSON.stringify({ initial: imageBaseline, afterTargetUpdate: imageRequests }, null, 2));
 
+  }
+
+  // Automatic collection covers: current children, bounded work, stable mounts.
+  revision = (await (await fetch(base + "/api/workspace")).json()).revision;
+  const coverParent = await op("createBoard", { title: "Collection cover fixture" });
+  const coverResource = relative => ({ ...first.content.resource, path: first.content.resource.path.replace(/previews\/0\.html$/, relative) });
+  for (const index of [0, 1]) {
+    await mkdir(path.join(root, `cover-${index}`), { recursive: true });
+    await writeFile(path.join(root, `cover-${index}/index.html`), `<!doctype html><link rel="stylesheet" href="../cover-shared-${index}/style.css"><body><script>document.body.insertAdjacentHTML("afterbegin","<h1>Cover design ${index}</h1><footer>Complete bottom ${index}</footer>");try{parent.document.body.dataset.thumbnailWrite="bad"}catch{window.parentBlocked=true}fetch("/api/operations",{method:"POST"}).catch(()=>{});</script>`);
+    await mkdir(path.join(root, `cover-shared-${index}`), { recursive: true });
+    await writeFile(path.join(root, `cover-shared-${index}/style.css`), "html{background:#f4efe5}body{margin:0;width:440px;height:620px;display:flex;flex-direction:column;justify-content:space-between}h1{font:32px Georgia}footer{background:#d9debe}");
+  }
+  await writeFile(path.join(root, "cover-image.svg"), `<svg xmlns="http://www.w3.org/2000/svg" width="440" height="620"><rect width="440" height="620" fill="#f5d477"/></svg>`);
+  const collections = [];
+  for (const count of [1, 2, 4, 5]) {
+    const collection = await op("createBoard", { title: `Collection of ${count}`, parentBoardId: coverParent.boardId });
+    collection.children = [];
+    for (let index = 0; index < count; index++) collection.children.push(await op("createItem", {
+      boardId: collection.boardId,
+      item: { title: `Child ${index}`, content: index < 2 ? { kind: "html", resource: coverResource(`cover-${index}/index.html`) } : index === 2 ? { kind: "image", resource: coverResource("cover-image.svg") } : index === 3 ? { kind: "text", text: "A useful thought to keep" } : { kind: "file", resource: coverResource("previews/README.md") } },
+      placement: { x:index * 460, y:0, width:442, height:666, presentation:{mode:"panel",viewport:{width:440,height:620}} },
+    }));
+    collections.push(collection);
+  }
+  const two = collections[1], four = collections[2];
+  await op("updatePlacement",{boardId:coverParent.boardId,placementId:two.placementIds[0],patch:{width:562,height:466,presentation:{mode:"panel",viewport:{width:560,height:420}}}});
+  const coverSnapshot = await (await fetch(base + `/api/boards/${coverParent.boardId}`)).json();
+  for (let index = 0; index < collections.length; index++) {
+    const count = [1,2,4,5][index], descriptor = coverSnapshot.boardCovers[collections[index].boardId];
+    assert.equal(descriptor.count, count);
+    assert.equal(descriptor.tiles.length, Math.min(count,4), "Cover work stays capped at four direct children");
+  }
+  let browserWrites = 0;
+  const coverWriteObserver = request => { if (request.method() !== "GET" && request.url().includes("/api/")) browserWrites++; };
+  page.on("request", coverWriteObserver);
+  await page.addInitScript(() => { window.collageScriptRan = false; addEventListener("message", e => { if(e.data === "COLLAGE_SCRIPT_RAN") window.collageScriptRan = true; }); });
+  await page.setViewportSize({ width:1440, height:960 });
+  await page.goto(base + `/boards/${coverParent.boardId}/`);
+  const twoCard = page.locator(`[data-placement="${two.placementIds[0]}"]`);
+  const fourCard = page.locator(`[data-placement="${four.placementIds[0]}"]`);
+  await twoCard.locator(".board-collage iframe").first().waitFor();
+  for (const frame of await twoCard.locator(".board-collage iframe").all()) await frame.contentFrame().getByRole("heading").waitFor();
+  assert.equal(await twoCard.locator("[data-cover-tile]").count(), 2);
+  assert.equal(await fourCard.locator("[data-cover-tile]").count(), 4);
+  assert.equal(await page.evaluate(() => document.body.dataset.thumbnailWrite), undefined, "HTML thumbnail cannot access its parent document");
+  for (const frame of await twoCard.locator(".board-collage iframe").all()) assert.equal(await frame.contentFrame().locator("body").evaluate(() => window.parentBlocked), true, "Script-built design renders in an opaque sandbox");
+  const coverProof = await twoCard.evaluate(card => {
+    window.coverMounts = [...card.querySelectorAll("[data-cover-tile]")].map(tile => { const frame=tile.querySelector("iframe"); const p={tile,frame,loads:0};frame.addEventListener("load",()=>p.loads++);return p; });
+    return window.coverMounts.map(p => ({width:p.frame.clientWidth,height:p.frame.clientHeight,sandbox:p.frame.getAttribute("sandbox")}));
+  });
+  assert.deepEqual(coverProof.map(p => [p.width,p.height,p.sandbox]), [[440,620,"allow-scripts"],[440,620,"allow-scripts"]], "HTML tiles retain the whole supplied design viewport");
+  const frameIdentities = [];
+  for (const frame of await twoCard.locator(".board-collage iframe").all()) frameIdentities.push(await frame.contentFrame().locator("body").evaluate(() => window.coverIdentity = crypto.randomUUID()));
+  await post("/api/operations", {type:"updatePlacement",boardId:coverParent.boardId,placementId:two.placementIds[0],patch:{x:21,width:350}});
+  await post("/api/operations", {type:"review",itemId:two.itemId,patch:{star:true,note:"Collage stays mounted"}});
+  await page.waitForFunction(id => document.querySelector(`[data-placement="${id}"] [data-star]`).getAttribute("aria-pressed")==="true", two.placementIds[0]);
+  assert.equal(await page.evaluate(() => window.coverMounts.every(p=>p.tile.isConnected&&p.tile.querySelector("iframe")===p.frame&&p.loads===0)),true,"Geometry and review retain collage documents with zero loads");
+  await post("/api/operations",{type:"updateBoard",boardId:two.boardId,patch:{reviewOrder:[...two.children].reverse().map(c=>c.placementIds[0])}});
+  await page.waitForFunction(id=>document.querySelector(`[data-placement="${id}"] [data-cover-tile]`).dataset.coverTile, two.placementIds[0]);
+  await page.waitForFunction(({placement,child})=>document.querySelector(`[data-placement="${placement}"] [data-cover-tile]`).dataset.coverTile===child,{placement:two.placementIds[0],child:two.children[1].placementIds[0]});
+  assert.equal(await page.evaluate(() => window.coverMounts.every(p=>p.tile.isConnected&&p.tile.querySelector("iframe")===p.frame&&p.loads===0)),true,"Child reorder moves existing tiles without reloading");
+  assert.deepEqual(await Promise.all((await twoCard.locator(".board-collage iframe").all()).map(frame => frame.contentFrame().locator("body").evaluate(() => window.coverIdentity))), [...frameIdentities].reverse(), "Reordered cover documents retain their JavaScript identities");
+  await writeFile(path.join(root,"cover-shared-0/style.css"),"html{background:#c7e5ef}body{margin:0;width:440px;height:620px;display:flex;flex-direction:column;justify-content:space-between}h1{font:32px Georgia}footer{background:#d9debe}");
+  await page.waitForFunction(id=>document.querySelector(`[data-cover-tile="${id}"] iframe`)!==window.coverMounts[0].frame,two.children[0].placementIds[0]);
+  const refreshedCover = twoCard.locator(`[data-cover-tile="${two.children[0].placementIds[0]}"] iframe`).contentFrame();
+  await refreshedCover.getByRole("heading").waitFor();
+  assert.equal(await refreshedCover.locator("html").evaluate(el=>getComputedStyle(el).backgroundColor),"rgb(199, 229, 239)","A sibling CSS dependency refreshes its target cover");
+  assert.equal(await page.evaluate(()=>window.coverMounts[1].loads),0,"A child asset change leaves the other cover tile mounted");
+  assert.equal(browserWrites,0,"Reading, polling and rendering automatic covers do not mutate metadata");
+  await writeFile(path.join(evidence,"cover-preview-identity-loads.json"),JSON.stringify({geometryAndReviewZeroLoads:true,reorderKeptDocuments:true,changedChildOnly:true,browserWrites,viewport:coverProof},null,2));
+  page.off("request",coverWriteObserver);
+  await twoCard.locator(".workspace-preview-launch").click();
+  await page.waitForURL(base+`/boards/${two.boardId}/?from=${coverParent.boardId}`);
+  await page.waitForFunction(()=>document.querySelector("#board-title").textContent==="Collection of 2");
+  assert.equal(await page.locator("#board-title").textContent(),"Collection of 2","Cover click opens its board");
+  await page.goto(base+`/boards/${coverParent.boardId}/`);
+  await boardTool("[data-mode=grid]");
+  await twoCard.locator(".board-collage").waitFor();
+  await page.screenshot({path:path.join(evidence,"collection-covers-grid-1440.png")});
+  await page.setViewportSize({width:390,height:844});
+  await page.screenshot({path:path.join(evidence,"collection-covers-grid-390.png")});
+  assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true,"Collection grid does not overflow the viewport");
+  await post("/api/operations",{type:"archive",boardId:two.boardId,placementIds:two.children[0].placementIds,archived:true});
+  await page.waitForFunction(id=>document.querySelectorAll(`[data-placement="${id}"] [data-cover-tile]`).length===1,two.placementIds[0]);
+  await post("/api/operations",{type:"remove",boardId:two.boardId,placementIds:two.children[1].placementIds});
+  await page.waitForFunction(id=>!document.querySelector(`[data-placement="${id}"] .board-collage`),two.placementIds[0]);
+  await post("/api/operations",{type:"updateItem",itemId:four.itemId,patch:{preview:{resource:coverResource("cover-image.svg")}}});
+  await page.waitForFunction(id=>!!document.querySelector(`[data-placement="${id}"] .workspace-card-preview > img`),four.placementIds[0]);
+  assert.equal(await fourCard.locator(".board-collage").count(),0,"Explicit custom preview wins over automatic cover");
+  const groupSource = await post("/api/operations",{type:"createBoard",title:"Immediate grouping fixture"});
+  await post("/api/operations",{type:"reference",sourceBoardId:four.boardId,placementIds:four.children.slice(0,2).map(child=>child.placementIds[0]),targetBoardId:groupSource.result.boardId});
+  await page.setViewportSize({width:1440,height:960});
+  await page.goto(base+`/boards/${groupSource.result.boardId}/`);
+  await page.locator(".workspace-card").first().waitFor();
+  for (const select of await page.locator("[data-placement-select]").all()) await select.click();
+  await page.getByRole("button",{name:"New board around selection…",exact:true}).click();
+  await page.getByLabel("Board title",{exact:true}).fill("Grouped designs");
+  await page.getByRole("button",{name:"Create board and move",exact:true}).click();
+  const immediate = page.locator(".workspace-card").filter({has:page.getByRole("heading",{name:"Grouped designs",exact:true})});
+  await immediate.locator(".board-collage").waitFor();
+  assert.equal(await immediate.locator("[data-cover-tile]").count(),2,"Grouping creates an automatic cover immediately without another edit");
+  await page.goto(base+"/");
+  const homeParent=page.locator(`a.board-link[href="/boards/${coverParent.boardId}/"]`);
+  await homeParent.locator(".board-collage").waitFor();
+  assert.equal(await homeParent.locator("iframe").count(),0,"Nested board tiles do not recurse into iframes");
   assert.equal(errors.length, 0, errors.join("\n"));
   console.log(
     JSON.stringify({
-      passed: process.env.TINKA_FOCUSED_ONLY ? "Quiet header/Tools/parent routes at 390/900/1440; mounted previews across geometry/review/decorations, targeted content reload, Grid filter/reorder, attached appearance popup and targeted image refresh" :
+      passed: process.env.TINKA_COVERS_ONLY ? "Automatic collection covers for 1/2/4/5 children, script-built HTML in opaque sandbox, full viewport fit, stable geometry/review/reorder mounts, targeted sibling CSS refresh, immediate grouping, explicit preview precedence, archive/remove and bounded nested-board fallbacks" : process.env.TINKA_FOCUSED_ONLY ? "Quiet header/Tools/parent routes at 390/900/1440; mounted previews across geometry/review/decorations, targeted content reload, Grid filter/reorder, attached appearance popup and targeted image refresh" :
         "Canvas default and explicit Grid persistence, mouse background no-grab, wheel/horizontal/Shift-wheel/Ctrl zoom, real touch pan and pinch, threshold body/preview drag and click, notes/controls/resize persistence at390/1440; graph reader/history/revisions/shared durable review/moved aliases/geometry/archive/mixed legacy/offline content",
       assertions,
       evidence,
