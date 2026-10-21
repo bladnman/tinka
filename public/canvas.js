@@ -136,8 +136,8 @@ async function loadAppTitle() {
   const prefix = `tinka/${config.workspaceId}/${boardId}`;
   notesKey = `${prefix}/notes`;
   viewKey = `${prefix}/view`;
-  $('project-label').textContent = config.projectLabel;
-  $('reader-project').textContent = config.projectLabel;
+  $('project-label').textContent = 'Home';
+  $('reader-project').textContent = 'Home';
   document.querySelectorAll('.brand').forEach(brand => { brand.setAttribute('aria-label', `${appTitle} home`); brand.title = `${appTitle} · all boards`; });
   if (board) updateMetadata();
 }
@@ -147,7 +147,8 @@ function updateMetadata() {
   document.title = active && dialog.open ? `${appTitle} / ${title} / ${descriptor(active, currentVariant()).name}` : `${appTitle} / ${title}`;
   $('board-title').textContent = title;
   $('board-title').title = title;
-  $('reader-board-link').textContent = title;
+  $('reader-board-link').textContent = '← Board';
+  $('reader-board-link').title = `Return to ${title}`;
   $('reader-board-link').setAttribute('aria-label', `Back to board ${title}`);
   $('board-description').textContent = board.description || 'Working experiments and the questions they invite.';
   $('experiment-count').textContent = `${all.length} ${all.length === 1 ? 'experiment' : 'experiments'}`;
@@ -489,7 +490,7 @@ function renderReaderHeader() {
   $('reader-note').setAttribute('aria-label', `Notes on ${active.name}`);
   $('notes-for').textContent = `Round ${round?.number || active.row + 1} · ${active.number ? `${active.number} ` : ''}${name}`;
   $('reader-hint').textContent = hint;
-  $('reader-board-link').href = `${location.pathname}${rounds[currentRound] ? `#round-${rounds[currentRound].id}` : ''}`;
+  $('reader-board-link').href = `${location.pathname}${location.search}${rounds[currentRound] ? `#round-${rounds[currentRound].id}` : ''}`;
   applyNotes();
   if (graph) graph.reader(active);
 }
@@ -544,20 +545,10 @@ function renderDots(sequence, index) {
   if (focusedDot && current && document.activeElement !== current) current.focus({ preventScroll: true });
 }
 
-// ---- Reader header and footer layout: chosen by measured fit, never a fixed breakpoint ----
-// The header keeps the breadcrumb on one line while the board name and the experiment name each keep a readable
-// width (or all of it, if shorter) and the item actions fit; otherwise the experiment line takes its own row.
+// Names wrap naturally; navigation remains short and the current item is the only title.
 const readerHeader = document.querySelector('.reader-header');
-const NAME_MIN = 120;
 function layoutReaderHeader() {
-  if (!dialog.open) return;
-  // On one line, each name may shrink to NAME_MIN (or its full width, if shorter) but no further.
-  readerHeader.style.setProperty('--board-min', `${Math.min($('reader-board-link').scrollWidth, NAME_MIN)}px`);
-  readerHeader.style.setProperty('--name-min', `${Math.min($('reader-name').scrollWidth, NAME_MIN)}px`);
-  readerHeader.dataset.layout = 'row';
-  const identity = readerHeader.querySelector('.identity').getBoundingClientRect();
-  const last = [...readerHeader.querySelectorAll('.item-actions > :not([hidden])')].at(-1)?.getBoundingClientRect();
-  if (last && last.right > identity.right + .5) readerHeader.dataset.layout = 'wrapped';
+  readerHeader.dataset.layout = 'quiet';
 }
 
 function layoutReaderChrome() {
@@ -573,7 +564,7 @@ function layoutReaderChrome() {
 const readerFooter = document.querySelector('.reader-footer');
 const STRIP_DOTS = [9, 7, 5, 3];
 const DOT_WIDTH = 24;
-const FOOTER_STEPS = [['full', 'inline'], ['board', 'inline'], ['board', 'folded'], ['board', 'folded-icon'], ['icon', 'folded-icon']];
+const FOOTER_STEPS = [['full', 'folded'], ['board', 'folded'], ['board', 'folded-icon'], ['icon', 'folded-icon']];
 function layoutReaderFooter() {
   if (!dialog.open) return;
   const nav = readerFooter.querySelector('.experiment-navigation');
@@ -662,6 +653,7 @@ function openReader(key, revision = 'original', { history: mode = 'push', focus 
     return true;
   }
   const opening = !dialog.open;
+  setInfoOpen(false);
   active = concept;
   activeVariantId = variantId;
   if (opening) {
@@ -835,7 +827,22 @@ function applyBoardSnapshot(snapshot) {
   if (graph) {
     const concepts = Object.fromEntries(all.map(c=>[c.key, {...(c.graphItem.build||{state:'ready'}), ...(snapshot.items?.[c.graphItem.id]||{})}]));
     liveSnapshot = {...snapshot,concepts};
-    for(const concept of all){const revision=concepts[concept.key]?.revision;if(!revision)continue;const card=[...world.querySelectorAll('.workspace-card')].find(c=>c.dataset.key===concept.key),frame=card?.querySelector('.workspace-live-preview iframe');if(frame&&loadedPreviews.has(concept.key)&&loadedPreviews.get(concept.key)!==revision)replaceFrame(frame,previewHref(concept,null,'paper',100,revision));loadedPreviews.set(concept.key,revision);}
+    for (const concept of all) {
+      const revision = concepts[concept.key]?.revision;
+      if (!revision) continue;
+      const card = [...world.querySelectorAll('.workspace-card')].find(c => c.dataset.key === concept.key);
+      if (loadedPreviews.has(concept.key) && loadedPreviews.get(concept.key) !== revision) {
+        const frame = card?.querySelector('.workspace-live-preview iframe');
+        if (frame) replaceFrame(frame, previewHref(concept, null, 'paper', 100, revision));
+        const image = card?.querySelector('.workspace-card-preview img');
+        if (image) {
+          const source = new URL(image.src, location.href);
+          source.searchParams.set('v', revision);
+          image.src = source.href;
+        }
+      }
+      loadedPreviews.set(concept.key, revision);
+    }
     const entry=concepts[active?.key]; if(active&&entry?.revision){ if(!activeRevision)activeRevision=entry.revision; $('reader-update').hidden=activeRevision===entry.revision; }
     $('live-status').textContent='Live · '+all.length+' items'; if(active)updateReaderNavigation(); return;
   }
@@ -944,7 +951,7 @@ function showError(message) {
 function setInfoOpen(open, { focus = false } = {}) {
   $('board-info').hidden = !open;
   $('board-info-toggle').setAttribute('aria-expanded', String(open));
-  if (!open && focus) $('board-info-toggle').focus({ preventScroll: true });
+  if (focus) (open ? $('board-info').querySelector('button,input,a') : $('board-info-toggle'))?.focus({ preventScroll: true });
 }
 
 // Controls are bound once; board content is replaced only after a manifest update.
@@ -996,7 +1003,7 @@ document.addEventListener('keydown', event => {
 
 slider.addEventListener('input', () => changeZoom(Number(slider.value) / 100));
 $('fit').onclick = fitBoard;
-$('board-info-toggle').onclick = () => setInfoOpen($('board-info').hidden);
+$('board-info-toggle').onclick = () => setInfoOpen($('board-info').hidden, { focus: true });
 $('close-reader').onclick = () => closeReader();
 $('reader-board-link').addEventListener('click', event => {
   if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;

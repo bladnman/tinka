@@ -145,28 +145,41 @@ export class WorkspaceBoard {
     bar.className = "workspace-toolbar";
     bar.setAttribute("aria-label", "Organize this board");
     bar.innerHTML = `<div class="workspace-segments"><button data-mode="grid">Grid</button><button data-mode="canvas">Canvas</button></div><label class="workspace-search"><span class="sr-only">Search items</span><input type="search" placeholder="Find a title or text…" id="workspace-search"></label><button id="workspace-favorites" aria-pressed="false">☆ Favorites</button><button id="workspace-recent" aria-pressed="false">Last 6 weeks</button><button id="workspace-archive" aria-pressed="false">Archive</button><button id="workspace-owner" hidden>Open primary content</button><button id="workspace-retry-drafts" hidden>Retry unsaved feedback</button>`;
-    $("canvas-header").after(bar);
+    $("board-info").prepend(bar);
     const add = document.createElement("button");
     add.id = "workspace-add";
     add.type = "button";
     add.textContent = "+ Add";
     add.setAttribute("aria-haspopup", "menu");
     add.setAttribute("aria-expanded", "false");
-    $("canvas-header").append(add);
-    add.onclick = () => this.addMenu(add);
+    bar.prepend(add);
+    add.onclick = () => {
+      // Anchor the creation menu to the still-visible Tools control before closing its drawer.
+      this.addMenu($("board-info-toggle"));
+      $("board-info").hidden = true;
+      $("board-info-toggle").setAttribute("aria-expanded", "false");
+    };
+    document.addEventListener("keydown", e => {
+      if (e.key === "Escape" && this.addPopup) {
+        this.closeAddMenu();
+        $("board-info-toggle").focus({ preventScroll: true });
+        e.preventDefault();
+        e.stopImmediatePropagation();
+      }
+    }, true);
     const selected = document.createElement("section");
     selected.id = "workspace-selection";
     selected.className = "workspace-selection";
     selected.hidden = true;
     selected.setAttribute("aria-label", "Selected placements");
-    bar.after(selected);
+    $("canvas-header").after(selected);
     const surfaces = document.createElement("div");
     surfaces.id = "workspace-surfaces";
     surfaces.className = "workspace-surfaces";
     surfaces.hidden = true;
     surfaces.innerHTML =
       '<button data-surface="content">Content</button><button data-surface="board">Board</button><button data-reader-organize>Organize…</button><button data-reader-edit>Edit item…</button><button data-reader-children>Add board…</button>';
-    document.querySelector(".reader-area").before(surfaces);
+    $("view-controls").append(surfaces);
     document
       .querySelectorAll("[data-mode]")
       .forEach((b) => (b.onclick = () => this.setMode(b.dataset.mode)));
@@ -300,33 +313,37 @@ export class WorkspaceBoard {
         parents.find((p) => p.id === requested) ||
         (parents.length === 1 ? parents[0] : null);
       let crumb = $("workspace-parent");
-      if (crumb) crumb.remove();
-      crumb = document.createElement(parent ? "a" : "button");
-      crumb.id = "workspace-parent";
-      crumb.className = "workspace-parent";
-      $("board-title").before(crumb);
+      if (!crumb) {
+        crumb = document.createElement("a");
+        crumb.id = "workspace-parent";
+        crumb.className = "workspace-parent";
+        $("board-title").before(crumb);
+      }
+      crumb.hidden = !parents.length;
+      crumb.onclick = null;
+      crumb.onkeydown = null;
+      crumb.removeAttribute("role");
       if (parent) {
-        crumb.textContent = parent.title + " /";
+        crumb.textContent = "← Parent";
         crumb.href = `/boards/${encodeURIComponent(parent.id)}/`;
-        crumb.title =
-          "Return to " +
-          parent.title +
-          (parents.length > 1
-            ? " · also appears on " + (parents.length - 1) + " other boards"
-            : "");
+        crumb.setAttribute("aria-label", "Return to parent board " + parent.title);
+        crumb.title = "Return to " + parent.title +
+          (parents.length > 1 ? " · also appears on " + (parents.length - 1) + " other boards" : "");
       } else if (parents.length > 1) {
-        crumb.textContent = parents.length + " parent boards /";
-        crumb.onclick = () =>
-          makeDialog(
-            "This board appears on",
-            parents
-              .map(
-                (p) =>
-                  `<p><a href="/boards/${encodeURIComponent(p.id)}/">${esc(p.title)} ↗</a></p>`,
-              )
-              .join(""),
-          );
-      } else crumb.hidden = true;
+        crumb.textContent = "← Parents";
+        crumb.href = "#parents";
+        crumb.setAttribute("role", "button");
+        crumb.setAttribute("aria-label", "Choose a parent board");
+        crumb.title = "Choose from " + parents.length + " parent boards";
+        crumb.onclick = event => {
+          event.preventDefault();
+          makeDialog("This board appears on", parents.map(p =>
+            `<p><a href="/boards/${encodeURIComponent(p.id)}/">${esc(p.title)} ↗</a></p>`
+          ).join(""));
+        };
+        crumb.onkeydown = event => { if (event.key === " ") { event.preventDefault(); crumb.click(); } };
+      }
+
     } catch {}
   }
   async navigate(id) {
@@ -381,6 +398,9 @@ export class WorkspaceBoard {
         );
       this.origin = origin;
     }
+    // Keep the URL stamped by live content updates when its source is unchanged.
+    const previews = new Map([...world.querySelectorAll("[data-placement]")].map(card =>
+      [card.dataset.placement, { frame: card.querySelector(".workspace-live-preview iframe"), image: card.querySelector(".workspace-card-preview img") }]));
     const renderCard = (c) => {
       const item = c.graphItem,
         p = c.placement,
@@ -399,11 +419,17 @@ export class WorkspaceBoard {
           item.content?.kind === "html" && item.content?.resource && !item.content?.url;
       const review = { ...item.review, ...this.pendingReview.get(item.id) };
       const handoff = resourceURL(item.resources?.find(r => r.role === "handoff")?.resource);
-      const footer = `<footer class="workspace-item-footer workspace-panel-caption"><button type="button" data-placement-select="${esc(p.id)}" aria-pressed="${selected}" aria-label="${selected ? "Deselect" : "Select"} ${esc(item.title)}">${selected ? "✓" : "□"}</button>${panel ? `<button type="button" class="workspace-panel-title" ${unavailable ? "disabled" : ""} data-open="${esc(c.key)}">${esc(item.title)}</button>` : '<span class="workspace-item-spacer" aria-hidden="true"></span>'}<button type="button" class="shortlist" data-star="${esc(c.key)}" aria-label="Favorite ${esc(item.title)}" aria-pressed="${!!review.star}">${review.star ? "★" : "☆"}</button><button type="button" data-item-controls="${esc(p.id)}" data-controls-focus="notes" aria-expanded="${this.contextPlacement === p.id}" aria-label="Notes on ${esc(item.title)}">Notes${review.note ? '<span class="workspace-note-dot" aria-hidden="true"></span>' : ""}</button><button type="button" data-item-controls="${esc(p.id)}" data-controls-focus="appearance" aria-label="Details and appearance of ${esc(item.title)}" aria-expanded="${this.contextPlacement === p.id}">⋯</button></footer>`;
+      const previewSource = JSON.stringify([item.id, item.content || null]), previous = previews.get(p.id);
+      const preview = previous?.frame?.dataset.previewSource === previewSource
+        ? previous.frame.getAttribute("src") : this.hooks.preview(c);
+      const imageSource = JSON.stringify([item.id, img || url]);
+      const image = previous?.image?.dataset.previewSource === imageSource
+        ? previous.image.getAttribute("src") : img || url;
+      const footer = `<footer class="workspace-item-footer workspace-panel-caption"><button type="button" data-placement-select="${esc(p.id)}" aria-pressed="${selected}" aria-label="${selected ? "Deselect" : "Select"} ${esc(item.title)}">${selected ? "✓" : "□"}</button>${panel ? `<button type="button" class="workspace-panel-title" ${unavailable ? "disabled" : ""} data-open="${esc(c.key)}">${esc(item.title)}</button>` : '<span class="workspace-item-spacer" aria-hidden="true"></span>'}<button type="button" class="shortlist" data-star="${esc(c.key)}" aria-label="Favorite ${esc(item.title)}" aria-pressed="${!!review.star}">${review.star ? "★" : "☆"}</button><button type="button" data-item-controls="${esc(p.id)}" data-controls-focus="notes" aria-label="Details for ${esc(item.title)}" aria-haspopup="dialog" aria-expanded="${this.contextPlacement === p.id}">⋯${review.note ? '<span class="workspace-note-dot" aria-hidden="true"></span>' : ""}</button></footer>`;
       const visual = unavailable
         ? `<div class="workspace-build-placeholder"><strong>${item.build.state === "building" ? "Taking shape." : "A place for a new idea."}</strong><span>${esc(item.build.message || "This slot will open when it is ready for review.")}</span></div>`
-        : live ? `<iframe src="${esc(this.hooks.preview(c))}" title="${esc(item.title)} ${panel ? "design" : "live"} preview" tabindex="-1" loading="lazy" inert></iframe>`
-        : img || (url && item.content.kind === "image") ? `<img src="${esc(img || url)}" alt="${esc(item.title)} preview">`
+        : live ? `<iframe src="${esc(preview)}" data-preview-source="${esc(previewSource)}" title="${esc(item.title)} ${panel ? "design" : "live"} preview" tabindex="-1" loading="lazy" inert></iframe>`
+        : img || (url && item.content.kind === "image") ? `<img src="${esc(image)}" data-preview-source="${esc(imageSource)}" alt="${esc(item.title)} preview">`
         : item.childBoardId ? '<span class="workspace-paper-art" aria-hidden="true">▱ ▱</span>'
         : `<span class="workspace-title-art">${esc(item.preview?.text || item.title)}</span>`;
       const paper = /^#[0-9a-f]{3,8}$/i.test(p.presentation?.paper || "") ? p.presentation.paper : "#f6f7f1";
@@ -423,10 +449,10 @@ export class WorkspaceBoard {
         const r = this.snapshot.rounds.find((r) => r.id === id) || {
           title: "On this board",
         };
-        return `<section class="workspace-grid-round"><header><p class="workspace-eyebrow">${r.number ? "ROUND " + esc(r.number) : "ITEMS"}${r.date ? " · " + esc(r.date) : ""}</p><h2>${esc(r.title || "Exploration")}</h2>${r.description ? `<p>${esc(r.description)}</p>` : ""}</header><div class="workspace-cards">${entries.map(renderCard).join("")}</div></section>`;
+        return `<section class="workspace-grid-round" data-round="${esc(id)}"><header><p class="workspace-eyebrow">${r.number ? "ROUND " + esc(r.number) : "ITEMS"}${r.date ? " · " + esc(r.date) : ""}</p><h2>${esc(r.title || "Exploration")}</h2>${r.description ? `<p>${esc(r.description)}</p>` : ""}</header><div class="workspace-cards">${entries.map(renderCard).join("")}</div></section>`;
       })
       .join("");
-    world.innerHTML = `${this.mode === "canvas" ? this.decorations() : ""}${this.mode === "grid" ? grid || '<p class="workspace-empty">Nothing here yet. Add an idea or clear a filter.</p>' : `<div class="workspace-cards">${cards || '<p class="workspace-empty">Nothing here yet. Add an idea or clear a filter.</p>'}</div>`}`;
+    this.reconcile(world, `${this.mode === "canvas" ? this.decorations() : ""}${this.mode === "grid" ? grid || '<p class="workspace-empty">Nothing here yet. Add an idea or clear a filter.</p>' : `<div class="workspace-cards">${cards || '<p class="workspace-empty">Nothing here yet. Add an idea or clear a filter.</p>'}</div>`}`);
     if (this.mode === "canvas") {
       const p = concepts.map((c) => c.placement),
         d = this.snapshot.decorations || [];
@@ -455,6 +481,52 @@ export class WorkspaceBoard {
     this.sizePreviews();
     this.hooks.layout();
     this.positionContext();
+  }
+  reconcile(parent, markup) {
+    const template = document.createElement("template");
+    template.innerHTML = markup;
+    this.reconcileChildren(parent, template.content);
+  }
+  reconcileChildren(parent, fresh) {
+    const key = node => node.nodeType === Node.ELEMENT_NODE
+      ? ["placement", "decoration", "round"].map(name =>
+          node.hasAttribute(`data-${name}`) ? `${name}:${node.getAttribute(`data-${name}`)}` : "").find(Boolean)
+      : null;
+    const compatible = (before, after) => before.nodeType === after.nodeType &&
+      (before.nodeType !== Node.ELEMENT_NODE ||
+        (before.tagName === after.tagName && before.namespaceURI === after.namespaceURI &&
+         before.classList[0] === after.classList[0] &&
+         (before.tagName !== "IFRAME" || before.dataset.previewSource === after.dataset.previewSource)));
+    const old = [...parent.childNodes], used = new Set();
+    const keyed = new Map(old.filter(key).map(node => [key(node), node]));
+    const desired = [...fresh.childNodes].map(after => {
+      const id = key(after);
+      const before = id ? keyed.get(id) : old.find(node => !used.has(node) && !key(node) && compatible(node, after));
+      if (!before || !compatible(before, after)) return after;
+      used.add(before);
+      if (before.nodeType === Node.ELEMENT_NODE) {
+        // An in-progress decoration edit owns its text and selection until blur.
+        if (!before.isContentEditable) {
+          for (const attr of [...before.attributes])
+            if (!after.hasAttribute(attr.name)) before.removeAttribute(attr.name);
+          for (const attr of after.attributes)
+            if (before.getAttribute(attr.name) !== attr.value) before.setAttribute(attr.name, attr.value);
+          this.reconcileChildren(before, after);
+        }
+      } else if (before.nodeValue !== after.nodeValue) before.nodeValue = after.nodeValue;
+      return before;
+    });
+    // Remove absent siblings first, so a surviving preview never moves just to
+    // close the gap left by a removed item or decoration.
+    for (const node of old) if (!used.has(node)) node.remove();
+    let cursor = parent.firstChild;
+    for (const node of desired) {
+      if (node !== cursor) {
+        if (node.parentNode === parent && parent.moveBefore) parent.moveBefore(node, cursor);
+        else parent.insertBefore(node, cursor);
+      }
+      cursor = node.nextSibling;
+    }
   }
   sizePreviews() {
     this.previewObserver?.disconnect();

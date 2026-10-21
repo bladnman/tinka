@@ -1015,8 +1015,8 @@ html[data-theme="night"] .item-representation p {
 .workspace-item-footer button { min-height: 38px; min-width: 26px; padding: 4px 5px; background: transparent; cursor: pointer; }
 .workspace-item-footer [data-placement-select] { min-width: 27px; font-size: 13px; color: #7a866e; }
 .workspace-item-footer .shortlist { font-size: 22px; min-width: 30px; }
-.workspace-item-footer [data-controls-focus=notes] { white-space: nowrap; font-size: 11px; }
-.workspace-item-footer [data-controls-focus=appearance] { font-size: 20px; min-width: 27px; }
+.workspace-item-footer [data-item-controls] { position: relative; font-size: 20px; min-width: 30px; }
+.workspace-item-footer .workspace-note-dot { position: absolute; right: 2px; top: 9px; margin: 0; }
 .workspace-item-footer .workspace-panel-title { font-size: 12px; padding-left: 5px; }
 .workspace-note-dot { display: inline-block; width: 4px; height: 4px; margin: 0 0 2px 4px; border-radius: 50%; background: #6a8053; }
 .workspace-board .workspace-card .workspace-resize { width: 25px; height: 39px; min-width: 25px; min-height: 39px; background: #7d8e6212; border-radius: 0; font-size: 15px; }
@@ -1088,3 +1088,13 @@ html[data-theme="night"] .item-representation p {
 .workspace-board[data-board-layout="canvas"] .workspace-icon { min-height: 90px; min-width: 190px; }
 .workspace-board[data-board-layout="canvas"] .workspace-compact { min-height: 120px; }
 .workspace-item-spacer { flex: 1; }
+
+/* HEADER / NAV: board organization lives in the Tools drawer. */
+.workspace-board .canvas-header{z-index:5}
+.workspace-board .reader-header .board-link{font-size:12px}
+.board-info .workspace-toolbar{position:static;border:0;border-bottom:1px solid var(--line);padding:0 0 16px;margin:0 0 16px;gap:8px}
+.board-info .workspace-search{flex-basis:100%;max-width:none;order:2}
+.board-info #workspace-add{min-height:44px;font-size:13px;background:var(--soft);margin-right:auto}
+.canvas-header .workspace-parent{flex:none;display:inline-flex;align-items:center;min-height:44px;max-width:none;overflow:visible;font:12px/1.4 -apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;white-space:nowrap}
+.reader-tools .workspace-surfaces{flex-basis:100%;padding:8px 0 0;margin:4px 0 0;gap:4px;border-top:1px solid var(--line);border-bottom:0;background:transparent;justify-content:flex-start}
+.reader-tools .view-controls:has(.workspace-surfaces:not([hidden])){width:360px;max-width:calc(100vw - 24px)}

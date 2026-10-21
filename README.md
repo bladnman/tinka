@@ -126,6 +126,8 @@ files. An external URL can open in a separate tab. A stopped local app retains i
 preview and start instructions, with retry when its independently managed server
 returns. Tinka does not run commands from item metadata.
 
+The header keeps Home, a parent return when applicable, the current title and Tools. Open Tools for + Add (Text, Colored region, Arrow, items and boards), Grid/Canvas, search, filters, details, notes export and help. Item details and appearance are in the card’s ⋯ menu. The reader keeps its containing-board return beside Home, with comparison settings and item actions in View.
+
 New graph boards open in Canvas unless you have already chosen Grid. Scroll with
 a mouse or trackpad to pan; Shift-scroll moves sideways. On a touch screen, swipe
 the background. Pinch or Control/⌘-scroll zooms. Drag a card’s body to move it;

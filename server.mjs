@@ -16,6 +16,11 @@ const appRoot=path.dirname(fileURLToPath(import.meta.url));
 const publicRoot=path.join(appRoot,'public');
 const types={'.html':'text/html; charset=utf-8','.js':'text/javascript; charset=utf-8','.mjs':'text/javascript; charset=utf-8','.wasm':'application/wasm','.css':'text/css; charset=utf-8','.svg':'image/svg+xml','.png':'image/png','.jpg':'image/jpeg','.jpeg':'image/jpeg','.webp':'image/webp','.gif':'image/gif','.ico':'image/x-icon','.json':'application/json; charset=utf-8','.md':'text/markdown; charset=utf-8','.txt':'text/plain; charset=utf-8','.pdf':'application/pdf','.mp4':'video/mp4','.webm':'video/webm','.woff2':'font/woff2'};
 const noStore={'Cache-Control':'no-store','X-Content-Type-Options':'nosniff'};
+const closing=new WeakMap();
+export function closeAppServer(server){
+  if(!closing.has(server))closing.set(server,new Promise(resolve=>server.close(resolve)));
+  return closing.get(server);
+}
 function sendJson(res,status,value){res.writeHead(status,{'Content-Type':'application/json; charset=utf-8',...noStore});res.end(JSON.stringify(value));}
 function decodeSegment(value){try{return decodeURIComponent(value);}catch{throw new HttpError(400,'Invalid URL encoding.');}}
 function sendError(res,error){if(res.headersSent){res.destroy();return;}const status=Number.isInteger(error.status)&&error.status>=400&&error.status<=599?error.status:500;sendJson(res,status,{error:status===500?'Request failed.':error.message,...(error.revision!==undefined?{revision:error.revision}:{})});}
@@ -83,6 +88,9 @@ async function sendFile(req,res,root,relative){
 export function createAppServer(config){
   const live=new Map();
   const server=http.createServer(async(req,res)=>{
+    // close() removes currently idle sockets. An accepted request can become
+    // idle later, after its complete response (and any metadata write) drains.
+    res.once('finish',()=>{if(closing.has(server))setImmediate(()=>server.closeIdleConnections());});
     try{
       const url=new URL(req.url,'http://localhost');
       let pathname=url.pathname;
@@ -167,7 +175,7 @@ export async function listen(config,{port=config.port,persist=false}={}){
       if(persist)await savePort(config,server.address().port);
       return server;
     }catch(error){
-      if(server.listening)await new Promise(resolve=>server.close(resolve));
+      if(server.listening)await closeAppServer(server);
       if(error.code!=='EADDRINUSE')throw error;
       if(!automatic)throw new Error(`Port ${candidate} is already in use. This instance has a fixed port; choose another in its config. No other process was changed.`);
     }

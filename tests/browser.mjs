@@ -20,6 +20,7 @@ const context=await browser.newContext({viewport:{width:1440,height:960}});
 const errors=[];
 const instances=[];
 const saved=async file=>JSON.parse(await readFile(file,'utf8'));
+const openView=async page=>{if(await page.locator('#view-toggle').getAttribute('aria-expanded')!=='true')await page.locator('#view-toggle').click();};
 const waitFor=async(check,message)=>{for(let i=0;i<80;i++){if(await check())return;await new Promise(r=>setTimeout(r,100));}throw new Error(message);};
 try{
   for(const label of ['Glade','Runway']){
@@ -176,8 +177,8 @@ try{
   await a.page.screenshot({path:path.join(evidence,'removal-prompt-narrow.png')});
   assert.equal(await a.page.locator('#agent-prompt-dialog').evaluate(el=>el.scrollWidth<=el.clientWidth),true);
   await a.page.locator('.agent-dialog-close').click();
-  assert(await a.page.locator('#canvas-header').evaluate(el=>el.getBoundingClientRect().height<90));
-  assert.equal(await a.page.locator('#project-label').textContent(),'Glade');
+  assert.deepEqual(await a.page.locator('#canvas-header').evaluate(el=>{const title=el.querySelector('#board-title'),tools=el.querySelector('#board-info-toggle');const t=title.getBoundingClientRect(),b=tools.getBoundingClientRect();return {overflow:el.scrollWidth>el.clientWidth,wrap:getComputedStyle(title).whiteSpace,overlap:t.left<b.right&&t.right>b.left&&t.top<b.bottom&&t.bottom>b.top};}),{overflow:false,wrap:'normal',overlap:false});
+  assert.equal(await a.page.locator('#project-label').textContent(),'Home');
   assert.equal(await a.page.locator('.canvas-footer').evaluate(el=>el.scrollWidth<=el.clientWidth),true);
   await a.page.locator('#fit').click();
   await a.page.locator('#board-info-toggle').click();
@@ -262,6 +263,7 @@ try{
   assert.equal(await a.page.locator('#reader-fit').getAttribute('aria-pressed'),'true');
   assert.equal(await a.page.locator('#size-value').textContent(),'Fit');
   await a.page.screenshot({path:path.join(evidence,'reader-keyboard-focus.png')});
+  await openView(a.page);
   await a.page.locator('#reader-type').focus();
   await a.page.keyboard.press('Tab');
   assert.equal(await a.page.evaluate(()=>document.activeElement.id),'reader-fit');
@@ -303,9 +305,12 @@ try{
   const position=()=>a.page.locator('#dot-track').getAttribute('data-position');
   await a.page.waitForFunction(()=>document.querySelector('#dot-track').dataset.position==='1 / 3');
   assert.equal(await a.page.locator('#reader-previous').isDisabled(),true);
+  await openView(a.page);
   await a.page.locator('#size-trigger').click();
   await a.page.locator('#size-menu [data-size="compact"]').click();
+  await openView(a.page);
   await a.page.locator('#reader-theme').click();
+  await openView(a.page);
   await a.page.locator('#reader-type').focus();
   await a.page.keyboard.press('ArrowRight');
   await a.page.keyboard.press('ArrowRight');
@@ -543,7 +548,7 @@ try{
   assert.equal(await length(),base+1);
   const readerHistoryLength=await historyLength();
   assert.equal(await h.title(),'Tinka / Glade / History / One');
-  assert.equal(await h.locator('#reader-dialog .reader-header #reader-board-link').textContent(),'History');
+  assert.equal(await h.locator('#reader-dialog .reader-header #reader-board-link').textContent(),'← Board');
   assert.equal(await h.locator('#reader-hint').textContent(),'Try the first thing.');
   assert((await h.locator('#reader-name').getAttribute('title')).includes('Try the first thing.'));
   assert.equal(await h.locator('#reader-standalone').getAttribute('href'),'/boards/history/files/alpha-one.html');
@@ -555,13 +560,16 @@ try{
   assert.equal(await h.locator('#reader-next').isDisabled(),false);
   // Reader view controls: Type, Fit, Light, size popover (with Version), standalone. None add history entries.
   assert.deepEqual(await frameData(),{experiment:'alpha-one',theme:'paper',scale:'100'});
+  await openView(h);
   await h.locator('#reader-type').focus();
   await h.keyboard.press('ArrowRight');
   assert.equal(await h.locator('#reader-type').getAttribute('aria-valuetext'),'115%');
   await h.waitForFunction(()=>document.querySelector('#active-reader').contentDocument.body.dataset.scale==='115');
+  await openView(h);
   await h.locator('#reader-theme').click();
   assert.equal(await h.locator('#reader-theme').getAttribute('aria-pressed'),'true');
   await h.waitForFunction(()=>document.querySelector('#active-reader').contentDocument.body.dataset.theme==='night');
+  await openView(h);
   await h.locator('#size-trigger').click();
   assert.equal(await h.locator('#size-menu').isVisible(),true);
   assert.equal(await h.locator('#size-trigger').getAttribute('aria-expanded'),'true');
@@ -573,19 +581,23 @@ try{
   assert.equal(await h.locator('#size-menu').isVisible(),false);
   assert.equal(await h.evaluate(()=>document.activeElement.id),'size-trigger');
   assert.deepEqual(await h.evaluate(()=>[document.querySelector('#reader-window').dataset.size,document.querySelector('#size-value').textContent,document.querySelector('#reader-fit').getAttribute('aria-pressed')]),['standard','Standard','false']);
+  await openView(h);
   await h.locator('#size-trigger').click();
   await h.keyboard.press('Escape');
   assert.equal(await h.locator('#size-menu').isVisible(),false);
   assert.equal(await h.locator('#reader-dialog').evaluate(dialog=>dialog.open),true);
+  await openView(h);
   await h.locator('#size-trigger').click();
   await h.locator('.reader-stage').click({position:{x:8,y:8}});
   assert.equal(await h.locator('#size-menu').isVisible(),false);
   await h.locator('#reader-window').evaluate(el=>{el.style.width='600px';el.style.height='500px';});
   await h.waitForFunction(()=>document.querySelector('#size-value').textContent==='Custom');
+  await openView(h);
   await h.locator('#size-trigger').click();
   assert.equal(await h.locator('#size-menu [data-size="custom"]').getAttribute('aria-pressed'),'true');
   assert.equal(await h.locator('#custom-size').textContent(),'600 × 500');
   await h.keyboard.press('Escape');
+  await openView(h);
   await h.locator('#reader-fit').click();
   assert.deepEqual(await h.evaluate(()=>[document.querySelector('#reader-window').dataset.size,document.querySelector('#reader-window').style.width,document.querySelector('#reader-fit').getAttribute('aria-pressed')]),['fit','','true']);
   await h.locator('[data-dot="beta/three"]').hover();
@@ -711,6 +723,7 @@ try{
   await waitReader('One');
   let entries=await length();
   await h.locator('[data-dot="alpha/one"]').click();
+  await openView(h);
   await h.locator('#size-trigger').click();
   await h.locator('[data-revision-choice="original"]').click();
   assert.equal(await length(),entries);
@@ -754,6 +767,7 @@ try{
   await h.locator('[data-dot="alpha/one"]').click();
   await waitReader('One');
   entries=await length();
+  await openView(h);
   await h.locator('#size-trigger').click();
   await h.locator('[data-revision-choice="v2"]').click();
   await waitReader('One · Second');
@@ -806,6 +820,7 @@ try{
   // Night and the reader at phone width.
   await h.goto(`${a.url}boards/history/#beta/three`);
   await waitReader('Three');
+  await openView(h);
   await h.locator('#reader-theme').click();
   await h.setViewportSize({width:390,height:844});
   await h.screenshot({path:path.join(evidence,'history-reader-narrow.png')});
@@ -911,8 +926,8 @@ try{
       await h.waitForFunction(()=>document.querySelector('#size-value').textContent==='Custom');
     }
     const layouts=await sweep(`reader footer, ${slug}`,readerSpec);
-    // Wide windows show everything; narrow ones fold the view controls, never adding a row.
-    assert(layouts.some(layout=>layout.startsWith('full/inline/'))&&layouts.some(layout=>layout.includes('/folded')),`${slug} used ${layouts}`);
+    // View controls remain in their popover at every width.
+    assert(layouts.every(layout=>layout.includes('/folded')),`${slug} used ${layouts}`);
     for(const width of slug==='sweep-short'?[390,320,768,1244]:[320,1244])await footerShot(slug==='sweep-short'?'reader-footer':'reader-footer-long-mid',width);
   }
   // The strip keeps the current dot centred and fades the edges that have more beyond them; the arrows, keys and
@@ -954,8 +969,10 @@ try{
   await h.screenshot({path:path.join(evidence,'reader-view-popover-390.png')});
   await h.keyboard.press('ArrowRight');
   assert.equal(await h.locator('#reader-type').getAttribute('aria-valuetext'),'115%');
+  await openView(h);
   await h.locator('#reader-theme').click();
   assert.equal(await h.locator('#reader-theme').getAttribute('aria-pressed'),'true');
+  await openView(h);
   await h.locator('#size-trigger').click();
   await h.locator('#size-menu [data-size="compact"]').click();
   assert.equal(await h.locator('#size-value').textContent(),'Compact');
@@ -968,8 +985,8 @@ try{
   await h.locator('#reader-name').click();
   assert.equal(await h.locator('#view-toggle').getAttribute('aria-expanded'),'false');
   await h.setViewportSize({width:1440,height:860});await settle();
-  assert.equal(await h.locator('#view-toggle').isVisible(),false);
-  assert.equal(await h.locator('#reader-type').isVisible(),true);
+  assert.equal(await h.locator('#view-toggle').isVisible(),true);
+  assert.equal(await h.locator('#reader-type').isVisible(),false);
   // Long titles in both headers, with the live "New version available" banner after the experiment changes.
   await h.goto(`${a.url}boards/sweep-long/#r0/c1`);
   await h.waitForFunction(()=>document.querySelector('#reader-dialog').open&&document.querySelector('#reader-name').textContent.startsWith('An unusually long'));
@@ -977,7 +994,7 @@ try{
   await writeFile(path.join(a.boards,'sweep-long','c1.html'),'<!doctype html><title>c1</title><body data-experiment="c1"><h1>c1, changed</h1>');
   await h.locator('#reader-update').waitFor();
   // A long project label too (labels come from the project's config; this instance's is short).
-  const longLabel=()=>h.evaluate(()=>{for(const id of ['project-label','reader-project'])document.getElementById(id).textContent='A rather long project label';});
+  const longLabel=()=>h.evaluate(()=>{for(const el of document.querySelectorAll('.brand'))el.title='Tinka / A rather long project label';});
   await longLabel();
   const headerSpec={groups:['.brand','.board-name','.item-line'],pseudoTargets:'#reader-update'};
   await sweep('reader header, long titles and reload banner',{...headerSpec,root:'.reader-header'});
@@ -1005,11 +1022,11 @@ try{
   assert.equal(otherNotes['first/one-step'].note,'Runway only');
   await stalePage.close();
   await a.page.goto(`${a.url}boards/first-steps/`);
-  await a.page.waitForFunction(()=>document.querySelector('#project-label').textContent==='Runway');
+  await a.page.waitForFunction(()=>document.querySelector('.canvas-header .brand').title.includes('Runway'));
   await a.page.waitForFunction(()=>document.querySelector('#save-status').textContent==='Notes saved on this Mac');
   assert.equal(await a.page.locator('[data-note="first/one-step"]').inputValue(),'Runway only');
   assert.equal(errors.length,0,errors.join('\n'));
-  const checks=['two simultaneous labels and URLs','folder discovery and empty new boards','new-board prompt','board and experiment removal prompts, copy and clipboard fallback','board cover prompts, custom images, live image updates and missing-image fallback','open prompts survive shell updates without losing the canvas position','isolated notes, same-origin port reuse and stale-tab write rejection','identity-only header, board info popover with export and help, narrow layouts and prompts','removed top-bar controls stay absent','board footer zoom slider synced with Control-wheel, keyboard, Safari gesture and touch pinch','wheel and drag pan, and free pan past every edge of the board to an 80px bound','keyboard pan with arrows, Page Down, Home and End','focus revealing controls from any side, zoom anchored near an edge, centred Fit after panning away, and round links after panning away','independent experiment interaction','previous/next across rounds, boundaries, live availability, retained settings and narrow viewer','dot track order, grouping, click, keyboard, hover titles and drag-scrub','reader footer Type, Fit, Light, size popover with Version and Custom, and Open standalone','star and notes shared between card and reader and saved to .state/notes.json','notes panel beside the stage on desktop and below it on phones','browser history: home, board, experiments, versions, Escape/Back/breadcrumb, rounds, re-selection, view-only changes, deep links and reload','board view restored on Back from an experiment','active preview safely offers reload','round deep links in tall and zoomed-out canvases','canvas and experiment keyboard focus on entry, return and reload','toolbar keyboard access and note/experiment focus preserved during manifest updates','one-row reader and board footers and both headers at seven widths from 320 to 1920px: no overlap, nothing off screen or clipped, arrows hugging the dot strip, current dot in view, Back distinct from Previous and 44px targets','fixed dot strip: centred current dot, edge fades, Home/End/arrows, endpoints and edge-scrolling drag-scrub','View popover on narrow footers: every view control inside, keyboard focus, Escape and outside click'];
+  const checks=['two simultaneous labels and URLs','folder discovery and empty new boards','new-board prompt','board and experiment removal prompts, copy and clipboard fallback','board cover prompts, custom images, live image updates and missing-image fallback','open prompts survive shell updates without losing the canvas position','isolated notes, same-origin port reuse and stale-tab write rejection','Home and current-title header, Tools popover with export and help, narrow layouts and prompts','removed top-bar controls stay absent','board footer zoom slider synced with Control-wheel, keyboard, Safari gesture and touch pinch','wheel and drag pan, and free pan past every edge of the board to an 80px bound','keyboard pan with arrows, Page Down, Home and End','focus revealing controls from any side, zoom anchored near an edge, centred Fit after panning away, and round links after panning away','independent experiment interaction','previous/next across rounds, boundaries, live availability, retained settings and narrow viewer','dot track order, grouping, click, keyboard, hover titles and drag-scrub','reader footer Type, Fit, Light, size popover with Version and Custom, and Open standalone','star and notes shared between card and reader and saved to .state/notes.json','notes panel beside the stage on desktop and below it on phones','browser history: home, board, experiments, versions, Escape/Back/breadcrumb, rounds, re-selection, view-only changes, deep links and reload','board view restored on Back from an experiment','active preview safely offers reload','round deep links in tall and zoomed-out canvases','canvas and experiment keyboard focus on entry, return and reload','toolbar keyboard access and note/experiment focus preserved during manifest updates','one-row reader and board footers and both headers at seven widths from 320 to 1920px: no overlap, nothing off screen or clipped, arrows hugging the dot strip, current dot in view, Back distinct from Previous and 44px targets','fixed dot strip: centred current dot, edge fades, Home/End/arrows, endpoints and edge-scrolling drag-scrub','View popover at all widths: every view control inside, keyboard focus, Escape and outside click'];
   console.log(JSON.stringify({passed:true,assertions:assertCount(),checkGroups:checks.length,evidence,checks,browserErrors:errors},null,2));
 }finally{
   await browser.close();

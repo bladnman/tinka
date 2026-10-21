@@ -1,5 +1,8 @@
 // Focused graph UI acceptance. Uses external temporary fixtures and existing Playwright.
-import assert from "node:assert/strict";
+import strictAssert from "node:assert/strict";
+let assertions = 0;
+const counted = fn => (...args) => { const value = fn(...args); assertions++; return value; };
+const assert = Object.assign(counted(strictAssert), Object.fromEntries(["equal", "notEqual", "deepEqual", "match"].map(name => [name, counted(strictAssert[name])])));
 import { mkdtemp, mkdir, writeFile, readFile } from "node:fs/promises";
 import path from "node:path";
 import os from "node:os";
@@ -146,13 +149,35 @@ try {
     reducedMotion: "reduce",
   });
   const page = await context.newPage();
+  const boardTool = async selector => {
+    const control = page.locator(selector);
+    if (!(await control.isVisible())) await page.locator("#board-info-toggle").click();
+    await control.click();
+    if (await page.locator("#board-info").isVisible()) await page.locator("#board-info-toggle").click();
+  };
+  const readerTool = async selector => {
+    const control = page.locator(selector);
+    if (!(await control.isVisible())) await page.locator("#view-toggle").click();
+    await control.click();
+  };
   const cardNote = async () => {
     const note = page.locator("#workspace-item-controls [data-note]");
     if (!(await note.count())) await page.locator('[data-controls-focus="notes"]').first().click();
     return note;
   };
+  const dragPointer = async (box, dx, dy) => {
+    await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+    await page.mouse.down();
+    await page.mouse.move(
+      box.x + box.width / 2 + dx,
+      box.y + box.height / 2 + dy,
+      { steps: 8 },
+    );
+    await page.mouse.up();
+  };
   const errors = [];
   page.on("pageerror", (e) => errors.push(e.message));
+  if (!process.env.TINKA_FOCUSED_ONLY) {
   await page.goto(base + `/boards/${board.id}/`);
   await page.locator(".workspace-card").first().waitFor();
   assert.equal(
@@ -160,7 +185,7 @@ try {
     "canvas",
     "Unconfigured graph board defaults to Canvas",
   );
-  await page.getByRole("button", { name: "Grid", exact: true }).click();
+  await boardTool("[data-mode=grid]");
   await page.reload();
   await page.locator(".workspace-grid-round").first().waitFor();
   assert.equal(
@@ -257,7 +282,7 @@ try {
         done();
       }),
   );
-  await page.locator("#reader-theme").click();
+  await readerTool("#reader-theme");
   await originalFrame.locator('body[data-theme="night"]').waitFor();
   assert.equal(
     await originalFrame.locator("body").getAttribute("data-theme"),
@@ -280,7 +305,7 @@ try {
     .getByText("Active content updated", { exact: true })
     .waitFor();
   assert(await page.locator("#revision-group").isHidden());
-  await page.locator("#size-trigger").click();
+  await readerTool("#size-trigger");
   await page.locator("[data-revision-choice=second]").click();
   await page.waitForURL(/~second$/);
   assert.equal(
@@ -309,14 +334,12 @@ try {
   );
   await page.locator("#reader-note").fill("Immediate child navigation draft");
   await page.locator("#notes-close").click();
-  await page.locator("[data-surface=board]").click();
+  await readerTool("[data-surface=board]");
   await page.waitForURL(/\/boards\//);
-  await page
-    .getByRole("button", { name: "Open primary content", exact: true })
-    .click();
+  await boardTool("#workspace-owner");
   await page.locator("#reader-dialog[open]").waitFor();
   assert.equal(await page.locator("#reader-name").textContent(), "One");
-  await page.locator("#size-trigger").click();
+  await readerTool("#size-trigger");
   await page.locator("[data-revision-choice=second]").click();
   assert.equal(
     await page.locator("#reader-name").textContent(),
@@ -416,7 +439,7 @@ try {
     "Network failure draft",
   );
   await page.getByRole("button", { name: "Close dialog", exact: true }).click();
-  await page.locator("#workspace-retry-drafts").click();
+  await boardTool("#workspace-retry-drafts");
   await page.waitForFunction(
     () => document.getElementById("workspace-retry-drafts").hidden,
   );
@@ -449,11 +472,11 @@ try {
     "Conflict draft retained",
   );
   await page.unroute("**/api/operations");
-  await page.locator("#workspace-retry-drafts").click();
+  await boardTool("#workspace-retry-drafts");
   await page.waitForFunction(
     () => document.getElementById("workspace-retry-drafts").hidden,
   );
-  await page.locator("[data-mode=canvas]").click();
+  await boardTool("[data-mode=canvas]");
   await page.locator("#fit").click();
   await page.waitForFunction(
     () =>
@@ -527,7 +550,7 @@ try {
   await page.waitForFunction(
     () => document.querySelector(".workspace-card")?.style.left === "70px",
   );
-  await page.locator("#workspace-add").click();
+  await boardTool("#workspace-add");
   await page.getByRole("menuitem", { name: "Text", exact: true }).click();
   const canvasText = page.locator('.workspace-decoration [contenteditable]');
   await canvasText.fill("Making this week");
@@ -553,17 +576,17 @@ try {
   await page.screenshot({
     path: path.join(evidence, "negative-canvas-fit.png"),
   });
-  await page.locator("[data-mode=grid]").click();
+  await boardTool("[data-mode=grid]");
   await page.locator("[data-placement-select]").first().click();
   await page.getByRole("button", { name: "Archive here", exact: true }).click();
   await page.waitForFunction(
     () => document.querySelectorAll(".workspace-card").length === 0,
   );
-  await page.locator("#workspace-archive").click();
+  await boardTool("#workspace-archive");
   await page.locator(".workspace-card").first().waitFor();
   await page.locator("[data-placement-select]").first().click();
   await page.getByRole("button", { name: "Restore here", exact: true }).click();
-  await page.locator("#workspace-archive").click();
+  await boardTool("#workspace-archive");
   await page.locator(".workspace-card").first().waitFor();
   await page.screenshot({ path: path.join(evidence, "graph-desktop.png") });
   await page.setViewportSize({ width: 390, height: 844 });
@@ -649,7 +672,7 @@ try {
   );
   await page.goto(base + `/boards/${second.boardId}/`);
   await page.locator(".workspace-card").first().waitFor();
-  await page.locator("#workspace-add").click();
+  await boardTool("#workspace-add");
   await page.getByRole("menuitem", { name: "Item…", exact: true }).click();
   await page.getByLabel("Title", { exact: true }).fill("A title is enough");
   await page.getByRole("button", { name: "Add idea", exact: true }).click();
@@ -788,16 +811,6 @@ try {
       const m = new DOMMatrix(getComputedStyle(el).transform);
       return { x: m.e, y: m.f };
     });
-  const dragPointer = async (box, dx, dy) => {
-    await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
-    await page.mouse.down();
-    await page.mouse.move(
-      box.x + box.width / 2 + dx,
-      box.y + box.height / 2 + dy,
-      { steps: 8 },
-    );
-    await page.mouse.up();
-  };
   let placementWrites = 0;
   page.on("request", (request) => {
     if (
@@ -1039,7 +1052,7 @@ try {
     );
     const beforeControls = await inputPlacement();
     await page.locator("[data-star]").first().click();
-    await page.locator('[data-controls-focus="appearance"]').first().click();
+    await page.locator('[data-controls-focus="notes"]').first().click();
     await page.getByRole("button", { name: "Edit item…", exact: true }).click();
     await page
       .getByRole("heading", { name: "Edit item", exact: true })
@@ -1121,23 +1134,234 @@ try {
       await page.locator("body").getAttribute("data-board-layout"),
       "canvas",
     );
-    await page.getByRole("button", { name: "Grid", exact: true }).click();
+    await boardTool("[data-mode=grid]");
     await page.reload();
     await page.locator(".workspace-grid-round").waitFor();
     assert.equal(
       await page.locator("body").getAttribute("data-board-layout"),
       "grid",
     );
-    await page.getByRole("button", { name: "Canvas", exact: true }).click();
+    await boardTool("[data-mode=canvas]");
     await page.screenshot({
       path: path.join(evidence, `canvas-input-${width}.png`),
     });
   }
+  }
+  // Quiet header and stable preview regression: isolated graph fixtures only.
+  revision = (await (await fetch(base + "/api/workspace")).json()).revision;
+  const parentA = await op("createBoard", { title: "Parent A" });
+  const parentB = await op("createBoard", { title: "Parent B" });
+  const longTitle = "A shared reading board with a complete title that stays readable on a narrow screen";
+  const stableBoard = await op("createBoard", { title: longTitle, parentBoardId: parentA.boardId });
+  await op("reference", { sourceBoardId: parentA.boardId, placementIds: stableBoard.placementIds, targetBoardId: parentB.boardId });
+  for (const index of [0, 1]) {
+    await mkdir(path.join(root, `stable-${index}`), { recursive: true });
+    await writeFile(path.join(root, `stable-${index}/index.html`), await readFile(path.join(root, `previews/${index === 0 ? 0 : 2}.html`)));
+  }
+  const stableItems = [];
+  for (let index = 0; index < 2; index++) stableItems.push(await op("createItem", {
+    boardId: stableBoard.boardId,
+    item: { title: `Stable preview ${index}`, content: { kind: "html", resource: { ...first.content.resource, path: first.content.resource.path.replace(/previews\/0\.html$/, `stable-${index}/index.html`) } } },
+    placement: { x: index * 380, y: 0, width: 362, height: 460, z: index, presentation: { mode: "panel", viewport: { width: 360, height: 414 } } },
+  }));
+  const stableRoute = `/boards/${stableBoard.boardId}/?from=${parentB.boardId}`;
+  for (const width of [390, 900, 1440]) {
+    await page.setViewportSize({ width, height: 960 });
+    await page.goto(base + stableRoute);
+    await page.locator(".workspace-card").first().waitFor();
+    assert.equal(await page.locator("#board-title").textContent(), longTitle);
+    assert.equal(await page.locator("#board-info").isHidden(), true, "Tools starts folded at " + width);
+    assert.equal(await page.locator("#workspace-toolbar").isVisible(), false);
+    assert.equal(await page.locator("#workspace-parent").getAttribute("href"), `/boards/${parentB.boardId}/`, "Valid containing board wins at " + width);
+    assert.equal(await page.locator("#canvas-header .brand").getAttribute("href"), "/");
+    assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
+    assert.equal(await page.locator("#board-title").evaluate(el => el.scrollWidth <= el.clientWidth + 1 && getComputedStyle(el).textOverflow !== "ellipsis"), true, "Complete current title wraps at " + width);
+    assert.equal(await page.locator(".workspace-item-footer [data-item-controls]").count(), 2);
+    assert.equal(await page.locator(".workspace-item-footer").filter({ hasText: "Notes" }).count(), 0, "Only one details trigger per footer");
+    await page.screenshot({ path: path.join(evidence, `quiet-header-${width}.png`) });
+    await page.locator("#board-info-toggle").focus();
+    await page.keyboard.press("Enter");
+    for (const selector of ["#workspace-add", "[data-mode=grid]", "[data-mode=canvas]", "#workspace-search", "#workspace-favorites", "#workspace-recent", "#workspace-archive", "#export", ".board-help summary"])
+      assert.equal(await page.locator(selector).isVisible(), true, selector + " available in Tools at " + width);
+    assert.equal(await page.locator("#help-panel").isVisible(), false, "Help starts folded");
+    await page.locator(".board-help summary").focus();
+    await page.keyboard.press("Enter");
+    assert.equal(await page.locator("#help-panel").isVisible(), true, "Help expands from keyboard");
+    await page.keyboard.press("Enter");
+    await page.screenshot({ path: path.join(evidence, `quiet-tools-${width}.png`) });
+    await page.keyboard.press("Escape");
+    assert.equal(await page.locator("#board-info").isHidden(), true);
+    assert.equal(await page.locator("#board-info-toggle").evaluate(el => document.activeElement === el), true, "Escape restores Tools focus");
+    await boardTool("#workspace-add");
+    for (const name of ["Text", "Colored region", "Arrow"])
+      assert.equal(await page.getByRole("menuitem", { name, exact: true }).isVisible(), true);
+    await page.keyboard.press("Escape");
+  }
+  await page.goto(base + `/boards/${stableBoard.boardId}/`);
+  await page.locator("#workspace-parent").waitFor();
+  assert.equal(await page.locator("#workspace-parent").getAttribute("href"), "#parents", "Shared board without entry context requires parent choice");
+  await page.locator("#workspace-parent").click();
+  for (const id of [parentA.boardId, parentB.boardId]) assert.equal(await page.locator(`dialog[open] a[href="/boards/${id}/"]`).isVisible(), true);
+  await page.keyboard.press("Escape");
+  await page.goto(base + `/boards/${stableBoard.boardId}/?from=${second.boardId}`);
+  await page.locator("#workspace-parent").waitFor();
+  assert.equal(await page.locator("#workspace-parent").getAttribute("href"), "#parents", "Unrelated from cannot invent a parent");
+  const soleChild = await post("/api/operations", { type: "createBoard", title: "Sole child", parentBoardId: parentA.boardId });
+  await page.goto(base + `/boards/${soleChild.result.boardId}/`);
+  await page.locator("#workspace-parent").waitFor();
+  assert.equal(await page.locator("#workspace-parent").getAttribute("href"), `/boards/${parentA.boardId}/`, "Direct sole-parent entry is deterministic");
+  await page.goto(base + `/boards/${parentA.boardId}/`);
+  await page.locator(".workspace-card").first().waitFor();
+  assert.equal(await page.locator("#workspace-parent").isVisible(), false, "Home board has no invented parent");
+  await page.goto(base + stableRoute);
+  await page.locator(".workspace-card").first().waitFor();
+  await page.locator(".workspace-preview-launch").first().click();
+  await page.locator("#reader-dialog[open]").waitFor();
+  await page.locator("#reader-next").click();
+  await page.locator("#reader-previous").click();
+  assert.equal(new URL(await page.locator("#reader-board-link").getAttribute("href"), base).pathname + new URL(await page.locator("#reader-board-link").getAttribute("href"), base).search, stableRoute);
+  await page.locator("#reader-board-link").click();
+  assert.equal(await page.locator("#reader-dialog").isVisible(), false, "Reader Board action ignores internal reader history");
+  assert.equal(await page.locator("#workspace-parent").getAttribute("href"), `/boards/${parentB.boardId}/`);
+  await page.locator("#workspace-parent").click();
+  await page.waitForURL(base + `/boards/${parentB.boardId}/`);
+  await page.waitForFunction(() => document.getElementById("board-title").textContent === "Parent B");
+  assert.equal(await page.locator("#board-title").textContent(), "Parent B", "Parent means destination rather than browser Back");
+  await page.goto(base + stableRoute);
+  await page.locator(".workspace-card iframe").first().waitFor();
+  await page.frameLocator(".workspace-card iframe").first().frameLocator("iframe").getByRole("heading", { name: "Original 0", exact: true }).waitFor();
+  await page.frameLocator(".workspace-card iframe").nth(1).frameLocator("iframe").getByRole("heading", { name: "Original 2", exact: true }).waitFor();
+  await page.evaluate(() => {
+    window.stableProof = [...document.querySelectorAll(".workspace-card")].map(card => {
+      const frame = card.querySelector("iframe"), inner = frame.contentDocument.querySelector("iframe");
+      const proof = { id: card.dataset.placement, card, frame, doc: frame.contentDocument, inner, innerDoc: inner.contentDocument, outerLoads: 0, innerLoads: 0 };
+      frame.addEventListener("load", () => proof.outerLoads++);
+      inner.addEventListener("load", () => proof.innerLoads++);
+      return proof;
+    });
+  });
+  const identity = async phase => {
+    const actual = await page.evaluate(() => window.stableProof.map(p => ({ id: p.id, card: document.querySelector(`[data-placement="${p.id}"]`) === p.card, frame: p.card.querySelector("iframe") === p.frame, document: p.frame.contentDocument === p.doc, inner: p.doc.querySelector("iframe") === p.inner, innerDocument: p.inner.contentDocument === p.innerDoc, outerLoads: p.outerLoads, innerLoads: p.innerLoads })));
+    for (const proof of actual) assert.deepEqual({ ...proof, id: undefined }, { id: undefined, card: true, frame: true, document: true, inner: true, innerDocument: true, outerLoads: 0, innerLoads: 0 }, phase);
+    return actual;
+  };
+  const stableCard = page.locator(".workspace-card").first();
+  const stablePlacement = async () => (await (await fetch(base + `/api/boards/${stableBoard.boardId}`)).json()).placements.find(p => p.itemId === stableItems[0].itemId);
+  const waitStablePlacement = async test => { await page.waitForFunction(async ({ id, itemId, test }) => { const b = await (await fetch(`/api/boards/${id}`)).json(); const p = b.placements.find(p => p.itemId === itemId); return Object.entries(test).every(([k,v]) => p[k] === v); }, { id: stableBoard.boardId, itemId: stableItems[0].itemId, test }); };
+  let p = await stablePlacement();
+  await dragPointer(await stableCard.locator(".workspace-preview-launch").boundingBox(), 18, 12);
+  await waitStablePlacement({ x: p.x + 18, y: p.y + 12 });
+  await identity("drag preserves mounted previews");
+  p = await stablePlacement();
+  await dragPointer(await stableCard.locator(".workspace-resize").boundingBox(), 12, 14);
+  await waitStablePlacement({ width: p.width + 12, height: p.height + 14 });
+  await identity("resize preserves mounted previews");
+  await stableCard.locator("[data-placement-select]").click();
+  p = await stablePlacement();
+  await page.keyboard.press("Shift+ArrowRight");
+  await waitStablePlacement({ x: p.x + 10 });
+  await identity("selection and keyboard nudge preserve mounted previews");
+  await stableCard.locator("[data-star]").click();
+  await stableCard.locator("[data-item-controls]").click();
+  await page.locator("#workspace-item-controls [data-note]").fill("Stable mounted notes");
+  await page.waitForFunction(() => document.getElementById("save-status").textContent === "Item notes saved on this Mac");
+  await identity("star and note preserve mounted previews");
+  await page.locator('[data-paper="#e4ebdc"]').click();
+  await page.waitForFunction(() => document.querySelector(".workspace-card").style.getPropertyValue("--item-paper") === "#e4ebdc");
+  await identity("paper appearance preserves mounted previews");
+  await page.keyboard.press("Escape");
+  await post("/api/operations", { type: "updateBoard", boardId: stableBoard.boardId, patch: { decorations: [{ id: "qa-text", type: "text", x: 0, y: 520, width: 300, height: 60, text: "A quiet section", color: "#253018" }] } });
+  await page.locator(".workspace-decoration").waitFor();
+  await identity("decoration insertion preserves mounted previews");
+  const beforeExternal = await stablePlacement();
+  await post("/api/operations", { type: "updatePlacement", boardId: stableBoard.boardId, placementId: beforeExternal.id, patch: { x: beforeExternal.x + 9 } });
+  await page.waitForFunction(x => document.querySelector(".workspace-card").style.left === x + "px", beforeExternal.x + 9 + 70);
+  await identity("external geometry refresh preserves mounted previews");
+  await post("/api/operations", { type: "updateBoard", boardId: stableBoard.boardId, patch: { decorations: [] } });
+  await page.locator(".workspace-decoration").waitFor({ state: "detached" });
+  const stableProof = await identity("decoration removal preserves mounted previews");
+  await writeFile(path.join(evidence, "preview-identity-loads.json"), JSON.stringify(stableProof, null, 2));
+  await stableCard.locator(".workspace-preview-launch").click();
+  await page.locator("#reader-dialog[open]").waitFor();
+  const active = page.frameLocator("#active-reader").frameLocator("iframe");
+  await active.getByRole("heading", { name: "Original 0", exact: true }).waitFor();
+  await page.locator("#active-reader").evaluate(el => { window.stableActive = { el, doc: el.contentDocument, loads: 0 }; el.addEventListener("load", () => window.stableActive.loads++); });
+  await writeFile(path.join(root, "stable-0/index.html"), (await readFile(path.join(root, "stable-0/index.html"), "utf8")) + "<p>Stable resource version</p>");
+  await page.locator("#reader-update").waitFor({ state: "visible" });
+  assert.equal(await active.getByText("Stable resource version", { exact: true }).count(), 0, "Active content is offered, not replaced");
+  assert.deepEqual(await page.evaluate(() => ({ same: document.querySelector("#active-reader") === window.stableActive.el && window.stableActive.el.contentDocument === window.stableActive.doc, loads: window.stableActive.loads })), { same: true, loads: 0 });
+  await page.locator("#reader-update").click();
+  await active.getByText("Stable resource version", { exact: true }).waitFor();
+  await page.locator("#close-reader").click();
+  assert.equal(await page.locator(".workspace-card iframe").nth(1).evaluate(frame => frame === window.stableProof[1].frame && frame.contentDocument === window.stableProof[1].doc), true, "Resource refresh leaves other target mounted");
+  await mkdir(path.join(root, "stable-new"), { recursive: true });
+  await writeFile(path.join(root, "stable-new/index.html"), "<!doctype html><h1>Intentional new source</h1>");
+  await post("/api/operations", { type: "updateItem", itemId: stableItems[0].itemId, patch: { content: { kind: "html", resource: { ...first.content.resource, path: first.content.resource.path.replace(/previews\/0\.html$/, "stable-new/index.html") } } } });
+  await page.frameLocator(".workspace-card iframe").first().frameLocator("iframe").getByRole("heading", { name: "Intentional new source", exact: true }).waitFor();
+  assert.equal(await stableCard.evaluate(card => card === window.stableProof[0].card), true, "Intentional source update retains card identity");
+  assert.equal(await page.locator(".workspace-card iframe").nth(1).evaluate(frame => frame === window.stableProof[1].frame && frame.contentDocument === window.stableProof[1].doc), true, "Content source update refreshes only its target");
+  await page.locator("#board-info-toggle").click();
+  await page.screenshot({ path: path.join(evidence, "selection-tools-grid.png") });
+  await boardTool("[data-mode=grid]");
+  await page.locator(".workspace-grid-round").waitFor();
+  await page.frameLocator(".workspace-card iframe").first().frameLocator("iframe").getByRole("heading", { name: "Intentional new source", exact: true }).waitFor();
+  await page.evaluate(() => { window.gridProof = [...document.querySelectorAll(".workspace-card")].map(card => ({ id: card.dataset.placement, card, frame: card.querySelector("iframe"), doc: card.querySelector("iframe").contentDocument })); });
+  await boardTool("#workspace-favorites");
+  await page.waitForFunction(() => document.querySelectorAll(".workspace-card").length === 1);
+  assert.equal(await page.locator(".workspace-card iframe").evaluate(frame => frame === window.gridProof[0].frame && frame.contentDocument === window.gridProof[0].doc), true, "Grid filter retains the matching preview");
+  await boardTool("#workspace-favorites");
+  await page.waitForFunction(() => document.querySelectorAll(".workspace-card").length === 2);
+  await page.frameLocator(".workspace-card iframe").nth(1).frameLocator("iframe").getByRole("heading", { name: "Original 2", exact: true }).waitFor();
+  await page.evaluate(() => { window.gridProof = [...document.querySelectorAll(".workspace-card")].map(card => ({ id: card.dataset.placement, card, frame: card.querySelector("iframe"), doc: card.querySelector("iframe").contentDocument })); });
+  const currentStableBoard = await (await fetch(base + `/api/boards/${stableBoard.boardId}`)).json();
+  const reversed = [...currentStableBoard.reviewOrder].reverse();
+  await post("/api/operations", { type: "updateBoard", boardId: stableBoard.boardId, patch: { reviewOrder: reversed } });
+  await page.waitForFunction(id => document.querySelector(".workspace-card").dataset.placement === id, reversed[0]);
+  assert.equal(await page.evaluate(() => window.gridProof.every(p => document.querySelector(`[data-placement="${p.id}"]`) === p.card && p.card.querySelector("iframe") === p.frame && p.frame.contentDocument === p.doc)), true, "Grid external review order preserves both preview documents");
+  await page.locator(".workspace-card [data-item-controls]").first().click();
+  for (const [mode, className] of [["card", "workspace-compact"], ["icon", "workspace-icon"], ["panel", "workspace-panel"]]) {
+    await page.locator(`#workspace-item-controls [data-presentation="${mode}"]`).click();
+    await page.waitForFunction(className => document.querySelector(".workspace-card").classList.contains(className), className);
+    assert.equal(await page.locator(`#workspace-item-controls [data-presentation="${mode}"]`).getAttribute("aria-pressed"), "true", "Attached appearance popup changes " + mode);
+  }
+  await page.keyboard.press("Escape");
+
+
+
+  const imageBoard = await post("/api/operations", { type: "createBoard", title: "Static image refresh fixture" });
+  const imageItems = [];
+  const svg = width => `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="20"><rect width="100%" height="100%" fill="${width === 20 ? "#547643" : "#3366cc"}"/></svg>`;
+  for (const index of [0, 1]) {
+    await mkdir(path.join(root, `static-image-${index}`), { recursive: true });
+    await writeFile(path.join(root, `static-image-${index}/cover.svg`), svg(20));
+    imageItems.push((await post("/api/operations", { type: "createItem", boardId: imageBoard.result.boardId,
+      item: { title: `Static image ${index}`, content: { kind: "image", resource: { ...first.content.resource, path: first.content.resource.path.replace(/previews\/0\.html$/, `static-image-${index}/cover.svg`) } } },
+      placement: { x: index * 380, y: 0, width: 300, height: 380, z: index } })).result);
+  }
+  const imageRequests = [0, 0];
+  page.on("request", request => { for (const index of [0,1]) if (request.url().includes(`/static-image-${index}/cover.svg`)) imageRequests[index]++; });
+  await page.goto(base + `/boards/${imageBoard.result.boardId}/`);
+  await page.waitForFunction(() => [...document.querySelectorAll(".workspace-card img")].length === 2 && [...document.querySelectorAll(".workspace-card img")].every(img => img.complete && img.naturalWidth === 20));
+  await page.evaluate(() => { window.stableImages = [...document.querySelectorAll(".workspace-card img")]; });
+  const imageBaseline = [...imageRequests];
+  assert.deepEqual(imageBaseline, [1, 1], "Both initial image resources requested once");
+  const imageSnapshot = await (await fetch(base + `/api/boards/${imageBoard.result.boardId}`)).json();
+  await post("/api/operations", { type: "updatePlacement", boardId: imageBoard.result.boardId, placementId: imageSnapshot.placements[0].id, patch: { x: 17 } });
+  await page.waitForFunction(() => document.querySelector(".workspace-card").style.left === "87px");
+  assert.equal(await page.evaluate(() => window.stableImages.every((img,index) => document.querySelectorAll(".workspace-card img")[index] === img)), true, "Image DOM retained through geometry refresh");
+  assert.deepEqual(imageRequests, imageBaseline, "Geometry refresh makes no extra image requests");
+  await writeFile(path.join(root, "static-image-0/cover.svg"), svg(40));
+  await page.waitForFunction(() => document.querySelector(".workspace-card img").naturalWidth === 40);
+  assert.deepEqual(imageRequests, [2, 1], "Changed image bytes refresh the target resource only");
+  assert.equal(await page.evaluate(() => window.stableImages.every((img,index) => document.querySelectorAll(".workspace-card img")[index] === img)), true, "Live image refresh preserves image elements");
+  await writeFile(path.join(evidence, "image-request-counts.json"), JSON.stringify({ initial: imageBaseline, afterTargetUpdate: imageRequests }, null, 2));
+
   assert.equal(errors.length, 0, errors.join("\n"));
   console.log(
     JSON.stringify({
-      passed:
+      passed: process.env.TINKA_FOCUSED_ONLY ? "Quiet header/Tools/parent routes at 390/900/1440; mounted previews across geometry/review/decorations, targeted content reload, Grid filter/reorder, attached appearance popup and targeted image refresh" :
         "Canvas default and explicit Grid persistence, mouse background no-grab, wheel/horizontal/Shift-wheel/Ctrl zoom, real touch pan and pinch, threshold body/preview drag and click, notes/controls/resize persistence at390/1440; graph reader/history/revisions/shared durable review/moved aliases/geometry/archive/mixed legacy/offline content",
+      assertions,
       evidence,
       fixture,
       errors,

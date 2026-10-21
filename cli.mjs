@@ -7,7 +7,7 @@ import {updateBuildState} from './lib/boards.mjs';
 import {DEFAULT_PORT,loadConfig,validatePort} from './lib/config.mjs';
 import {assertSlug,isInside} from './lib/paths.mjs';
 import {claimRuntime,removeRuntime,startManaged,stopManaged,writeRuntime} from './lib/runtime.mjs';
-import {listen} from './server.mjs';
+import {listen,closeAppServer} from './server.mjs';
 import {addBoardGuide,initializeProject} from './lib/project.mjs';
 import {boardDirectory} from './lib/paths.mjs';
 import {readWorkspace,applyOperation} from './lib/workspace.mjs';
@@ -118,7 +118,7 @@ export async function main(args=process.argv.slice(2)){
     await claimRuntime(config,token);
     let server;
     const cleanup=async()=>{
-      if(server)await new Promise(resolve=>server.close(resolve));
+      if(server)await closeAppServer(server);
       await removeRuntime(config,token);
     };
     try{

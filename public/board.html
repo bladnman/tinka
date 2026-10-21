@@ -10,17 +10,18 @@
 <link rel="stylesheet" href="/app/workspace.css"></head>
 <body>
   <header id="canvas-header" class="canvas-header">
-    <nav class="identity" aria-label="Breadcrumb">
-      <a class="brand" href="/" aria-label="Tinka home"><img class="brand-mark" src="/app/mark.svg" alt="" width="26" height="26"><span id="project-label"></span></a>
-      <span class="slash" aria-hidden="true">/</span>
+    <nav class="identity" aria-label="Board navigation">
+      <a class="brand" href="/" aria-label="Tinka home"><img class="brand-mark" src="/app/mark.svg" alt="" width="26" height="26"><span id="project-label">Home</span></a>
       <h1 id="board-title" class="board-name" aria-current="page">Loading board…</h1>
-      <button id="board-info-toggle" class="info-toggle" type="button" aria-expanded="false" aria-controls="board-info" aria-label="About this board" title="About this board · notes export and help"><svg viewBox="0 0 20 20" aria-hidden="true"><circle cx="10" cy="10" r="7.4"/><path d="M10 9v4.6M10 6.4v.1"/></svg></button>
+      <button id="board-info-toggle" class="info-toggle" type="button" aria-expanded="false" aria-controls="board-info" title="Board tools: add, view, search, details and help">Tools</button>
     </nav>
-    <section id="board-info" class="board-info" aria-labelledby="board-info-heading" hidden>
+    <section id="board-info" class="board-info" aria-labelledby="board-info-toggle" hidden>
       <p class="eyebrow" id="board-info-heading">ABOUT THIS BOARD</p>
       <p id="board-description"></p>
       <p class="info-meta"><span id="experiment-count">Experiments</span><span id="round-count">Explorations</span><span>Notes saved on this Mac</span></p>
-      <div id="help-panel"><strong>Make yourself at home.</strong> Drag or scroll to move anywhere on the canvas, past the edges of the board too. Pinch, or hold Control or ⌘ while scrolling, to zoom; the zoom slider and Fit sit in the footer. With the canvas focused, the arrow keys and Page Up / Page Down pan, Home and End go to the first and last exploration, and + / − zoom. Open an experiment to try it, then step through the others with Previous, Next or the dots. Escape returns here. Stars and notes are saved on this Mac.</div>
+      <details class="board-help"><summary>How to use this board</summary>
+        <div id="help-panel"><strong>Make yourself at home.</strong> Drag or scroll to move anywhere on the canvas, past the edges of the board too. Pinch, or hold Control or ⌘ while scrolling, to zoom; the zoom slider and Fit sit in the footer. With the canvas focused, the arrow keys and Page Up / Page Down pan, Home and End go to the first and last exploration, and + / − zoom. Open an experiment to try it, then step through the others with Previous, Next or the dots. Escape returns here. Stars and notes are saved on this Mac.</div>
+      </details>
       <div class="info-actions"><button id="export" type="button">Export notes</button></div>
     </section>
   </header>
@@ -32,11 +33,9 @@
   </footer>
   <dialog id="reader-dialog" aria-labelledby="reader-name">
     <header class="reader-header">
-      <nav class="identity" aria-label="Breadcrumb">
-        <a class="brand" id="reader-home" href="/" aria-label="Tinka home"><img class="brand-mark" src="/app/mark.svg" alt="" width="26" height="26"><span id="reader-project"></span></a>
-        <span class="slash" aria-hidden="true">/</span>
-        <a id="reader-board-link" class="board-name board-link" href="#">Board</a>
-        <span class="slash experiment-slash" aria-hidden="true">/</span>
+      <nav class="identity" aria-label="Item navigation">
+        <a class="brand" id="reader-home" href="/" aria-label="Tinka home"><img class="brand-mark" src="/app/mark.svg" alt="" width="26" height="26"><span id="reader-project">Home</span></a>
+        <a id="reader-board-link" class="board-name board-link" href="#">← Board</a>
         <span class="item-line"><strong id="reader-name" class="experiment-crumb" aria-current="page"></strong><span class="item-actions"><button id="reader-star" class="item-star" type="button" aria-pressed="false" aria-label="Shortlist">☆</button><button id="notes-toggle" class="notes-toggle" type="button" aria-expanded="false" aria-controls="notes-panel">Notes<span class="note-dot" aria-hidden="true" hidden></span></button><button id="reader-update" type="button" hidden>New version available · Reload experiment</button></span></span>
       </nav>
     </header>

@@ -3,9 +3,12 @@ import {test} from 'node:test';
 import {mkdtemp,mkdir,readFile,readdir,writeFile,rm,symlink} from 'node:fs/promises';
 import path from 'node:path';
 import os from 'node:os';
+import http from 'node:http';
+import {once} from 'node:events';
 import {main} from '../cli.mjs';
 import {loadConfig} from '../lib/config.mjs';
-import {listen} from '../server.mjs';
+import {listen,closeAppServer} from '../server.mjs';
+import {withStore} from '../lib/store.mjs';
 
 async function fixture(t,{legacy=false}={}){
   const root=await mkdtemp(path.join(os.tmpdir(),'tinka-workspace-http-'));
@@ -29,6 +32,47 @@ async function fixture(t,{legacy=false}={}){
   const op=async operation=>{const response=await write('/api/operations',operation);assert.equal(response.status,200,await response.clone().text());return response.json();};
   return {root,configPath,boards,config,server,base,get,write,op};
 }
+
+test('shutdown drains accepted GET and incomplete write bodies before closing their keepalive sockets',async t=>{
+  const f=await fixture(t);
+  await f.op({type:'createBoard',id:'drain',title:'Drain'});
+  await f.op({type:'createItem',boardId:'drain',item:{id:'saved',title:'Save through shutdown'}});
+  const agent=new http.Agent({keepAlive:true});
+  let release,writeRequest,getRequest;
+  const gate=new Promise(resolve=>{release=resolve;});
+  let acquired;
+  const locked=new Promise(resolve=>{acquired=resolve;});
+  const holding=withStore(f.config,async()=>{acquired();await gate;});
+  const response=request=>new Promise((resolve,reject)=>{
+    request.once('response',res=>{let body='';res.setEncoding('utf8');res.on('data',chunk=>{body+=chunk;});res.once('end',()=>resolve({status:res.statusCode,body}));});
+    request.once('error',reject);
+  });
+  try{
+    await locked;
+    let received=once(f.server,'request');
+    getRequest=http.get(f.base+'/api/boards/drain/live',{agent});
+    const got=response(getRequest);
+    await received;
+    received=once(f.server,'request');
+    const body=JSON.stringify({patch:{note:'Accepted before shutdown',star:true}});
+    writeRequest=http.request(f.base+'/api/items/saved/review',{method:'PATCH',agent,headers:{'content-type':'application/json','x-tinka-workspace':f.config.workspaceId,'content-length':Buffer.byteLength(body)}});
+    const saved=response(writeRequest);
+    writeRequest.write(body.slice(0,10));
+    await received;
+    let finished=false;
+    const started=Date.now(),closed=closeAppServer(f.server).then(()=>{finished=true;});
+    await new Promise(resolve=>setTimeout(resolve,100));
+    assert.equal(finished,false,'accepted GET and incomplete write stay connected');
+    release();
+    writeRequest.end(body.slice(10));
+    assert.equal((await got).status,200);
+    assert.equal((await saved).status,200);
+    await closed;
+    assert(Date.now()-started<2000,'finished requests must not wait for the keepalive timeout');
+    const item=JSON.parse(await readFile(path.join(f.config.workspaceRoot,'items','saved.json'),'utf8'));
+    assert.equal(item.review.note,'Accepted before shutdown');assert.equal(item.review.star,true);
+  }finally{release();writeRequest?.destroy();getRequest?.destroy();agent.destroy();await holding;}
+});
 
 test('HTTP migration is explicit and legacy feedback cannot overwrite canonical review',async t=>{
   const f=await fixture(t,{legacy:true});
