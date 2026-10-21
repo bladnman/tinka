@@ -963,7 +963,12 @@ document.addEventListener('click', event => {
     const concept = all.find(item => item.key === remove.dataset.removeExperiment);
     if (concept) openRemovalPrompt(appConfig, board, concept);
   }
-  if (open && !open.disabled) openReader(open.dataset.open, open.dataset.revision);
+  if (open && !open.disabled) {
+    const concept = graph && (all.find(item => item.key === open.dataset.open) || graph.aliasConcept(open.dataset.open));
+    if (concept?.graphItem.childBoardId && !concept.graphItem.content)
+      graph.navigate(concept.graphItem.childBoardId);
+    else openReader(open.dataset.open, open.dataset.revision);
+  }
   if (star?.dataset.star) {
     const key = star.dataset.star;
     notes[key] = { ...notes[key], star: !notes[key]?.star, updatedAt: Date.now() };

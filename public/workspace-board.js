@@ -188,13 +188,20 @@ export class WorkspaceBoard {
       const select = e.target.closest("[data-placement-select]"),
         geo = e.target.closest("[data-geometry]"),
         edit = e.target.closest("[data-edit-item]"),
-        child = e.target.closest("[data-child-board]");
+        child = e.target.closest("[data-child-board]"),
+        feedback = e.target.closest("[data-panel-feedback]");
       if (select) {
         const id = select.dataset.placementSelect;
         this.selection.has(id)
           ? this.selection.delete(id)
           : this.selection.add(id);
         this.build(this.hooks.concepts());
+      }
+      if (feedback) {
+        const details = feedback.closest(".workspace-panel").querySelector(".workspace-panel-feedback");
+        details.hidden = !details.hidden;
+        feedback.setAttribute("aria-expanded", String(!details.hidden));
+        if (!details.hidden) details.querySelector("textarea").focus();
       }
       if (geo) this.geometry(geo.dataset.geometry);
       if (edit)
@@ -387,19 +394,29 @@ export class WorkspaceBoard {
           ["image", "video"].includes(item.content.kind)
             ? resourceURL(item.content.resource)
             : null;
+      const panel = p.presentation?.mode === "panel",
+        viewport = p.presentation?.viewport || { width: 1000, height: 720 };
       const selected = this.selection.has(p.id),
         unavailable = ["reserved", "building"].includes(item.build?.state),
         handoff = resourceURL(
           item.resources?.find((r) => r.role === "handoff")?.resource,
         ),
         live =
-          this.mode === "grid" &&
+          (this.mode === "grid" || panel) &&
           !unavailable &&
           !img &&
           item.content?.kind === "html" &&
           item.content?.resource &&
           !item.content?.url;
-      return `<article class="workspace-card ${selected ? "selected" : ""}" data-key="${esc(c.key)}" data-placement="${esc(p.id)}" data-build-state="${esc(item.build?.state || "ready")}" style="${this.mode === "canvas" ? `left:${p.x + this.origin.x}px;top:${p.y + this.origin.y}px;width:${p.width}px;height:${p.height}px;z-index:${p.z};` : ""}"><header><button type="button" data-placement-select="${esc(p.id)}" aria-pressed="${selected}" aria-label="${selected ? "Deselect" : "Select"} ${esc(item.title)}">${selected ? "✓" : "□"}</button><span class="workspace-concept-number">${esc(c.number)}</span><span>${esc(item.category || item.content?.kind || "Idea")}${item.childBoardId ? " · Board" : ""}</span><button type="button" class="workspace-drag" data-drag="${esc(p.id)}" aria-label="Drag ${esc(item.title)}" title="Drag to move on canvas">⠿</button></header><div class="workspace-card-preview ${live ? "workspace-live-preview" : ""}">${unavailable ? `<div class="workspace-build-placeholder"><strong>${item.build.state === "building" ? "Taking shape." : "A place for a new idea."}</strong><span>${esc(item.build.message || "This slot will open when it is ready for review.")}</span></div>` : live ? `<iframe src="${esc(this.hooks.preview(c))}" title="${esc(item.title)} live preview" tabindex="-1" loading="lazy" inert></iframe>` : img || (url && item.content.kind === "image") ? `<img src="${esc(img || url)}" alt="">` : item.childBoardId ? '<span class="workspace-paper-art" aria-hidden="true">▱ ▱</span>' : `<span class="workspace-title-art">${esc(item.preview?.text || item.title)}</span>`}<button type="button" class="workspace-preview-launch" ${unavailable ? "disabled" : ""} data-open="${esc(c.key)}" aria-label="Open ${esc(item.title)}"><span>Open ${esc(item.title)} ↗</span></button></div><div class="workspace-card-copy"><h3><button type="button" ${unavailable ? "disabled" : ""} data-open="${esc(c.key)}">${esc(item.title)}</button></h3><p>${esc(item.description)}</p>${item.question ? `<p class="workspace-question">${esc(item.question)}</p>` : ""}${handoff ? `<a class="workspace-handoff" href="${esc(handoff)}" target="_blank" rel="noopener noreferrer">Handoff ↗</a>` : ""}${item.childBoardId ? `<button type="button" class="workspace-child" data-child-board="${esc(item.childBoardId)}">Open board ↗</button>` : ""}<div class="workspace-review"><button type="button" class="shortlist" data-star="${esc(c.key)}" aria-label="Favorite ${esc(item.title)}" aria-pressed="${!!item.review?.star}">${item.review?.star ? "★" : "☆"}</button><label><span class="sr-only">Notes on ${esc(item.title)}</span><textarea data-note="${esc(c.key)}" aria-label="Notes on ${esc(item.title)}" placeholder="A thought to return to…">${esc(item.review?.note || "")}</textarea></label></div><div class="workspace-card-meta"><span title="${esc(item.build?.message)}">${esc(item.build?.state || "ready")}${item.revisions?.length ? " · " + item.revisions.length + " versions" : ""}</span><button data-edit-item="${esc(item.id)}" type="button">Edit</button><button data-geometry="${esc(p.id)}" type="button">Move / resize</button></div></div>${this.mode === "canvas" ? `<button type="button" class="workspace-resize" data-resize="${esc(p.id)}" aria-label="Resize ${esc(item.title)}">◢</button>` : ""}</article>`;
+      if (panel) {
+        const panelContent = unavailable
+          ? `<div class="workspace-build-placeholder"><strong>${item.build.state === "building" ? "Taking shape." : "A place for a new idea."}</strong><span>${esc(item.build.message || "This slot will open when it is ready for review.")}</span></div>`
+          : live ? `<iframe src="${esc(this.hooks.preview(c))}" title="${esc(item.title)} design preview" tabindex="-1" loading="lazy" inert></iframe>`
+          : img || (url && item.content.kind === "image") ? `<img src="${esc(img || url)}" alt="${esc(item.title)} design preview">`
+          : `<span class="workspace-title-art">${esc(item.preview?.text || item.title)}</span>`;
+        return `<article class="workspace-card workspace-panel ${selected ? "selected" : ""}" data-key="${esc(c.key)}" data-placement="${esc(p.id)}" data-build-state="${esc(item.build?.state || "ready")}" style="${this.mode === "canvas" ? `left:${p.x + this.origin.x}px;top:${p.y + this.origin.y}px;width:${p.width}px;height:${p.height}px;z-index:${p.z};` : `width:${p.width}px;height:${p.height}px;`}--panel-viewport-width:${viewport.width}px;--panel-viewport-height:${viewport.height}px;"><div class="workspace-card-preview workspace-panel-preview ${live ? "workspace-live-preview" : ""}" data-preview-width="${viewport.width}" data-preview-height="${viewport.height}">${panelContent}<button type="button" class="workspace-preview-launch" ${unavailable ? "disabled" : ""} data-open="${esc(c.key)}" aria-label="Open ${esc(item.title)}"><span>Open ${esc(item.title)} ↗</span></button></div><footer class="workspace-panel-caption"><button type="button" data-placement-select="${esc(p.id)}" aria-pressed="${selected}" aria-label="${selected ? "Deselect" : "Select"} ${esc(item.title)}">${selected ? "✓" : "□"}</button><button type="button" class="workspace-panel-title" ${unavailable ? "disabled" : ""} data-open="${esc(c.key)}">${esc(item.title)}</button><button type="button" class="shortlist" data-star="${esc(c.key)}" aria-label="Favorite ${esc(item.title)}" aria-pressed="${!!item.review?.star}">${item.review?.star ? "★" : "☆"}</button><button type="button" data-panel-feedback aria-expanded="false">Notes</button><button type="button" data-geometry="${esc(p.id)}" aria-label="Presentation and size of ${esc(item.title)}">⋯</button></footer><div class="workspace-panel-feedback" hidden><p>${esc(item.description)}</p><label><span class="sr-only">Notes on ${esc(item.title)}</span><textarea data-note="${esc(c.key)}" aria-label="Notes on ${esc(item.title)}" placeholder="A thought to return to…">${esc(item.review?.note || "")}</textarea></label><button data-edit-item="${esc(item.id)}" type="button">Edit item</button>${item.revisions?.length ? `<span>${item.revisions.length} versions</span>` : ""}</div>${this.mode === "canvas" ? `<button type="button" class="workspace-resize" data-resize="${esc(p.id)}" aria-label="Resize ${esc(item.title)}">◢</button>` : ""}</article>`;
+      }
+      return `<article class="workspace-card ${selected ? "selected" : ""}" data-key="${esc(c.key)}" data-placement="${esc(p.id)}" data-build-state="${esc(item.build?.state || "ready")}" style="${this.mode === "canvas" ? `left:${p.x + this.origin.x}px;top:${p.y + this.origin.y}px;width:${p.width}px;height:${p.height}px;z-index:${p.z};` : ""}"><header><button type="button" data-placement-select="${esc(p.id)}" aria-pressed="${selected}" aria-label="${selected ? "Deselect" : "Select"} ${esc(item.title)}">${selected ? "✓" : "□"}</button><span class="workspace-concept-number">${esc(c.number)}</span><span>${esc(item.category || item.content?.kind || "Idea")}${item.childBoardId ? " · Board" : ""}</span><button type="button" class="workspace-drag" data-drag="${esc(p.id)}" aria-label="Drag ${esc(item.title)}" title="Drag to move on canvas">⠿</button></header><div class="workspace-card-preview ${live ? "workspace-live-preview" : ""}">${unavailable ? `<div class="workspace-build-placeholder"><strong>${item.build.state === "building" ? "Taking shape." : "A place for a new idea."}</strong><span>${esc(item.build.message || "This slot will open when it is ready for review.")}</span></div>` : live ? `<iframe src="${esc(this.hooks.preview(c))}" title="${esc(item.title)} live preview" tabindex="-1" loading="lazy" inert></iframe>` : img || (url && item.content.kind === "image") ? `<img src="${esc(img || url)}" alt="">` : item.childBoardId ? '<span class="workspace-paper-art" aria-hidden="true">▱ ▱</span>' : `<span class="workspace-title-art">${esc(item.preview?.text || item.title)}</span>`}<button type="button" class="workspace-preview-launch" ${unavailable ? "disabled" : ""} data-open="${esc(c.key)}" aria-label="Open ${esc(item.title)}"><span>Open ${esc(item.title)} ↗</span></button></div><div class="workspace-card-copy"><h3><button type="button" ${unavailable ? "disabled" : ""} data-open="${esc(c.key)}">${esc(item.title)}</button></h3><p>${esc(item.description)}</p>${item.question ? `<p class="workspace-question">${esc(item.question)}</p>` : ""}${handoff ? `<a class="workspace-handoff" href="${esc(handoff)}" target="_blank" rel="noopener noreferrer">Handoff ↗</a>` : ""}${item.childBoardId && item.content ? `<button type="button" class="workspace-child" data-child-board="${esc(item.childBoardId)}">Open board ↗</button>` : ""}<div class="workspace-review"><button type="button" class="shortlist" data-star="${esc(c.key)}" aria-label="Favorite ${esc(item.title)}" aria-pressed="${!!item.review?.star}">${item.review?.star ? "★" : "☆"}</button><label><span class="sr-only">Notes on ${esc(item.title)}</span><textarea data-note="${esc(c.key)}" aria-label="Notes on ${esc(item.title)}" placeholder="A thought to return to…">${esc(item.review?.note || "")}</textarea></label></div><div class="workspace-card-meta"><span title="${esc(item.build?.message)}">${esc(item.build?.state || "ready")}${item.revisions?.length ? " · " + item.revisions.length + " versions" : ""}</span><button data-edit-item="${esc(item.id)}" type="button">Edit</button><button data-geometry="${esc(p.id)}" type="button">Move / resize</button></div></div>${this.mode === "canvas" ? `<button type="button" class="workspace-resize" data-resize="${esc(p.id)}" aria-label="Resize ${esc(item.title)}">◢</button>` : ""}</article>`;
     };
     const cards = concepts.map(renderCard).join("");
     const groups = new Map();
@@ -447,16 +464,20 @@ export class WorkspaceBoard {
   sizePreviews() {
     this.previewObserver?.disconnect();
     this.previewObserver = new ResizeObserver((entries) => {
-      for (const { target } of entries)
-        target.style.setProperty(
-          "--preview-scale",
-          String(target.clientWidth / 1000),
-        );
+      for (const { target } of entries) this.sizePreview(target);
     });
     document.querySelectorAll(".workspace-live-preview").forEach((el) => {
-      el.style.setProperty("--preview-scale", String(el.clientWidth / 1000));
+      this.sizePreview(el);
       this.previewObserver.observe(el);
     });
+  }
+  sizePreview(el) {
+    const width = Number(el.dataset.previewWidth) || 1000,
+      height = Number(el.dataset.previewHeight) || 720;
+    const scale = el.classList.contains("workspace-panel-preview")
+      ? Math.min(el.clientWidth / width, el.clientHeight / height)
+      : el.clientWidth / width;
+    el.style.setProperty("--preview-scale", String(scale));
   }
   selectionMenu() {
     const el = $("workspace-selection");
@@ -590,12 +611,15 @@ export class WorkspaceBoard {
     const p = this.snapshot.placements.find((p) => p.id === id);
     if (!p) return;
     makeDialog(
-      "Move or resize this placement",
-      `<p>Change this card’s position and size on Canvas. Grid and comparison order stay the same.</p><div class="workspace-field-grid">${["x", "y", "width", "height", "z"].map((k) => `<label>${k[0].toUpperCase() + k.slice(1)}<input name="${k}" type="number" step="1" value="${p[k]}" ${["width", "height"].includes(k) ? 'min="160" max="10000"' : 'min="-100000" max="100000"'} required></label>`).join("")}</div><button type="submit" class="workspace-primary">Save placement</button>`,
+      "Presentation and placement",
+      `<p>Choose how this item appears here. Other references keep their own presentation.</p><label>Presentation<select name="presentation"><option value="card" ${p.presentation?.mode !== "panel" ? "selected" : ""}>Compact card</option><option value="panel" ${p.presentation?.mode === "panel" ? "selected" : ""}>Full preview</option></select></label><div class="workspace-field-grid"><label>Preview viewport width<input name="viewportWidth" type="number" min="40" max="10000" step="1" value="${p.presentation?.viewport?.width || 1000}" required></label><label>Preview viewport height<input name="viewportHeight" type="number" min="40" max="10000" step="1" value="${p.presentation?.viewport?.height || 720}" required></label></div><div class="workspace-field-grid">${["x", "y", "width", "height", "z"].map((k) => `<label>${k[0].toUpperCase() + k.slice(1)}<input name="${k}" type="number" step="1" value="${p[k]}" ${["width", "height"].includes(k) ? 'min="160" max="10000"' : 'min="-100000" max="100000"'} required></label>`).join("")}</div><button type="submit" class="workspace-primary">Save placement</button>`,
       async (f) => {
         const patch = Object.fromEntries(
           ["x", "y", "width", "height", "z"].map((k) => [k, Number(f.get(k))]),
         );
+        patch.presentation = { mode: f.get("presentation"), viewport: {
+          width: Number(f.get("viewportWidth")), height: Number(f.get("viewportHeight")),
+        } };
         await this.client.write("updatePlacement", {
           boardId: this.snapshot.id,
           placementId: id,

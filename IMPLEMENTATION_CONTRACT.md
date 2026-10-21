@@ -36,7 +36,7 @@ No command execution, remote fetching or file deletion is performed.
 
 Boards have ownerItemId, placements [{id,itemId,x,y,width,height,z,...local state}],
 reviewOrder, retained rounds, decorations and optional background. Placements share
-canonical review; geometry and local archive state are board-scoped. Containment
+canonical review; geometry, optional presentation and local archive state are board-scoped. Presentation accepts mode card/panel and an optional viewport with integer width/height from 40 to 10000. Absence retains cards; panels fit the complete HTML/image viewport without cropping, and expose notes on demand. Containment
 is a DAG, with explicit homeBoardIds. Resource roots are named workspace-relative
 folder paths; files remain project-owned and standalone. Duplication creates a
 new canonical identity pointing at the same files; board duplication copies its
@@ -77,7 +77,7 @@ GET overlays canonical known-item review on original legacy orphan notes.
 Graph live state exposes workspace manifestRevision plus per-item resource revision
 hashes independently of metadata updates. Content and relative asset edits trigger
 a safe reload offer without replacing an active preview. No remote URL is probed.
-Grid and Canvas share placements; composite Content/Board views retain sequential
+Board-only primary cover/title actions open their child board directly; composites retain content plus an explicit board choice. Grid and Canvas share placements; composite Content/Board views retain sequential
 review order. Graph and legacy readers retain previous/next, dots, versions,
 notes/star, sizing, standalone links and browser history semantics described below.
 

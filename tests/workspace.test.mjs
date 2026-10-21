@@ -748,3 +748,27 @@ test("existing destination assigns available board-local positions; new-board mo
   assert.equal(preserved.x, 1000);
   assert.equal(preserved.y, 2000);
 });
+
+test("panel presentation is validated and local while references share canonical review", async (t) => {
+  const {config} = await fixture(t);
+  const a = await board(config, "Designs"), b = await board(config, "Cards");
+  const presentation = {mode:"panel",viewport:{width:360,height:650}};
+  const created = await operation(config,"createItem",{boardId:a.boardId,
+    item:{title:"Full design"},placement:{width:362,height:696,presentation}});
+  const referenced = await operation(config,"reference",{itemIds:[created.itemId],targetBoardId:b.boardId});
+  const local = (await getBoardSnapshot(config,a.boardId)).placements[0];
+  assert.deepEqual(local.presentation,presentation);
+  assert.equal((await getBoardSnapshot(config,b.boardId)).placements[0].presentation,undefined);
+  await operation(config,"review",{itemId:created.itemId,patch:{note:"Compare at natural size",star:true}});
+  assert.equal((await getBoardSnapshot(config,b.boardId)).items[created.itemId].review.star,true);
+  await operation(config,"updatePlacement",{boardId:b.boardId,placementId:referenced.placementIds[0],patch:{presentation:{mode:"card"}}});
+  assert.deepEqual((await getBoardSnapshot(config,a.boardId)).placements[0].presentation,presentation);
+  const revision=(await readWorkspace(config)).revision;
+  for(const invalid of [{mode:"icon"},{mode:"panel",viewport:{width:0,height:650}},
+    {mode:"panel",viewport:{width:360.5,height:650}},{mode:"panel",viewport:{width:360,height:650,src:"x"}}]) {
+    await assert.rejects(()=>operation(config,"updatePlacement",{boardId:a.boardId,placementId:local.id,patch:{presentation:invalid}}),{status:400});
+  }
+  assert.equal((await readWorkspace(config)).revision,revision);
+  const copied=await operation(config,"reference",{sourceBoardId:a.boardId,placementIds:[local.id],targetBoardId:b.boardId});
+  assert.deepEqual((await getBoardSnapshot(config,b.boardId)).placements.find(p=>p.id===copied.placementIds[0]).presentation,presentation);
+});
