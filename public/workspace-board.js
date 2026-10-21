@@ -144,6 +144,7 @@ export class WorkspaceBoard {
       "<strong>Make yourself at home.</strong> Scroll with your mouse or trackpad, or swipe the background on a touch screen, to move around Canvas; Shift-scroll moves sideways. Pinch, or hold Control or ⌘ while scrolling, to zoom. Drag a card’s body to move it; drop inside a highlighted board to move the item into it. Escape cancels a drag. Notes and buttons keep their usual behavior. A click opens a preview. Select an item and use arrow keys to move it, or drag its corner to resize. Move… in the selection toolbar also moves items into boards. Double-click text or a region label to edit it. Grid keeps comparison order. Open an item to try it, then step with Previous, Next or the dots. Escape returns here. Stars and notes follow the item across references.";
     const bar = document.createElement("section");
     $("help-panel").append(" Select several cards and drag a selected card to carry them together, into a board or onto Parent. An unselected card, resize or held cover child still acts alone.");
+    $("help-panel").append(" With a mouse or pen, drag a box on empty Canvas space to select cards. Hold Shift when starting to add to your selection; Escape cancels. An empty click clears selection. Unused colored-region interiors also work; use a region’s label or border to move it. Touch keeps swiping and pinching.");
     bar.id = "workspace-toolbar";
     bar.className = "workspace-toolbar";
     bar.setAttribute("aria-label", "Organize this board");
@@ -542,6 +543,21 @@ export class WorkspaceBoard {
       (b) => (b.onclick = () => this.bulk(b.dataset.bulk)),
     );
   }
+  syncSelection() {
+    for (const card of $("world").querySelectorAll(".workspace-card[data-placement]")) {
+      const selected = this.selection.has(card.dataset.placement);
+      card.classList.toggle("selected", selected);
+      const button = card.querySelector("[data-placement-select]");
+      if (!button) continue;
+      const p = this.snapshot.placements.find(p => p.id === card.dataset.placement);
+      const title = this.snapshot.items[p?.itemId]?.title || "item";
+      button.setAttribute("aria-pressed", String(selected));
+      button.setAttribute("aria-label", `${selected ? "Deselect" : "Select"} ${title}`);
+      button.textContent = selected ? "✓" : "□";
+    }
+    const count = $("workspace-selection").querySelector("strong");
+    if (count) count.textContent = `${this.selection.size} selected`;
+  }
   async bulk(type) {
     const ids = [...this.selection];
     try {
@@ -826,10 +842,97 @@ export class WorkspaceBoard {
   }
   pointer() {
     let drag = null;
+    let marquee = null;
     let suppressedClick = null;
     let highlighted = null;
     const pointers = new Set();
     const viewport = $("viewport");
+    const emptyCanvas = e => {
+      if (e.pointerType === "touch" || e.isPrimary === false || e.ctrlKey || e.metaKey || e.altKey ||
+          document.querySelector("dialog[open]")) return false;
+      const rect = viewport.getBoundingClientRect();
+      if (e.clientX < rect.left + viewport.clientLeft || e.clientX >= rect.left + viewport.clientLeft + viewport.clientWidth ||
+          e.clientY < rect.top + viewport.clientTop || e.clientY >= rect.top + viewport.clientTop + viewport.clientHeight) return false;
+      if (e.target.closest(".workspace-card,button,a,input,textarea,select,label,[contenteditable],.workspace-review,[role=menu],[role=dialog]")) return false;
+      const decoration = e.target.closest("[data-decoration]");
+      if (!decoration) return true;
+      if (!decoration.classList.contains("decoration-region") || e.target.closest("[data-decoration-label]")) return false;
+      const bounds = decoration.getBoundingClientRect();
+      const label = decoration.querySelector("[data-decoration-label]")?.getBoundingClientRect();
+      return e.clientX > bounds.left + 6 && e.clientX < bounds.right - 6 &&
+        e.clientY > Math.max(bounds.top + 28, label?.bottom || bounds.top) && e.clientY < bounds.bottom - 6;
+    };
+    const setSelection = selected => {
+      if (selected.size === this.selection.size && [...selected].every(id => this.selection.has(id))) return;
+      this.selection = selected;
+      this.syncSelection();
+    };
+    const renderMarquee = () => {
+      if (!marquee?.active) return;
+      const bounds = viewport.getBoundingClientRect(), world = $("world").getBoundingClientRect();
+      const zoom = this.hooks.zoom();
+      const anchor = {x:world.left + marquee.anchor.x * zoom,y:world.top + marquee.anchor.y * zoom};
+      const box = {
+        left:Math.max(bounds.left,Math.min(anchor.x,marquee.last.x)),
+        top:Math.max(bounds.top,Math.min(anchor.y,marquee.last.y)),
+        right:Math.min(bounds.right,Math.max(anchor.x,marquee.last.x)),
+        bottom:Math.min(bounds.bottom,Math.max(anchor.y,marquee.last.y)),
+      };
+      Object.assign(marquee.layer.style, {left:`${bounds.left}px`,top:`${bounds.top}px`,width:`${bounds.width}px`,height:`${bounds.height}px`});
+      Object.assign(marquee.box.style, {left:`${box.left - bounds.left}px`,top:`${box.top - bounds.top}px`,
+        width:`${Math.max(0,box.right - box.left)}px`,height:`${Math.max(0,box.bottom - box.top)}px`});
+      const selected = new Set(marquee.additive ? marquee.original : []);
+      if (box.right > box.left && box.bottom > box.top)
+        for (const {id,element} of marquee.cards) {
+          if (!element.isConnected) continue;
+          const card = element.getBoundingClientRect();
+          if (card.right > box.left && card.left < box.right && card.bottom > box.top && card.top < box.bottom) selected.add(id);
+        }
+      setSelection(selected);
+      const text = `${selected.size} selected`;
+      if (marquee.count.textContent !== text) marquee.count.textContent = text;
+    };
+    const beginMarquee = e => {
+      if (!emptyCanvas(e)) return false;
+      const world = $("world").getBoundingClientRect(), zoom = this.hooks.zoom();
+      const placements = new Map(this.snapshot.placements.map(p => [p.id,p]));
+      const cards = [...$("world").querySelectorAll(".workspace-card[data-placement]")].filter(element => {
+        const p = placements.get(element.dataset.placement), item = this.snapshot.items[p?.itemId];
+        return p && !p.removedAt && !p.deletedAt && item && !item.deletedAt;
+      }).map(element => ({id:element.dataset.placement,element}));
+      marquee = {pointerId:e.pointerId,x:e.clientX,y:e.clientY,last:{x:e.clientX,y:e.clientY},
+        anchor:{x:(e.clientX - world.left) / zoom,y:(e.clientY - world.top) / zoom},
+        original:new Set(this.selection),additive:e.shiftKey,cards,active:false};
+      this.pointerGesture = true;
+      // The toolbar keeps its existing visibility until this gesture finishes.
+      // Only the count and card selection state change while the box is active.
+      e.preventDefault();
+      e.stopImmediatePropagation();
+      return true;
+    };
+    const finishMarquee = cancelled => {
+      if (!marquee) return;
+      const done = marquee;
+      if (done.active && !cancelled) renderMarquee();
+      marquee = null;
+      if (cancelled) setSelection(new Set(done.original));
+      else if (!done.active) setSelection(new Set(done.additive ? done.original : []));
+      done.layer?.remove();
+      viewport.classList.remove("workspace-marquee-active");
+      if (done.active) suppressedClick = true;
+      if (!cancelled && done.active && this.activeDecoration && (!done.additive || this.selection.size)) {
+        const old = this.snapshot.decorations.find(d => d.id === this.activeDecoration);
+        this.activeDecoration = null;
+        if (old) this.updateDecorationElement(old);
+      }
+      const before = viewport.getBoundingClientRect();
+      this.selectionMenu();
+      const after = viewport.getBoundingClientRect();
+      this.hooks.shiftViewport?.(before.left - after.left,before.top - after.top);
+      this.pointerGesture = false;
+      try { viewport.releasePointerCapture(done.pointerId); } catch {}
+      drainRefresh();
+    };
     const hint = document.createElement("div");
     hint.id = "workspace-drop-hint";
     hint.className = "workspace-drop-hint";
@@ -949,6 +1052,7 @@ export class WorkspaceBoard {
       this.refresh({ saveReview: false }).catch(() => toast("The board could not refresh. Reload to see the latest changes."));
     };
     const cancel = () => {
+      if (marquee) { finishMarquee(true); return; }
       if (!drag) return;
       const done = drag;
       drag = null;
@@ -967,7 +1071,11 @@ export class WorkspaceBoard {
       e => {
         suppressedClick = null;
         pointers.add(e.pointerId);
-        if (pointers.size > 1) cancel();
+        if (pointers.size > 1) {
+          const selecting = !!marquee;
+          cancel();
+          if (selecting) { e.preventDefault(); e.stopImmediatePropagation(); }
+        }
       },
       true,
     );
@@ -992,7 +1100,7 @@ export class WorkspaceBoard {
           return;
         }
         const card = e.target.closest(".workspace-card");
-        if (!card) return;
+        if (!card) { beginMarquee(e); return; }
         const handle = e.target.closest("[data-drag],[data-resize]");
         const preview = e.target.closest(".workspace-preview-launch,.workspace-icon-entry");
         if (
@@ -1044,6 +1152,24 @@ export class WorkspaceBoard {
     document.addEventListener(
       "pointermove",
       (e) => {
+        if (marquee?.pointerId === e.pointerId) {
+          marquee.last = {x:e.clientX,y:e.clientY};
+          if (!marquee.active && Math.hypot(e.clientX - marquee.x,e.clientY - marquee.y) >= 6) {
+            marquee.active = true;
+            const layer = document.createElement("div");
+            layer.className = "workspace-marquee-layer";
+            layer.innerHTML = '<div id="workspace-marquee"><span id="workspace-marquee-count" role="status"></span></div>';
+            document.body.append(layer);
+            Object.assign(marquee,{layer,box:layer.firstElementChild,count:layer.querySelector("#workspace-marquee-count")});
+            viewport.classList.add("workspace-marquee-active");
+            const selection = window.getSelection();
+            if (selection?.anchorNode && viewport.contains(selection.anchorNode)) selection.removeAllRanges();
+            try { viewport.setPointerCapture(e.pointerId); } catch {}
+          }
+          renderMarquee();
+          e.preventDefault(); e.stopImmediatePropagation();
+          return;
+        }
         if (!drag || drag.pointerId !== e.pointerId) return;
         const screenX = e.clientX - drag.x,
           screenY = e.clientY - drag.y;
@@ -1089,6 +1215,13 @@ export class WorkspaceBoard {
     document.addEventListener(
       "pointerup",
       async (e) => {
+        if (marquee?.pointerId === e.pointerId) {
+          marquee.last = {x:e.clientX,y:e.clientY};
+          pointers.delete(e.pointerId);
+          finishMarquee(false);
+          e.preventDefault(); e.stopImmediatePropagation();
+          return;
+        }
         if (!drag || drag.pointerId !== e.pointerId) return;
         const done = drag;
         const target = done.active ? this.boardDropTarget(done, e.clientX, e.clientY) : null;
@@ -1189,15 +1322,27 @@ export class WorkspaceBoard {
       true,
     );
     document.addEventListener(
-      "pointercancel", (e) => { if (drag?.pointerId === e.pointerId) cancel(); }, true,
+      "pointercancel", (e) => {
+        if (marquee?.pointerId === e.pointerId) { pointers.delete(e.pointerId); cancel(); e.preventDefault(); e.stopImmediatePropagation(); }
+        else if (drag?.pointerId === e.pointerId) cancel();
+      }, true,
     );
     document.addEventListener("pointerup", e => pointers.delete(e.pointerId), true);
     document.addEventListener("pointercancel", e => pointers.delete(e.pointerId), true);
-    viewport.addEventListener("lostpointercapture", e => { if (drag?.pointerId === e.pointerId) cancel(); });
-    viewport.addEventListener("contextmenu", e => { if (drag?.hold || drag?.lifted) e.preventDefault(); });
+    viewport.addEventListener("lostpointercapture", e => { if (drag?.pointerId === e.pointerId || marquee?.pointerId === e.pointerId) cancel(); });
+    viewport.addEventListener("contextmenu", e => { if (marquee) cancel(); if (drag?.hold || drag?.lifted) e.preventDefault(); });
+    let marqueeFrame;
+    const updateMarquee = () => {
+      if (!marquee?.active) return;
+      cancelAnimationFrame(marqueeFrame);
+      marqueeFrame = requestAnimationFrame(renderMarquee);
+    };
+    viewport.addEventListener("wheel", updateMarquee, {passive:true});
+    viewport.addEventListener("scroll", updateMarquee, {passive:true});
+    window.addEventListener("resize", () => { if (marquee) cancel(); });
     window.addEventListener("blur", () => { pointers.clear(); cancel(); });
     document.addEventListener("keydown", e => {
-      if (drag && e.key === "Escape") { cancel(); e.preventDefault(); e.stopImmediatePropagation(); }
+      if ((drag || marquee) && e.key === "Escape") { cancel(); e.preventDefault(); e.stopImmediatePropagation(); }
     }, true);
   }
   decorations() {

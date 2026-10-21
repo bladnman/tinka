@@ -145,6 +145,12 @@ containing board identifies it. On a collection cover, hold a visible child tile
 briefly to lift that child, then drag it onto the current canvas or another board.
 Moving immediately still drags the entire collection. Releasing a held child
 without moving, or returning it to its original collection, cancels the gesture.
+Drag a box on empty Canvas space with a mouse or pen to select cards; any touched
+part of a card counts. Hold Shift when starting the box to add to your selection.
+An empty click clears it, while Shift-click on empty space preserves it. Escape
+cancels the box. Unused colored-region interiors also work; their labels and
+borders remain available for moving and editing the region. Touch keeps swiping
+and pinching. The selection box only changes this browser’s selection.
 Select several cards, then drag any selected card to move the visible selection
 together. Their arrangement stays intact on the canvas, inside a destination
 board, or when dropping onto Parent. Dragging an unselected card, resizing a card,

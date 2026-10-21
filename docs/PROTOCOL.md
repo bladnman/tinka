@@ -115,6 +115,25 @@ card drags, resizing and deliberate cover-child holds remain single-placement
 gestures. Cancellation or a rejected write restores all dragged cards and retains
 selection and local review drafts. Success clears only the placements moved away.
 
+In Canvas, primary mouse/pen dragging on empty space starts a selection rectangle
+after six screen pixels. A positive intersection with a currently rendered card
+selects that outer placement, including archived placements shown by the Archive
+filter; cover children are not separate targets. Plain gestures replace selection,
+and Shift at pointerdown unions with the original selection. Empty plain click
+clears selection; Shift empty click preserves it. Escape, pointer cancellation,
+loss of capture/focus or a second pointer restores the original selection. The box
+is clipped to the viewport and tracks pan/zoom without moving cards or reloading
+their previews. Selection makes no metadata, geometry or review operation.
+
+Unused region interiors are empty space for this gesture. The region label band
+(at least 28 screen pixels at the top) and six screen pixels along its border
+retain decoration move/edit behavior. Text/arrow decorations, card contents,
+controls, editable text, menus and scrollbars do not start a selection box.
+Touch retains background navigation, and Grid/reader/modal views are excluded.
+Card outlines, selection checkboxes and counts update directly; the toolbar keeps
+its original visibility until completion, then local pan compensates its layout
+change. Live metadata refresh defers until the gesture ends, preserving drafts.
+
 `updatePlacement` patches `x,y,width,height,z,presentation`. Presentation is local to a placement: omit it or use `{"mode":"card"}` for the original card; use `{"mode":"icon"}` for a compact icon, or `{"mode":"panel","viewport":{"width":360,"height":650}}` to show a full HTML/image design viewport, fitted without cropping. Viewport dimensions are integers from 40 to 10000; the default is 1000×720. Placement width/height include the compact caption. For a 360×650 design at natural size, use width 362 and height 696 (borders plus caption). Canvas starts at 100% and scrolls naturally; Grid retains panel dimensions for comparison. The item footer’s ⋯ (Item details) control opens an attached, nonmodal popup with canonical notes, Full preview / Compact card / Icon appearance choices and paper swatches. Appearance is placement-local. The optional `presentation.paper` is a hexadecimal color (`#rgb`, `#rgba`, `#rrggbb` or `#rrggbbaa`); omission retains the default paper. When changing appearance, preserve existing `viewport` and `paper` values as appropriate: `updatePlacement` replaces the supplied presentation object. The popup does not expose geometry fields. Full preview uses a supplied preview image when available, with the same uncropped sizing as an HTML fallback; the primary content and canonical identity stay unchanged. The same canonical item may have a card reference elsewhere; notes, stars, revisions and reader behavior stay shared. `createItem.placement` accepts the same presentation field. `updateBoard` patches `title,description,reviewOrder,decorations,background`; `background.resource` is a named-root reference. Decorations are board-local presentation metadata. Text, region and line decorations retain `id,type,x,y,width,height,color,text`. A line may additionally set boolean `endArrow`, `flipX` and `flipY`: `endArrow:true` adds the arrowhead at its end, while the flips reverse the horizontal and vertical start/end orientation within its positive-size bounding box. Absent flags preserve ordinary lines. The Add menu offers Text, Colored region and Arrow, with direct on-board editing controls. Ordinary lines remain supported decoration metadata. `updateItem` changes title, description, content, preview, revisions or build metadata. Review is `{"type":"review","itemId":"opening-idea","patch":{"note":"Try a shorter introduction.","star":true}}`. `status --board BOARD ITEM_ID reserved|building|review|ready [MESSAGE]` also updates canonical build state; migrated `ROUND/CONCEPT` keys remain accepted.
 
 A board-only item’s primary cover/title action opens its child board directly. An item with both content and children keeps the content action and an explicit Open board choice. Comparison-reader stepping remains available.

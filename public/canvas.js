@@ -118,7 +118,7 @@ async function fetchBoard() {
   if (!response.ok) throw new Error(`Board metadata unavailable (${response.status})`);
   const data = await response.json();
   if (data.schemaVersion === 2) {
-    if (!graph) graph = new WorkspaceBoard(appConfig, data, { concepts:()=>all, active:()=>active, zoom:()=>zoom, shiftOrigin:(dx,dy)=>{if(dx||dy){view.x-=dx*zoom;view.y-=dy*zoom;resting=false;}}, preview:c=>previewHref(c), layout:()=>{ if(resting)rest();else applyView(); }, mode:mode=>{ if(mode==='canvas'){zoom=1;settleCushion();}else{viewport.scrollLeft=0;viewport.scrollTop=0;} }, reloadReader:()=>loadRevision(), saveStatus:setSaveStatus, openOwner:()=>{const c=graph.ownerConcept();if(c)openReader(c.key);}, closeReader:()=>closeReader(), data:acceptGraphData });
+    if (!graph) graph = new WorkspaceBoard(appConfig, data, { concepts:()=>all, active:()=>active, zoom:()=>zoom, shiftOrigin:(dx,dy)=>{if(dx||dy){view.x-=dx*zoom;view.y-=dy*zoom;resting=false;}}, shiftViewport:(dx,dy)=>{if(dx||dy)moveView(view.x+dx,view.y+dy);}, preview:c=>previewHref(c), layout:()=>{ if(resting)rest();else applyView(); }, mode:mode=>{ if(mode==='canvas'){zoom=1;settleCushion();}else{viewport.scrollLeft=0;viewport.scrollTop=0;} }, reloadReader:()=>loadRevision(), saveStatus:setSaveStatus, openOwner:()=>{const c=graph.ownerConcept();if(c)openReader(c.key);}, closeReader:()=>closeReader(), data:acceptGraphData });
     return graph.adapt(data);
   }
   if (!Array.isArray(data.rounds)) throw new Error('The board manifest is invalid.');
@@ -894,7 +894,7 @@ function acceptGraphData(fresh) {
 }
 
 async function refreshManifest() {
-  if (graph) { if (document.activeElement?.matches('textarea,input,[contenteditable]') || graph.saving || graph.pendingReview.size) return; await graph.refresh(); return; }
+  if (graph) { if (graph.pointerGesture) { await graph.refresh({saveReview:false}); return; } if (document.activeElement?.matches('textarea,input,[contenteditable]') || graph.saving || graph.pendingReview.size) return; await graph.refresh(); return; }
   const fresh = await fetchBoard();
   const selected = rounds[currentRound]?.id;
   const focused = document.activeElement;

@@ -127,6 +127,21 @@ presentation and z are unchanged. Cancellation/conflicts restore all cards, pres
 selection/drafts and reconcile the latest board. Moving away clears only moved
 selection/context; ordinary positioning retains selection. Keyed previews remain
 mounted throughout dragging and reconciliation.
+Primary mouse/pen dragging on empty Canvas space creates a viewport-clipped
+selection box after six screen pixels. Positive intersection selects rendered
+outer placements under the current filters, including Archive results; removed,
+deleted and unrendered placements are excluded. Plain replaces selection, Shift
+at pointerdown adds to the original, and empty clicks clear/preserve respectively.
+Cancellation, Escape, blur, lost capture and a second pointer restore the original
+selection. This gesture makes no operations or geometry/review writes. Card and
+checkbox membership updates use direct DOM synchronization, keeping previews
+mounted. The toolbar holds its original visibility during selection; completion
+compensates local pan for any toolbar layout shift. Existing refresh guards defer
+metadata reconciliation until completion without saving local review drafts.
+Unused region interiors accept selection, while the label band (at least 28 screen
+pixels) and six screen pixels along the border retain decoration manipulation.
+Text/arrows, controls, editable labels, menus, scrollbars, Grid and modal/reader
+views are excluded. Touch background pan/pinch and wheel/zoom behavior remain.
 
 ## Legacy data
 Each immediate subfolder with board.json is a board. Slug [a-z0-9][a-z0-9-]*.
