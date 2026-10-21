@@ -32,7 +32,12 @@ optional childBoardId, revisions, review {note,star,updatedAt}, build
 timestamps. Content kinds: html,image,markdown,video,pdf,url,text,note,audio,file;
 content may hold resource {rootId,path}, HTTP(S) url, text, openMode and declarative
 startInstructions. An item may have content and children together, or neither.
-No command execution, remote fetching or file deletion is performed.
+No command execution or file deletion is performed. Ordinary board reads do not
+fetch remote metadata. Explicit URL paste may call POST /api/link-preview for
+bounded public HTTP(S) metadata: DNS-pinned public addresses, redirect/timeout/size
+limits, plain escaped metadata only, and no resource-file writes or remote HTML
+execution. Saved preview.url images load in the browser with no-referrer; local
+preview resources retain priority.
 
 Boards have ownerItemId, placements [{id,itemId,x,y,width,height,z,...local state}],
 reviewOrder, retained rounds, decorations and optional background. Placements share
@@ -61,7 +66,7 @@ accepts {patch:{note?,star?},expectedRevision?,operationId?}. POST
 byte ranges; ordinary relative HTML assets resolve in the same namespace.
 
 Operations: createItem, updateItem, createBoard, updateBoard, updatePlacement, translatePlacements,
-move, reference, duplicate, archive, archiveItem, remove, deleteItem, review,
+move, pastePlacements, restoreMovement, reference, duplicate, archive, archiveItem, remove, deleteItem, review,
 updateWorkspace. CLI workspace show/op and item show use these same transactions.
 Graph-aware board create/status preserve existing command usage. See
 [PROTOCOL.md](docs/PROTOCOL.md#schema-2-workspace) for exact payloads and examples.
@@ -150,9 +155,10 @@ values. Successful server-authenticated movement inverses are treated as opaque;
 restoreMovement returns a reciprocal receipt for the opposite stack. No receipt is
 recorded for failure, cancellation or no-op, and a new eligible movement clears redo.
 Eligible changes are placement geometry/resize, translatePlacements (including one
-atomic selected arrow nudge), and source-placement moves to existing boards. Moves
+atomic selected arrow nudge), source-placement moves to existing boards, and pastePlacements. Moves
 creating a board, home-only operations and deletion are outside browser movement
-history. Canonical content, review and titles are never rolled back. Replay refreshes
+history. Movement replay does not roll back canonical content, review or titles. Paste
+receipts remove/restore only the new copied identities and arrangements. Replay refreshes
 the current revision and latest board without flushing review drafts, then relies on
 server arrangement preconditions to reject conflicts rather than overwrite them.
 Cmd/Ctrl-Z and Shift-Cmd/Ctrl-Z replay only outside editing fields/dialogs/readers
@@ -163,6 +169,30 @@ anchored notes/appearance popup; editable fields and touch context gestures reta
 their behavior. Canvas bottom name-bar and title drags share normal thresholds and
 selection movement, while title clicks open the item and checkbox/star/overflow/
 resize controls retain their independent actions.
+
+Clipboard uses native copy/paste events outside editing fields, readers/dialogs,
+previews and active gestures/writes. The versioned custom MIME is
+application/x-tinka-placements+json; text/plain carries TINKA_CLIPBOARD_V1 followed
+by a newline and the same JSON. No old in-memory clipboard fallback is used.
+The self-contained snapshot is scoped to durable graph workspaceId and captures
+visible valid selected placements, canonical metadata (including local review
+drafts without writing originals), filtered review order and any selected board's
+cached complete layout. Board copy waits for a matching workspace revision before
+writing clipboard data. Payload files stay referenced, not duplicated; board copies
+shallowly reference existing children. Native clipboard actions remain user driven.
+
+Every paste uses one pastePlacements transaction and one opaque history receipt,
+including synthesized text/link snapshots. Paste preserves relative offsets,
+dimensions/presentation/stacking, picks a bounded (at most 256 candidate) visible
+clear position or diagonal offset, clears filters and selects/reveals the new cards.
+One exact HTTP(S) URL waits for the bounded metadata lookup before saving once;
+failure retains its original address. All other nonempty text becomes note content
+with exact newlines, a first-line title, card excerpt and full reader body. Escaping
+applies to every title/body/address; remote HTML is never embedded. The complete
+HTTP payload is limited conservatively below the 1 MB server bound; large pastes
+are rejected without truncation. Files/image paste and cut are outside this scope.
+Browser QA dispatches synthetic ClipboardEvents/DataTransfer and never reads or
+writes the user's OS clipboard.
 
 ## Legacy data
 Each immediate subfolder with board.json is a board. Slug [a-z0-9][a-z0-9-]*.

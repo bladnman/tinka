@@ -118,7 +118,7 @@ async function fetchBoard() {
   if (!response.ok) throw new Error(`Board metadata unavailable (${response.status})`);
   const data = await response.json();
   if (data.schemaVersion === 2) {
-    if (!graph) graph = new WorkspaceBoard(appConfig, data, { concepts:()=>all, active:()=>active, zoom:()=>zoom, shiftOrigin:(dx,dy)=>{if(dx||dy){view.x-=dx*zoom;view.y-=dy*zoom;resting=false;}}, shiftViewport:(dx,dy)=>{if(dx||dy)moveView(view.x+dx,view.y+dy);}, preview:c=>previewHref(c), layout:()=>{ if(resting)rest();else applyView(); }, mode:mode=>{ if(mode==='canvas'){zoom=1;settleCushion();}else{viewport.scrollLeft=0;viewport.scrollTop=0;} }, reloadReader:()=>loadRevision(), saveStatus:setSaveStatus, openOwner:()=>{const c=graph.ownerConcept();if(c)openReader(c.key);}, closeReader:()=>closeReader(), data:acceptGraphData });
+    if (!graph) graph = new WorkspaceBoard(appConfig, data, { concepts:()=>all, active:()=>active, zoom:()=>zoom, shiftOrigin:(dx,dy)=>{if(dx||dy){view.x-=dx*zoom;view.y-=dy*zoom;resting=false;}}, shiftViewport:(dx,dy)=>{if(dx||dy)moveView(view.x+dx,view.y+dy);}, revealPlacements:revealPlacements, preview:c=>previewHref(c), layout:()=>{ if(resting)rest();else applyView(); }, mode:mode=>{ if(mode==='canvas'){zoom=1;settleCushion();}else{viewport.scrollLeft=0;viewport.scrollTop=0;} }, reloadReader:()=>loadRevision(), saveStatus:setSaveStatus, openOwner:()=>{const c=graph.ownerConcept();if(c)openReader(c.key);}, closeReader:()=>closeReader(), data:acceptGraphData });
     return graph.adapt(data);
   }
   if (!Array.isArray(data.rounds)) throw new Error('The board manifest is invalid.');
@@ -289,6 +289,23 @@ function changeZoom(value, cx = viewport.clientWidth / 2, cy = viewport.clientHe
   const scale = clampZoom(value) / zoom;
   zoom = clampZoom(value);
   moveView(cx - (cx - view.x) * scale, cy - (cy - view.y) * scale);
+}
+
+// Reveal one newly pasted group, keeping the normal zoom whenever it fits.
+function revealPlacements(placements) {
+  if (graph?.mode === 'grid' || !placements.length) return;
+  const x = Math.min(...placements.map(p=>p.x)), y = Math.min(...placements.map(p=>p.y));
+  const width = Math.max(...placements.map(p=>p.x+p.width)) - x;
+  const height = Math.max(...placements.map(p=>p.y+p.height)) - y;
+  const margin = 24;
+  const fit = Math.min((viewport.clientWidth-margin*2)/width,(viewport.clientHeight-margin*2)/height);
+  if (fit < zoom) changeZoom(fit);
+  const region = viewport.getBoundingClientRect(), rect = world.getBoundingClientRect();
+  const left = rect.left + (x + graph.origin.x)*zoom, top = rect.top + (y + graph.origin.y)*zoom;
+  const visibleX = Math.max(region.left+margin,Math.min(left,region.right-margin-width*zoom));
+  const visibleY = Math.max(region.top+margin,Math.min(top,region.bottom-margin-height*zoom));
+  const dx = visibleX-left, dy = visibleY-top;
+  if (Math.abs(dx)>.5 || Math.abs(dy)>.5) moveView(view.x+dx,view.y+dy);
 }
 
 // Fit every exploration on both axes, centred.

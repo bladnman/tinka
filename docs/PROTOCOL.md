@@ -76,6 +76,40 @@ Attach children to an existing item with `{"type":"createBoard","itemId":"openin
 
 `duplicate` takes `itemId` and optional `targetBoardId` and creates an independent canonical item pointing at the same files. A board duplicate copies its arrangement while retaining references to its children. `archive` takes `boardId,placementIds,archived`; `archiveItem` takes `itemIds,archived`. `remove` detaches placements. `deleteItem` marks canonical items deleted across placements. None deletes resource files. Restore archives with `archived:false`; removal/deletion remains recoverable in metadata backups/history and the resource payload remains intact.
 
+`pastePlacements` takes `targetBoardId`, `targetPosition:{x,y}` and a copy-time
+`clipboard` snapshot. Clipboard version 1 is
+`{version:1,workspaceId,placements,items,boards,reviewOrder?}`: `workspaceId` is the
+durable graph identity, `placements` is a nonempty array of unique active saved
+placements, `items` is the matching canonical-item map keyed by their original
+IDs, and `boards` contains only the child-board snapshots owned by those items.
+Optional `reviewOrder` contains every selected placement ID exactly once; absent
+order follows the placements array. Config paths, resource-root locations and
+runtime identities are unnecessary and are not part of the clipboard envelope.
+Resource references use roots already registered in this workspace. Clipboard
+data from another durable workspace, unknown envelope fields, invalid geometry,
+missing resources/children or containment cycles reject the entire transaction.
+
+Paste creates fresh canonical and placement IDs in one revision, retaining saved
+content, review, resource references, dimensions, presentation, relative x/y and
+relative z distances. `targetPosition` anchors the selected minimum x/y corner;
+stacking begins above existing destination placements. Copies of the same selected
+item share one new canonical identity. Originals remain unchanged, and the saved
+snapshot remains usable after their source placements move. Archived selections
+produce visible unarchived copies. Board copies retain their saved arrangement,
+rounds, decorations and background, referencing their existing children; references
+to another selected item point to that item's new copy. This is not recursive
+graph duplication and copies no files. New child boards stay off Home. Results
+are `{boardId,itemIds,placementIds}` with IDs in input placement order, including
+repeated canonical IDs for aliases.
+
+External text and URL pastes may synthesize a single complete canonical-item
+snapshot and placement with temporary clipboard IDs, then use the same operation.
+Text content accepts up to 2000000 characters through the operation API; the
+HTTP JSON request remains limited to 1 MB, including encoded metadata. A client
+should check serialized UTF-8 bytes before submitting. `preview.url` may hold a
+credential-free HTTP(S) preview image URL; it is validated like `content.url`.
+No resource file is created by a text or URL paste.
+
 Canvas also submits `move` when a dragged placement is released inside a valid,
 visible board card. An outline and “Move into…” hint identify the destination;
 ordinary card overlap is still freeform arrangement. The existing selection
@@ -106,7 +140,7 @@ coordinates, then moves the entire selection by that delta in one revision. Size
 presentation, z order and canonical items stay unchanged. An invalid/missing ID,
 coordinate overflow or revision conflict rejects the entire operation.
 
-Successful geometry `updatePlacement`, `translatePlacements` and `move` operations
+Successful `pastePlacements`, geometry `updatePlacement`, `translatePlacements` and `move` operations
 from source placements into an existing board also return an opaque, signed
 top-level `history` receipt beside `revision` and `result`. A geometry patch can
 include presentation changes; presentation-only patches and unchanged arrangements
@@ -118,6 +152,9 @@ The operation accepts the usual `expectedRevision` and `operationId`, restores
 the original placement IDs, complete geometry, presentation, placement-array and
 review order in one transaction, and returns a reciprocal `history` receipt for
 redo. Existing-board moves also restore any home membership/order they changed.
+Undoing a paste detaches its new placements; redo restores those exact IDs and
+arrangement. Copied canonical data and child boards remain available privately,
+later review edits survive, and undone child boards do not appear on Home.
 Receipts contain only affected placement states and arrangement preconditions;
 they do not restore canonical items, notes, stars, content or resource files.
 Normal geometry and containment-cycle validation still applies.
@@ -175,6 +212,18 @@ Grid and Canvas use the same placements. Review order is separate from freeform 
 GET `/api/workspace` returns `{enabled:false,revision:0}` before initialization, or the schema 2 snapshot with `enabled:true`, `items:[]`, `boards:[]`, `homeBoardIds` and `resourceRoots`. GET `/api/boards` lists home graph boards and unmigrated legacy boards; the complete destination catalog is in `/api/workspace.boards`. GET `/api/boards/:id` returns the schema 2 board snapshot with canonical `items` keyed by ID, or the legacy response for an unmigrated board. Workspace and board responses add derived `boardCovers` keyed by represented board ID, with `count` and at most four `tiles`; these are response data, not stored metadata. GET `/api/items/:id` returns one canonical item. GET `/api/items/:id/cover-thumbnail` returns a confined local HTML cover representation. `/resources/:rootId/PATH` serves declared local resources and preserves relative HTML asset URLs.
 
 POST `/api/operations` accepts one operation as its JSON body. PATCH `/api/items/:id/review` accepts `{patch:{note,star},expectedRevision?,operationId?}`. POST `/api/workspace/migrate` requires explicit `{dryRun:true}` or `{dryRun:false}`. Legacy notes endpoints remain supported for legacy boards.
+
+POST `/api/link-preview` accepts JSON `{url:string}` with the same current
+`x-tinka-workspace`, loopback Host and same-origin write guards as operations.
+It returns plain `{url,title,description,siteName,image?,author?}` metadata without
+graph or resource writes. Invalid HTTP(S) URLs, credentials or malformed input
+return 400; blocked or unavailable targets return 200 with a readable original-URL
+or domain fallback. Fetching is limited to the explicitly supplied URL: public DNS
+is validated and the connection is pinned for every hop, with at most three
+redirects per document, six seconds total including DNS, 512 KiB HTML and 128 KiB
+oEmbed bounds. No cookies, authentication or HTML execution is used. An optional
+image is a validated public HTTP(S) URL; images are not downloaded or proxied.
+Ordinary board and resource reads never fetch URLs.
 
 Every HTTP write requires `Content-Type: application/json` and `x-tinka-workspace` equal to the **live `/api/config.workspaceId`**. That machine identity preserves the existing config/boards namespace for the default metadata location, and additionally scopes a genuinely custom workspaceRoot. It is distinct from the durable `/api/workspace.workspaceId`. Same-origin Host/Origin checks and a 1 MB request limit apply. A stale tab or changed live config cannot save into a different project. CLI operations address their explicit config and use the same locks.
 

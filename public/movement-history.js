@@ -30,8 +30,8 @@ export class MovementHistory {
     this.onChange();
   }
   record(history, {type,data}) {
-    const count = data.placementIds?.length || 1;
-    const action = type === "updatePlacement" && ("width" in (data.patch || {}) || "height" in (data.patch || {}))
+    const count = data.placementIds?.length || data.clipboard?.placements?.length || 1;
+    const action = type === "pastePlacements" ? (count > 1 ? `Paste ${count} items` : "Paste item") : type === "updatePlacement" && ("width" in (data.patch || {}) || "height" in (data.patch || {}))
       ? "Resize item" : count > 1 ? `Move ${count} items` : "Move item";
     this.state.undo.push({history,label:action});
     this.state.redo = [];

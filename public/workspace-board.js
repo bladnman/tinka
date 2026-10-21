@@ -1,10 +1,12 @@
 import {reconcileChildren} from "./reconcile.js";
 import {coverMarkup, observeCovers} from "./board-covers.js";
 import {MovementHistory} from "./movement-history.js";
+import {CLIPBOARD_MIME,CLIPBOARD_PREFIX,clipboardBytes,readClipboard,externalClipboard} from "./clipboard.js";
 import {
   WorkspaceClient,
   escape as esc,
   resourceURL,
+  remoteURL,
   destinationDialog,
   itemForm,
   makeDialog,
@@ -152,6 +154,7 @@ export class WorkspaceBoard {
     $("help-panel").innerHTML =
       "<strong>Make yourself at home.</strong> Scroll with your mouse or trackpad, or swipe the background on a touch screen, to move around Canvas; Shift-scroll moves sideways. Pinch, or hold Control or ⌘ while scrolling, to zoom. Drag a card’s body to move it; drop inside a highlighted board to move the item into it. Escape cancels a drag. Notes and buttons keep their usual behavior. A click opens a preview. Select an item and use arrow keys to move it, or drag its corner to resize. Move… in the selection toolbar also moves items into boards. Double-click text or a region label to edit it. Grid keeps comparison order. Open an item to try it, then step with Previous, Next or the dots. Escape returns here. Stars and notes follow the item across references.";
     const bar = document.createElement("section");
+    $("help-panel").append(" Copy selected Tinkas with ⌘/Ctrl-C, then paste here or in another board with ⌘/Ctrl-V. Copies retain their arrangement and use the same files. A pasted link gets a saved representation; pasted text becomes a document. Undo also reverses paste. Text fields keep their normal clipboard.");
     $("help-panel").append(" Select several cards and drag a selected card to carry them together, into a board or onto Parent. An unselected card, resize or held cover child still acts alone.");
     $("help-panel").append(" With a mouse or pen, drag a box on empty Canvas space to select cards. Hold Shift when starting to add to your selection; Escape cancels. An empty click clears selection. Unused colored-region interiors also work; use a region’s label or border to move it. Touch keeps swiping and pinching.");
     $("help-panel").append(" The bottom name bar also drags; a title click opens the item. Right-click a card for its notes and appearance. Use ⌘/Ctrl-Z to undo movement and Shift-⌘/Ctrl-Z to redo, or find Undo/Redo in Tools. This tab remembers movements across boards; text fields keep their own undo. New-board creation and deletion are outside movement history.");
@@ -171,6 +174,7 @@ export class WorkspaceBoard {
     history.className = "workspace-history-actions";
     history.innerHTML = '<button type="button" id="workspace-undo" disabled>Undo</button><button type="button" id="workspace-redo" disabled>Redo</button>';
     bar.append(history);
+    this.installClipboard(bar);
     $("workspace-undo").onclick = () => this.replayMovement("undo");
     $("workspace-redo").onclick = () => this.replayMovement("redo");
     this.updateHistoryControls();
@@ -402,18 +406,174 @@ export class WorkspaceBoard {
     if (snapshot.revision < Math.max(this.snapshot.revision, this.client.revision)) return;
     this.pointerRefreshPending = false;
     this.hooks.data(this.adapt(snapshot));
-    this.loadCrumb();
+    await this.loadCrumb();
+  }
+  clipboardCandidates() {
+    const rendered = new Set([...$("world").querySelectorAll(".workspace-card[data-placement]")].map(card => card.dataset.placement));
+    return this.snapshot.placements.filter(p => this.selection.has(p.id) && rendered.has(p.id) && !p.removedAt && !p.deletedAt &&
+      this.snapshot.items[p.itemId] && !this.snapshot.items[p.itemId].deletedAt);
+  }
+  clipboardBlocked() {
+    return this.pointerGesture || this.decorationGesture || this.movePending || this.historyBusy || this.pasteBusy ||
+      this.client.pendingWrites || this.saving || document.querySelector("dialog[open]") ||
+      document.activeElement?.closest("input,textarea,select,[contenteditable],[role=dialog]") ||
+      document.activeElement?.tagName === "IFRAME";
+  }
+  copySnapshot() {
+    const placements = this.clipboardCandidates();
+    if (!placements.length) return null;
+    const items = {}, boards = {};
+    for (const p of placements) {
+      const item = this.snapshot.items[p.itemId];
+      items[item.id] = structuredClone(item);
+      if (this.pendingReview.has(item.id)) items[item.id].review = {...item.review,...this.pendingReview.get(item.id)};
+      if (!item.childBoardId) continue;
+      const board = this.workspaceGraph?.boards.find(b => b.id === item.childBoardId);
+      if (this.workspaceGraph?.revision !== this.snapshot.revision || !board) {
+        this.refresh({saveReview:false}).catch(() => {});
+        throw new Error("Loading this board’s layout. Copy the selection again when it is ready.");
+      }
+      boards[board.id] = structuredClone(board);
+    }
+    const selected = new Set(placements.map(p => p.id));
+    const order = [...new Set([...(this.snapshot.reviewOrder || []),...selected])].filter(id => selected.has(id));
+    const clipboard = {version:1,workspaceId:this.snapshot.workspaceId,placements:structuredClone(placements),items,boards,reviewOrder:order};
+    if (clipboardBytes(clipboard) > 900000) throw new Error("This selection is too large to paste at once. Copy fewer Tinkas.");
+    return clipboard;
+  }
+  installClipboard(bar) {
+    const controls = document.createElement("div");
+    controls.className = "workspace-clipboard-actions";
+    controls.innerHTML = '<button type="button" id="workspace-copy" disabled>Copy selection</button><button type="button" id="workspace-paste">Paste…</button>';
+    bar.append(controls);
+    $("workspace-copy").onclick = () => {
+      if (!document.execCommand("copy")) toast("Use ⌘/Ctrl-C to copy the selected Tinkas.");
+    };
+    $("workspace-paste").onclick = () => {
+      $("board-info").hidden = true;
+      $("board-info-toggle").setAttribute("aria-expanded","false");
+      $("viewport").focus({preventScroll:true});
+      toast("Press ⌘/Ctrl-V here to paste Tinkas, a link, or text.");
+    };
+    document.addEventListener("copy", e => {
+      if (this.clipboardBlocked() || e.target.closest?.("input,textarea,select,[contenteditable],[role=dialog]")) return;
+      try {
+        const clipboard = this.copySnapshot();
+        if (!clipboard || !e.clipboardData) return;
+        const json = JSON.stringify(clipboard);
+        e.clipboardData.clearData?.();
+        try { e.clipboardData.setData(CLIPBOARD_MIME,json); } catch {}
+        e.clipboardData.setData("text/plain",CLIPBOARD_PREFIX + json);
+        e.preventDefault();
+        toast(`Copied ${clipboard.placements.length} ${clipboard.placements.length === 1 ? "Tinka" : "Tinkas"}.`);
+      } catch (error) { toast(error.message); }
+    });
+    document.addEventListener("paste", e => {
+      if (this.clipboardBlocked() || e.target.closest?.("input,textarea,select,[contenteditable],[role=dialog]")) return;
+      let source;
+      try { source = readClipboard(e.clipboardData,this.snapshot.workspaceId); }
+      catch (error) { e.preventDefault(); toast(error.message); return; }
+      if (!source) return;
+      e.preventDefault();
+      this.pasteClipboard(source);
+    });
+    window.addEventListener("pagehide", () => { this.pasteCancelled = true; this.pasteController?.abort(); });
+  }
+  pastePosition(clipboard) {
+    const placements = clipboard.placements, x = Math.min(...placements.map(p => p.x)), y = Math.min(...placements.map(p => p.y));
+    const width = Math.max(...placements.map(p => p.x + p.width)) - x, height = Math.max(...placements.map(p => p.y + p.height)) - y;
+    const viewport = $("viewport").getBoundingClientRect();
+    const top = this.canvasPoint({x:viewport.left + 24,y:viewport.top + 24});
+    const bottom = this.canvasPoint({x:viewport.right - 24,y:viewport.bottom - 24});
+    const occupied = this.snapshot.placements.filter(p => !p.removedAt && !p.deletedAt && !p.archivedAt);
+    const free = point => !occupied.some(p => point.x < p.x + p.width + 16 && point.x + width + 16 > p.x &&
+      point.y < p.y + p.height + 16 && point.y + height + 16 > p.y);
+    const center = {x:Math.round((top.x + bottom.x - width) / 2),y:Math.round((top.y + bottom.y - height) / 2)};
+    const previous = this.lastPastePosition;
+    const inside = point => point.x >= top.x && point.y >= top.y && point.x + width <= bottom.x && point.y + height <= bottom.y;
+    const next = previous && {x:previous.x + 32,y:previous.y + 32};
+    if (next && inside(next) && free(next)) return next;
+    const candidates = [];
+    // At most 16 × 16 candidate points, regardless of zoom or board size.
+    const columns = Math.max(0,Math.min(16,Math.floor((bottom.x - top.x - width) / 32) + 1));
+    const rows = Math.max(0,Math.min(16,Math.floor((bottom.y - top.y - height) / 32) + 1));
+    for (let row = 0; row < rows; row++) for (let column = 0; column < columns; column++) {
+      const point = {x:Math.round(top.x + (bottom.x - top.x - width) * (columns === 1 ? .5 : column / (columns - 1))),
+        y:Math.round(top.y + (bottom.y - top.y - height) * (rows === 1 ? .5 : row / (rows - 1)))};
+      if (free(point)) candidates.push(point);
+    }
+    candidates.sort((a,b) => Math.hypot(a.x - center.x,a.y - center.y) - Math.hypot(b.x - center.x,b.y - center.y));
+    if (candidates.length) return candidates[0];
+    if (next && next.x < bottom.x - 40 && next.y < bottom.y - 40) return next;
+    return {x:Math.max(top.x,Math.min(center.x,bottom.x - width)),y:Math.max(top.y,Math.min(center.y,bottom.y - height))};
+  }
+  async pasteClipboard(source) {
+    this.pasteBusy = true;
+    this.pasteCancelled = false;
+    this.movePending = true;
+    this.updateHistoryControls();
+    let written = false;
+    try {
+      let clipboard = source.clipboard;
+      if (!clipboard) {
+        let metadata = {};
+        if (source.kind === "url") {
+          toast("Preparing link preview…");
+          this.pasteController = new AbortController();
+          const timeout = setTimeout(() => this.pasteController.abort(),7000);
+          try {
+            const response = await fetch("/api/link-preview",{method:"POST",headers:{"Content-Type":"application/json","x-tinka-workspace":this.config.workspaceId},
+              body:JSON.stringify({url:source.url}),signal:this.pasteController.signal});
+            if (response.ok) metadata = await response.json();
+          } catch {} finally { clearTimeout(timeout); }
+        }
+        clipboard = externalClipboard(this.snapshot.workspaceId,source,metadata);
+      }
+      if (this.pasteCancelled) return;
+      await this.refresh({saveReview:false});
+      if (this.pasteCancelled) return;
+      const targetPosition = this.pastePosition(clipboard);
+      const operation = {clipboard,targetBoardId:this.snapshot.id,targetPosition};
+      if (clipboardBytes({type:"pastePlacements",...operation}) > 900000)
+        throw new Error("This paste is too large to save at once. Paste a smaller document or selection; its text has not been truncated.");
+      this.moveCommitting = true;
+      const result = await this.client.write("pastePlacements",operation);
+      written = true;
+      this.moveCommitting = false;
+      this.lastPastePosition = targetPosition;
+      this.filters = {search:"",favorites:false,recent:false,archive:false};
+      $("workspace-search").value = "";
+      for (const id of ["workspace-favorites","workspace-recent","workspace-archive"]) $(id).setAttribute("aria-pressed","false");
+      this.selection = new Set(result.placementIds || []);
+      await this.refresh({saveReview:false});
+      this.hooks.revealPlacements?.(this.snapshot.placements.filter(p => this.selection.has(p.id)));
+      toast(source.kind === "url" ? "Link pasted." : source.kind === "text" ? "Document pasted." : `Pasted ${result.placementIds.length} Tinkas.`);
+    } catch (error) {
+      this.moveCommitting = false;
+      try { await this.refresh({saveReview:false}); } catch {}
+      toast(written ? "Paste saved. Reload the board to see it." : error.conflict ? `Paste not saved. ${error.message}` :
+        `Could not confirm the paste. ${error.message}`);
+    } finally {
+      this.pasteBusy = false;
+      this.movePending = false;
+      this.moveCommitting = false;
+      this.pasteController = null;
+      this.updateHistoryControls();
+    }
   }
   updateHistoryControls() {
-    const busy = this.pointerGesture || this.decorationGesture || this.movePending || this.historyBusy || this.client.pendingWrites || this.saving || this.history?.busy;
+    const busy = this.pointerGesture || this.decorationGesture || this.movePending || this.historyBusy || this.pasteBusy || this.client.pendingWrites || this.saving || this.history?.busy;
     for (const direction of ["undo","redo"]) {
       const button = $("workspace-" + direction);
       if (!button) continue;
       const verb = direction === "undo" ? "Undo" : "Redo", label = this.history?.label(direction);
       button.textContent = label ? `${verb} ${label.toLowerCase()}` : verb;
       button.disabled = !!busy || !this.history?.available(direction);
-      button.title = direction === "undo" ? "Undo movement (⌘/Ctrl Z)" : "Redo movement (⌘/Ctrl Shift Z)";
+      button.title = direction === "undo" ? "Undo movement or paste (⌘/Ctrl Z)" : "Redo movement or paste (⌘/Ctrl Shift Z)";
     }
+    const copy = $("workspace-copy"), paste = $("workspace-paste");
+    if (copy) copy.disabled = !!busy || !this.clipboardCandidates().length;
+    if (paste) paste.disabled = !!busy;
   }
   async replayMovement(direction) {
     if (this.pointerGesture || this.decorationGesture || this.movePending || this.historyBusy || this.client.pendingWrites || this.saving ||
@@ -479,7 +639,7 @@ export class WorkspaceBoard {
     const renderCard = (c) => {
       const item = c.graphItem,
         p = c.placement,
-        img = resourceURL(item.preview?.resource),
+        img = resourceURL(item.preview?.resource) || remoteURL(item.preview?.url),
         url =
           item.content?.resource &&
           ["image", "video"].includes(item.content.kind)
@@ -504,8 +664,9 @@ export class WorkspaceBoard {
       const visual = unavailable
         ? `<div class="workspace-build-placeholder"><strong>${item.build.state === "building" ? "Taking shape." : "A place for a new idea."}</strong><span>${esc(item.build.message || "This slot will open when it is ready for review.")}</span></div>`
         : live ? `<iframe src="${esc(preview)}" data-preview-source="${esc(previewSource)}" title="${esc(item.title)} ${panel ? "design" : "live"} preview" tabindex="-1" loading="lazy" inert></iframe>`
-        : img || (url && item.content.kind === "image") ? `<img src="${esc(image)}" data-preview-source="${esc(imageSource)}" alt="${esc(item.title)} preview">`
+        : img || (url && item.content.kind === "image") ? `<img src="${esc(image)}" data-preview-source="${esc(imageSource)}" referrerpolicy="no-referrer" alt="${esc(item.title)} preview">`
         : item.childBoardId && !item.content ? coverMarkup(this.snapshot.boardCovers?.[item.childBoardId],item.childBoardId)
+        : item.content?.text ? `<div class="workspace-document-preview">${esc(item.content.text.slice(0,2400))}</div>`
         : `<span class="workspace-title-art">${esc(item.preview?.text || item.title)}</span>`;
       const paper = /^#[0-9a-f]{3,8}$/i.test(p.presentation?.paper || "") ? p.presentation.paper : "#f6f7f1";
       const dimensions = this.mode === "canvas"
@@ -604,6 +765,7 @@ export class WorkspaceBoard {
     el.querySelectorAll("[data-bulk]").forEach(
       (b) => (b.onclick = () => this.bulk(b.dataset.bulk)),
     );
+    this.updateHistoryControls();
   }
   syncSelection() {
     for (const card of $("world").querySelectorAll(".workspace-card[data-placement]")) {
@@ -619,6 +781,7 @@ export class WorkspaceBoard {
     }
     const count = $("workspace-selection").querySelector("strong");
     if (count) count.textContent = `${this.selection.size} selected`;
+    this.updateHistoryControls();
   }
   async bulk(type) {
     const ids = [...this.selection];

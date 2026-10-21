@@ -161,14 +161,32 @@ Checkboxes, stars, ⋯ and resize controls keep their separate actions. Right-cl
 a native card to open the same notes-and-appearance popup as its ⋯ button.
 
 Use ⌘Z / Ctrl-Z to undo a move and ⇧⌘Z / Ctrl-Shift-Z to redo it. Tools also has
-Undo and Redo. This tab remembers up to 50 successful movement steps for this
+Undo and Redo. This tab remembers up to 50 successful movement or paste steps for this
 workspace, including across Parent/child navigation: card positioning, resizing,
 selected-card nudges, and moves into or out of existing boards. A selection moves
-as one step, with exact placement identities and arrangement restored. Notes,
-titles and content are not rolled back. New-board creation and deletion are outside
+as one step, with exact placement identities and arrangement restored. Movement undo keeps notes,
+titles and content; paste undo removes only the copies that paste created. New-board creation and deletion are outside
 movement history. Text fields keep their own undo, and replay is available after
 gestures and writes finish. A conflicting arrangement is never overwritten; review the
 latest board before retrying. New successful movement clears the redo branch.
+
+Select Tinkas and use ⌘C / Ctrl-C, then ⌘V / Ctrl-V on the same board or another
+board in this workspace. Copies keep their relative arrangement, size, appearance,
+notes and stars. They have independent identities but use the same resource files.
+A copied board keeps its layout and references its existing children. Originals
+stay in place. Tools also offers Copy selection and a Paste shortcut reminder.
+The clipboard carries the selection itself, including across tabs; unrelated text
+never pastes a stale selection. Another workspace's Tinkas are rejected.
+
+Paste a single HTTP(S) link to make a link Tinka with a title, description and image
+when available, including public tweet metadata. Unavailable pages retain the
+original address and a recognizable fallback. This explicit paste looks up bounded
+public metadata; it never runs the page's HTML. Paste other text to make a document,
+with a readable card excerpt and its complete text in the reader. Newlines are
+preserved. Oversized pastes are rejected without truncating text. Paste selects the
+new cards and clears filters so they are visible; large layouts are revealed without
+changing card geometry. Each paste is one undo step. Editing fields and the reader
+keep their ordinary clipboard behavior. Copy/paste does not upload files or images.
 
 Agents use the same operations as the browser through HTTP or
 `workspace op --json JSON` / `workspace op --file PATH`. See the
