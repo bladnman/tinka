@@ -316,6 +316,7 @@ export class WorkspaceBoard {
       const parent =
         parents.find((p) => p.id === requested) ||
         (parents.length === 1 ? parents[0] : null);
+      this.resolvedParent = parent ? {id:parent.id, title:parent.title} : null;
       let crumb = $("workspace-parent");
       if (!crumb) {
         crumb = document.createElement("a");
@@ -725,53 +726,98 @@ export class WorkspaceBoard {
     buttons.forEach(b => b.setAttribute("aria-expanded", "false"));
     if (focus) buttons[0]?.focus({ preventScroll: true });
   }
+  dropContext(gesture) {
+    const graph = this.workspaceGraph, subject = gesture.lifted || {
+      boardId:this.snapshot.id, p:gesture.p,
+    };
+    if (!graph) return null;
+    if (gesture.dropGraph === graph && gesture.dropSubject === subject.p) return gesture.dropContext;
+    const items = new Map(graph.items.map(i => [i.id, i]));
+    const boards = new Map(graph.boards.map(b => [b.id, b]));
+    const p = boards.get(subject.boardId)?.placements.find(p => p.id === subject.p.id);
+    const item = items.get(p?.itemId);
+    const forbidden = new Set([subject.boardId]);
+    const visit = id => {
+      if (!id || forbidden.has(id)) return;
+      forbidden.add(id);
+      for (const p of boards.get(id)?.placements || []) {
+        const child = items.get(p.itemId);
+        // Archived edges still participate in the server's DAG validation.
+        if (!p.removedAt && !p.deletedAt && !child?.deletedAt) visit(child?.childBoardId);
+      }
+    };
+    visit(item?.childBoardId);
+    const available = p && !p.removedAt && !p.deletedAt && !p.archivedAt &&
+      item && !item.deletedAt && !item.archivedAt;
+    gesture.dropGraph = graph;
+    gesture.dropSubject = subject.p;
+    return gesture.dropContext = {items, boards, forbidden, p, item, available, sourceBoardId:subject.boardId};
+  }
+  dropDestination(gesture, boardId, card, kind = "board") {
+    const context = this.dropContext(gesture), board = context?.boards.get(boardId);
+    const owner = context?.items.get(board?.ownerItemId);
+    return {card, boardId, kind, title:board?.title || "board",
+      invalid:!context?.available || !board || context.forbidden.has(boardId) ||
+        !owner || owner.deletedAt || owner.archivedAt};
+  }
+  parentDropPosition(gesture, target) {
+    const context = this.dropContext(gesture), board = context.boards.get(target.boardId);
+    const anchor = board.placements.find(p => !p.removedAt && !p.deletedAt && !p.archivedAt && p.itemId === this.snapshot.ownerItemId);
+    const p = context.p;
+    const occupied = board.placements.filter(p => !p.removedAt && !p.deletedAt && !p.archivedAt);
+    const free = point => !occupied.some(other => point.x < other.x + other.width + 16 &&
+      point.x + p.width + 16 > other.x && point.y < other.y + other.height + 16 && point.y + p.height + 16 > other.y);
+    const candidates = anchor ? [
+      {x:anchor.x + anchor.width + 40,y:anchor.y},
+      {x:anchor.x,y:anchor.y + anchor.height + 40},
+      {x:anchor.x - p.width - 40,y:anchor.y},
+      {x:anchor.x,y:anchor.y - p.height - 40},
+    ] : [];
+    return candidates.find(free) || {x:Math.max(0,...occupied.map(p => p.x + p.width)) + 40, y:anchor?.y || 0};
+  }
   boardDropTarget(gesture, x, y) {
     if (gesture.resize) return null;
-    // Ignore the moving card, but respect the first visible surface beneath it.
-    // In particular, a board hidden by another item is not a drop destination.
     const surface = document.elementsFromPoint(x, y)
-      .find(el => !gesture.element.contains(el));
-    const card = surface?.closest(".workspace-card");
-    if (!card || !$("viewport").contains(card)) return null;
-    const placement = this.snapshot.placements.find(p => p.id === card.dataset.placement);
-    const item = this.snapshot.items[placement?.itemId];
-    if (!item?.childBoardId) return null;
-    const rect = card.getBoundingClientRect(), inset = Math.min(10, rect.width / 6, rect.height / 6);
-    if (x <= rect.left + inset || x >= rect.right - inset ||
-        y <= rect.top + inset || y >= rect.bottom - inset) return null;
-    const graph = this.workspaceGraph;
-    if (graph && gesture.graph !== graph) {
-      gesture.graph = graph;
-      const byItem = new Map(graph.items.map(i => [i.id, i]));
-      const byBoard = new Map(graph.boards.map(b => [b.id, b]));
-      const forbidden = new Set([this.snapshot.id]);
-      const visit = id => {
-        if (!id || forbidden.has(id)) return;
-        forbidden.add(id);
-        for (const p of byBoard.get(id)?.placements || []) {
-          const child = byItem.get(p.itemId);
-          // Archived edges still participate in the server's DAG validation.
-          if (!p.removedAt && !p.deletedAt && !child?.deletedAt) visit(child?.childBoardId);
-        }
-      };
-      visit(this.snapshot.items[gesture.p.itemId]?.childBoardId);
-      gesture.forbiddenBoards = forbidden;
-      gesture.boards = byBoard;
-      gesture.items = byItem;
+      .find(el => gesture.lifted || !gesture.element.contains(el));
+    const parent = $("workspace-parent");
+    if (parent && !parent.hidden) {
+      const rect = parent.getBoundingClientRect();
+      if (x > rect.left - 6 && x < rect.right + 6 && y > rect.top - 5 && y < rect.bottom + 5 &&
+          (parent.contains(surface) || surface === parent.parentElement)) {
+        if (!this.resolvedParent) return {card:parent,invalid:true};
+        const target = this.dropDestination(gesture, this.resolvedParent.id, parent, "parent");
+        if (!target.invalid) target.targetPosition = this.parentDropPosition(gesture, target);
+        return target;
+      }
     }
-    const board = gesture.boards?.get(item.childBoardId);
-    const owner = gesture.items?.get(board?.ownerItemId);
-    const source = this.snapshot.items[gesture.p.itemId];
-    const invalid = !board || gesture.forbiddenBoards.has(board.id) ||
-      placement.removedAt || placement.deletedAt || placement.archivedAt ||
-      item.deletedAt || item.archivedAt || owner?.deletedAt || owner?.archivedAt ||
-      gesture.p.archivedAt || source?.archivedAt || source?.deletedAt;
-    return { card, boardId: item.childBoardId, title: board?.title || item.title, invalid };
+    // A lifted child leaves its owner visible and stationary; dropping back
+    // inside that owner cancels. Ordinary drags ignore their moving card.
+    const card = surface?.closest(".workspace-card");
+    if (card && $("viewport").contains(card)) {
+      const placement = this.snapshot.placements.find(p => p.id === card.dataset.placement);
+      const item = this.snapshot.items[placement?.itemId];
+      if (!item?.childBoardId) return gesture.lifted ? {invalid:true} : null;
+      const rect = card.getBoundingClientRect(), inset = Math.min(10, rect.width / 6, rect.height / 6);
+      if (x <= rect.left + inset || x >= rect.right - inset ||
+          y <= rect.top + inset || y >= rect.bottom - inset) return gesture.lifted ? {invalid:true} : null;
+      const target = this.dropDestination(gesture, item.childBoardId, card);
+      target.invalid ||= placement.removedAt || placement.deletedAt || placement.archivedAt || item.deletedAt || item.archivedAt;
+      return target;
+    }
+    if (gesture.lifted && surface && $("viewport").contains(surface) &&
+        !surface.closest("button,a,input,textarea,select,[contenteditable]")) {
+      const target = this.dropDestination(gesture, this.snapshot.id, $("viewport"), "canvas");
+      const point = this.canvasPoint({x,y});
+      target.targetPosition = {x:point.x, y:point.y};
+      return target;
+    }
+    return null;
   }
   pointer() {
     let drag = null;
     let suppressedClick = null;
     let highlighted = null;
+    const pointers = new Set();
     const viewport = $("viewport");
     const hint = document.createElement("div");
     hint.id = "workspace-drop-hint";
@@ -780,20 +826,36 @@ export class WorkspaceBoard {
     hint.hidden = true;
     document.body.append(hint);
     const clearTarget = () => {
-      viewport.querySelectorAll(".workspace-drop-target").forEach(el => el.classList.remove("workspace-drop-target"));
+      document.querySelectorAll(".workspace-drop-target").forEach(el => el.classList.remove("workspace-drop-target"));
       highlighted = null;
       hint.hidden = true;
       hint.textContent = "";
+    };
+    const setHint = message => {
+      if (hint.textContent !== message) hint.textContent = message;
+      hint.hidden = false;
+    };
+    const parentReady = gesture => {
+      const parent = $("workspace-parent");
+      parent?.classList.toggle("workspace-parent-drop-ready", !!gesture && !gesture.resize &&
+        !!this.resolvedParent && !this.dropDestination(gesture, this.resolvedParent.id, parent, "parent").invalid);
     };
     const showTarget = target => {
       const next = target && !target.invalid ? target.card : null;
       if (highlighted === next) return;
       clearTarget();
-      if (!next) return;
+      if (!next) {
+        if (drag?.lifted) setHint(`Lifted ${drag.lifted.item.title} · drop on the canvas or a board`);
+        return;
+      }
       highlighted = next;
       target.card.classList.add("workspace-drop-target");
-      hint.textContent = `Move into ${target.title}`;
-      hint.hidden = false;
+      setHint(target.kind === "canvas" ? `Place ${drag.lifted.item.title} on ${target.title}` : `Move into ${target.title}`);
+    };
+    const stopHold = gesture => {
+      clearTimeout(gesture.holdTimer);
+      gesture.hold?.tile.classList.remove("workspace-cover-holding");
+      gesture.holdTimer = null;
     };
     const restore = ({ element, p }) => {
       element.classList.remove("workspace-dragging");
@@ -801,6 +863,65 @@ export class WorkspaceBoard {
         left: `${p.x + this.origin.x}px`, top: `${p.y + this.origin.y}px`,
         width: `${p.width}px`, height: `${p.height}px`,
       });
+    };
+    const finishVisuals = gesture => {
+      stopHold(gesture);
+      gesture.lifted?.tile.classList.remove("workspace-cover-lifted");
+      gesture.lifted?.proxy.remove();
+      parentReady(null);
+      clearTarget();
+    };
+    const activate = gesture => {
+      gesture.active = true;
+      const selection = window.getSelection();
+      if (selection?.anchorNode && gesture.element.contains(selection.anchorNode)) selection.removeAllRanges();
+      try { viewport.setPointerCapture(gesture.pointerId); } catch {}
+      parentReady(gesture);
+    };
+    const positionProxy = (proxy, x, y) => {
+      const rect = proxy.getBoundingClientRect();
+      Object.assign(proxy.style, {
+        left:`${Math.max(12, Math.min(innerWidth - rect.width - 12, x + 16))}px`,
+        top:`${Math.max(12, Math.min(innerHeight - rect.height - 12, y + 16))}px`,
+      });
+    };
+    const beginHold = gesture => {
+      if (gesture.resize) return;
+      const owner = this.snapshot.items[gesture.p.itemId];
+      const cover = [...gesture.element.querySelectorAll("[data-cover-board]")]
+        .find(el => el.dataset.coverBoard === owner?.childBoardId);
+      if (!cover) return;
+      const tile = [...cover.querySelectorAll("[data-cover-tile]")].find(el => {
+        const rect = el.getBoundingClientRect();
+        return gesture.x > rect.left && gesture.x < rect.right && gesture.y > rect.top && gesture.y < rect.bottom;
+      });
+      const represented = this.snapshot.boardCovers?.[owner.childBoardId]?.tiles
+        .find(t => t.id === tile?.dataset.coverTile && t.itemId === tile?.dataset.coverItem);
+      if (!represented) return;
+      gesture.hold = {tile, boardId:owner.childBoardId, placementId:represented.id, itemId:represented.itemId};
+      tile.classList.add("workspace-cover-holding");
+      setHint(`Hold to lift ${represented.title}`);
+      gesture.holdTimer = setTimeout(() => {
+        if (drag !== gesture || gesture.active) return;
+        stopHold(gesture);
+        const board = this.workspaceGraph?.boards.find(b => b.id === gesture.hold.boardId);
+        const p = board?.placements.find(p => p.id === represented.id && p.itemId === represented.itemId);
+        const item = this.workspaceGraph?.items.find(i => i.id === represented.itemId);
+        const boardOwner = this.workspaceGraph?.items.find(i => i.id === board?.ownerItemId);
+        if (!p || p.removedAt || p.deletedAt || p.archivedAt || !item || item.deletedAt || item.archivedAt ||
+            !boardOwner || boardOwner.deletedAt || boardOwner.archivedAt) { clearTarget(); return; }
+        const proxy = document.createElement("div");
+        proxy.id = "workspace-child-drag";
+        proxy.className = "workspace-child-drag";
+        proxy.setAttribute("aria-hidden", "true");
+        proxy.innerHTML = `<span aria-hidden="true">↗</span><div><strong>${esc(item.title)}</strong><small>From ${esc(board.title)}</small></div>`;
+        document.body.append(proxy);
+        positionProxy(proxy, gesture.x, gesture.y);
+        gesture.lifted = {boardId:board.id,p:{...p},item,tile,proxy};
+        tile.classList.add("workspace-cover-lifted");
+        activate(gesture);
+        setHint(`Lifted ${item.title} · drag to place`);
+      }, 450);
     };
     const drainRefresh = () => {
       if (!this.pointerRefreshPending || this.pointerGesture || this.movePending) return;
@@ -814,7 +935,7 @@ export class WorkspaceBoard {
       this.pointerGesture = false;
       if (done.active) suppressedClick = true;
       restore(done);
-      clearTarget();
+      finishVisuals(done);
       try {
         viewport.releasePointerCapture(done.pointerId);
       } catch {}
@@ -823,8 +944,10 @@ export class WorkspaceBoard {
     // A fresh pointer gesture cannot inherit the click suppressed after a drag.
     document.addEventListener(
       "pointerdown",
-      () => {
+      e => {
         suppressedClick = null;
+        pointers.add(e.pointerId);
+        if (pointers.size > 1) cancel();
       },
       true,
     );
@@ -843,7 +966,7 @@ export class WorkspaceBoard {
     viewport.addEventListener(
       "pointerdown",
       (e) => {
-        if (this.mode !== "canvas" || e.button !== 0 || this.movePending) return;
+        if (this.mode !== "canvas" || e.button !== 0 || this.movePending || pointers.size > 1) return;
         if (drag && drag.pointerId !== e.pointerId) {
           cancel();
           return;
@@ -873,12 +996,14 @@ export class WorkspaceBoard {
           element: card,
           zoom: this.hooks.zoom(),
           active: false,
+          threshold:e.pointerType === "touch" ? 8 : 6,
         };
         this.pointerGesture = true;
         if (!this.workspaceGraph || this.workspaceGraph.revision !== this.snapshot.revision)
           this.client.get("/api/workspace?covers=0").then(ws => {
             if (!this.workspaceGraph || ws.revision >= this.workspaceGraph.revision) this.workspaceGraph = ws;
           }).catch(() => {});
+        beginHold(drag);
         if (drag.resize) {
           e.preventDefault();
           e.stopImmediatePropagation();
@@ -892,26 +1017,23 @@ export class WorkspaceBoard {
         if (!drag || drag.pointerId !== e.pointerId) return;
         const screenX = e.clientX - drag.x,
           screenY = e.clientY - drag.y;
-        if (
-          !drag.active &&
-          Math.hypot(screenX, screenY) < (e.pointerType === "touch" ? 8 : 6)
-        )
-          return;
+        const moved = Math.hypot(screenX, screenY) >= drag.threshold;
+        if (!drag.active && !moved) return;
         if (!drag.active) {
-          drag.active = true;
+          stopHold(drag);
+          clearTarget();
+          activate(drag);
           drag.element.classList.add("workspace-dragging");
-          const selection = window.getSelection();
-          if (
-            selection?.anchorNode &&
-            drag.element.contains(selection.anchorNode)
-          )
-            selection.removeAllRanges();
-          try {
-            viewport.setPointerCapture(e.pointerId);
-          } catch {}
         }
         e.preventDefault();
         e.stopImmediatePropagation();
+        parentReady(drag);
+        if (drag.lifted) {
+          drag.moved ||= moved;
+          positionProxy(drag.lifted.proxy, e.clientX, e.clientY);
+          showTarget(this.boardDropTarget(drag, e.clientX, e.clientY));
+          return;
+        }
         const dx = screenX / drag.zoom,
           dy = screenY / drag.zoom;
         drag.patch = drag.resize
@@ -940,30 +1062,37 @@ export class WorkspaceBoard {
         drag = null;
         this.pointerGesture = false;
         done.element.classList.remove("workspace-dragging");
-        clearTarget();
-        if (!done.active || !done.patch) { drainRefresh(); return; }
+        finishVisuals(done);
+        if (!done.active || (done.lifted ? !done.moved : !done.patch)) {
+          if (done.active) suppressedClick = true;
+          drainRefresh(); return;
+        }
         e.preventDefault();
         suppressedClick = true;
         try {
           viewport.releasePointerCapture(e.pointerId);
         } catch {}
-        if (target) {
+        if (target || done.lifted) {
           // Keep the source in its saved position until the atomic move succeeds.
           restore(done);
-          if (target.invalid) { drainRefresh(); return; }
+          if (!target || target.invalid) { drainRefresh(); return; }
+          const subject = done.lifted || {boardId:this.snapshot.id,p:done.p};
           this.movePending = true;
           this.moveCommitting = true;
           let moved = false;
           try {
             await this.client.write("move", {
-              sourceBoardId: this.snapshot.id,
-              placementIds: [done.id],
+              sourceBoardId: subject.boardId,
+              placementIds: [subject.p.id],
               targetBoardId: target.boardId,
+              ...(target.targetPosition ? {targetPosition:target.targetPosition} : {}),
             });
             this.moveCommitting = false;
             moved = true;
-            this.selection.delete(done.id);
-            if (this.contextPlacement === done.id) this.closeContext();
+            if (!done.lifted) {
+              this.selection.delete(done.id);
+              if (this.contextPlacement === done.id) this.closeContext();
+            }
             await this.refresh({ saveReview: false });
             toast(`Moved into ${target.title}.`);
           } catch (error) {
@@ -1001,8 +1130,11 @@ export class WorkspaceBoard {
     document.addEventListener(
       "pointercancel", (e) => { if (drag?.pointerId === e.pointerId) cancel(); }, true,
     );
+    document.addEventListener("pointerup", e => pointers.delete(e.pointerId), true);
+    document.addEventListener("pointercancel", e => pointers.delete(e.pointerId), true);
     viewport.addEventListener("lostpointercapture", e => { if (drag?.pointerId === e.pointerId) cancel(); });
-    window.addEventListener("blur", cancel);
+    viewport.addEventListener("contextmenu", e => { if (drag?.hold || drag?.lifted) e.preventDefault(); });
+    window.addEventListener("blur", () => { pointers.clear(); cancel(); });
     document.addEventListener("keydown", e => {
       if (drag && e.key === "Escape") { cancel(); e.preventDefault(); e.stopImmediatePropagation(); }
     }, true);

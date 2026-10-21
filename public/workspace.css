@@ -982,6 +982,49 @@ html[data-theme="night"] .item-representation p {
   font: 12px/1.4 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   pointer-events: none;
 }
+.workspace-parent.workspace-parent-drop-ready {
+  position: relative;
+  border-radius: 5px;
+}
+.workspace-parent-drop-ready::before {
+  content: "";
+  position: absolute;
+  inset: -5px -6px;
+  border: 1px dashed #83946d;
+  border-radius: 6px;
+  pointer-events: none;
+}
+.workspace-parent.workspace-drop-target::before {
+  border: 3px solid #526739;
+  box-shadow: 0 0 0 3px #dce6cfb3;
+}
+#viewport.workspace-drop-target { outline: 2px solid #83946d; outline-offset: -6px; }
+.workspace-cover-tile.workspace-cover-holding {
+  outline: 2px solid #83946d;
+  outline-offset: -3px;
+}
+.workspace-cover-tile.workspace-cover-lifted { opacity: .4; }
+.workspace-child-drag {
+  position: fixed;
+  z-index: 110;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: min(230px, calc(100vw - 24px));
+  padding: 14px 16px;
+  border: 2px solid #65794c;
+  border-radius: 8px;
+  background: #f6f7f1;
+  color: #34402b;
+  box-shadow: 0 9px 26px #25301833;
+  font: 13px/1.35 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  pointer-events: none;
+  user-select: none;
+}
+.workspace-child-drag > span { font-size: 22px; }
+.workspace-child-drag > div { min-width: 0; }
+.workspace-child-drag strong { display: block; overflow-wrap: anywhere; }
+.workspace-child-drag small { display: block; margin-top: 5px; color: #6b785d; }
 
 /* A panel is a local representation of the same canonical item. Its full
    viewport is letterboxed when resized, never cropped into a card cover. */

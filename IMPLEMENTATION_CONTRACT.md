@@ -100,6 +100,19 @@ the transaction store remains authoritative. Escape/pointer cancellation makes n
 write. A rejected board drop restores the saved geometry and keeps local review
 drafts while reconciling the latest board. Ordinary canvas positioning, resizing
 and the keyboard-accessible Move… dialog remain available.
+The Parent header link is a drop target only with a resolved entry/unique parent;
+drop leaves the current board open and chooses clear destination geometry beside
+its containing board. A 450 ms hold on a direct visible cover tile lifts that
+child as a labelled proxy, while immediate movement retains whole-card dragging.
+No iframe is cloned, activated or reparented. A lifted child can move to the
+current canvas at its logical release position, another board or the resolved
+parent. Holding/releasing alone, returning to the original collection, Escape,
+pointer cancellation, blur and multiple pointers make no operation. Saved covers,
+empty collections and nested descendants do not expose hidden selectable tiles.
+The optional move targetPosition {x,y} is restricted to one source placement and
+an existing destination. Finite coordinates within ±10000000 are applied atomically
+with membership; source dimensions/presentation are retained and the placement is
+above existing destination placements. Existing operation shapes stay supported.
 
 ## Legacy data
 Each immediate subfolder with board.json is a board. Slug [a-z0-9][a-z0-9-]*.

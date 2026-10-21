@@ -139,6 +139,12 @@ behavior. Drag onto the interior of a board card to move the item inside it;
 the destination outline and “Move into…” hint confirm the target. Its automatic
 cover updates after the move. Escape cancels a drag. Move / resize and the
 selection toolbar’s Move… action provide keyboard and touch alternatives.
+To bring an item back out, drag it onto the Parent link in the header; the hint
+names that destination. A parent is available when the entry path or a unique
+containing board identifies it. On a collection cover, hold a visible child tile
+briefly to lift that child, then drag it onto the current canvas or another board.
+Moving immediately still drags the entire collection. Releasing a held child
+without moving, or returning it to its original collection, cancels the gesture.
 
 Agents use the same operations as the browser through HTTP or
 `workspace op --json JSON` / `workspace op --file PATH`. See the
