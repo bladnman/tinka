@@ -816,7 +816,7 @@ try {
     if (
       request.url().endsWith("/api/operations") &&
       request.method() === "POST" &&
-      request.postDataJSON().type === "updatePlacement"
+      request.postDataJSON()?.type === "updatePlacement"
     )
       placementWrites++;
   });
@@ -1341,14 +1341,16 @@ try {
   }
   const imageRequests = [0, 0];
   page.on("request", request => { for (const index of [0,1]) if (request.url().includes(`/static-image-${index}/cover.svg`)) imageRequests[index]++; });
+  const initialImageLive=page.waitForResponse(response=>response.url()===base+`/api/boards/${imageBoard.result.boardId}/live`&&response.ok());
   await page.goto(base + `/boards/${imageBoard.result.boardId}/`);
+  await initialImageLive;
   await page.waitForFunction(() => [...document.querySelectorAll(".workspace-card img")].length === 2 && [...document.querySelectorAll(".workspace-card img")].every(img => img.complete && img.naturalWidth === 20));
   await page.evaluate(() => { window.stableImages = [...document.querySelectorAll(".workspace-card img")]; });
   const imageBaseline = [...imageRequests];
   assert.deepEqual(imageBaseline, [1, 1], "Both initial image resources requested once");
   const imageSnapshot = await (await fetch(base + `/api/boards/${imageBoard.result.boardId}`)).json();
   await post("/api/operations", { type: "updatePlacement", boardId: imageBoard.result.boardId, placementId: imageSnapshot.placements[0].id, patch: { x: 17 } });
-  await page.waitForFunction(() => document.querySelector(".workspace-card").style.left === "87px");
+  await page.waitForFunction(() => document.querySelector(".workspace-card").style.left === "87px").catch(async error=>{console.log(JSON.stringify({phase:"image-geometry",dom:await page.locator(".workspace-card").evaluateAll(cards=>cards.map(card=>({id:card.dataset.placement,left:card.style.left}))),active:await page.evaluate(()=>document.activeElement?.outerHTML),drafts:await page.evaluate(()=>Object.fromEntries(Object.entries(localStorage).filter(([key])=>key.endsWith("/item-review-drafts")))),api:await(await fetch(base+`/api/boards/${imageBoard.result.boardId}`)).json()}));throw error;});
   assert.equal(await page.evaluate(() => window.stableImages.every((img,index) => document.querySelectorAll(".workspace-card img")[index] === img)), true, "Image DOM retained through geometry refresh");
   assert.deepEqual(imageRequests, imageBaseline, "Geometry refresh makes no extra image requests");
   await writeFile(path.join(root, "static-image-0/cover.svg"), svg(40));
@@ -1584,7 +1586,7 @@ try {
   const rejected=await op("createItem",{boardId:cycleRoot.boardId,item:{title:"Conflict card",content:first.content},placement:{x:0,y:350,width:190,height:160}});
   await page.reload();await page.locator(`[data-placement="${rejected.placementIds[0]}"]`).waitFor();await setZoom(100);
   const beforeConflict=await snapshot(),rejectedPlacement=beforeConflict.boards.find(b=>b.id===cycleRoot.boardId).placements.find(p=>p.id===rejected.placementIds[0]);
-  await page.route("**/api/operations",async route=>{if(route.request().postDataJSON().type==="move") await route.fulfill({status:409,contentType:"application/json",body:JSON.stringify({error:"Workspace changed during this drag"})});else await route.continue();});
+  await page.route("**/api/operations",async route=>{if(route.request().postDataJSON()?.type==="move") await route.fulfill({status:409,contentType:"application/json",body:JSON.stringify({error:"Workspace changed during this drag"})});else await route.continue();});
   n=writes.length;
   await beginDrag(page.locator(`[data-placement="${rejectedPlacement.id}"]`),descendantCard);
   await page.locator(".workspace-drop-target").waitFor();await page.mouse.up();
