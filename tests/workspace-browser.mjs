@@ -177,7 +177,7 @@ try {
   };
   const errors = [];
   page.on("pageerror", (e) => errors.push(e.message));
-  if (!process.env.TINKA_FOCUSED_ONLY && !process.env.TINKA_COVERS_ONLY && !process.env.TINKA_DRAG_BOARDS_ONLY) {
+  if (!process.env.TINKA_FOCUSED_ONLY && !process.env.TINKA_COVERS_ONLY && !process.env.TINKA_DRAG_BOARDS_ONLY && !process.env.TINKA_DRAG_OUT_ONLY) {
   await page.goto(base + `/boards/${board.id}/`);
   await page.locator(".workspace-card").first().waitFor();
   assert.equal(
@@ -1147,7 +1147,7 @@ try {
     });
   }
   }
-  if (!process.env.TINKA_COVERS_ONLY && !process.env.TINKA_DRAG_BOARDS_ONLY) {
+  if (!process.env.TINKA_COVERS_ONLY && !process.env.TINKA_DRAG_BOARDS_ONLY && !process.env.TINKA_DRAG_OUT_ONLY) {
   // Quiet header and stable preview regression: isolated graph fixtures only.
   revision = (await (await fetch(base + "/api/workspace")).json()).revision;
   const parentA = await op("createBoard", { title: "Parent A" });
@@ -1361,7 +1361,7 @@ try {
 
   }
 
-  if (!process.env.TINKA_DRAG_BOARDS_ONLY) {
+  if (!process.env.TINKA_DRAG_BOARDS_ONLY && !process.env.TINKA_DRAG_OUT_ONLY) {
   // Automatic collection covers: current children, bounded work, stable mounts.
   revision = (await (await fetch(base + "/api/workspace")).json()).revision;
   const coverParent = await op("createBoard", { title: "Collection cover fixture" });
@@ -1499,6 +1499,7 @@ try {
     const left=await page.locator(".workspace-card").evaluateAll(cards=>Math.min(...cards.map(card=>card.getBoundingClientRect().left)));
     if(left<20) {await page.mouse.move(width-10,850);await page.mouse.wheel(left-20,0);await page.waitForFunction(()=>Math.min(...[...document.querySelectorAll(".workspace-card")].map(card=>card.getBoundingClientRect().left))>=19);}
   };
+  if (!process.env.TINKA_DRAG_OUT_ONLY) {
   const dragReceipts=[];
   for (const [width,zoom] of [[1440,50],[1440,100],[1440,125],[390,100]].filter(([width])=>!process.env.TINKA_DRAG_NARROW_ONLY||width===390)) {
     revision=(await snapshot()).revision;
@@ -1597,12 +1598,115 @@ try {
   assert.equal(await page.locator(".workspace-drop-target").count(),0,"Conflict clears target feedback");
   await page.unroute("**/api/operations");
   await writeFile(path.join(evidence,"drag-board-receipt.json"),JSON.stringify({gestures:dragReceipts,escape:true,pointerOutsideOverlap:true,cycle:true,conflict:true},null,2));
+  }
+  // Parent return drop and deliberate cover-child lift share the existing move transaction.
+  await page.addInitScript(()=>{window.qaInitialFrameLoads=new WeakMap();document.addEventListener("load",event=>{if(event.target.tagName==="IFRAME")window.qaInitialFrameLoads.set(event.target,(window.qaInitialFrameLoads.get(event.target)||0)+1);},true);});
+  const outReceipts=[];
+  const makeOutFixture=async title=>{
+    revision=(await snapshot()).revision;
+    const parent=await op("createBoard",{title}),group=await op("createBoard",{title:"READ FIRST",parentBoardId:parent.boardId});
+    await op("updatePlacement",{boardId:parent.boardId,placementId:group.placementIds[0],patch:{x:0,y:0,width:310,height:300}});
+    const children=[];
+    for(const index of [0,1,2])children.push(await op("createItem",{boardId:group.boardId,item:{title:index===2?"Focus reader":`Design ${index}`,content:first.content,review:{note:"Keep this review",star:true},build:{state:"ready",message:"Keep build"}},placement:{x:index*220,y:0,width:190,height:160,presentation:{mode:"card",paper:"#f4ead9"}}}));
+    const focus=children[2],shared=await op("reference",{sourceBoardId:group.boardId,placementIds:focus.placementIds,targetBoardId:second.boardId});
+    return {parent,group,children,focus,shared};
+  };
+  const cardFor=id=>page.locator(`[data-placement="${id}"]`);
+  const tileFor=(f,child=f.focus)=>cardFor(f.group.placementIds[0]).locator(`[data-cover-tile="${child.placementIds[0]}"]`);
+  const coverReady=async f=>{await cardFor(f.group.placementIds[0]).waitFor();for(const iframe of await cardFor(f.group.placementIds[0]).locator("iframe").all()){await iframe.contentFrame().getByRole("heading").first().waitFor();const frame=await(await iframe.elementHandle()).contentFrame();await frame.waitForLoadState("load");}await page.waitForFunction(id=>[...document.querySelector(`[data-placement="${id}"]`).querySelectorAll("iframe")].every(frame=>window.qaInitialFrameLoads.get(frame)>0),f.group.placementIds[0]);};
+  const tilePoint=async tile=>{const b=await tile.boundingBox();return {x:b.x+b.width/2,y:b.y+b.height/2};};
+  const holdChild=async tile=>{const p=await tilePoint(tile);await page.mouse.move(p.x,p.y);await page.mouse.down();await page.waitForTimeout(500);await page.locator("#workspace-child-drag").waitFor({timeout:3000});return p;};
+  const blankPoint=async()=>page.locator("#viewport").evaluate(viewport=>{const r=viewport.getBoundingClientRect();for(const x of [r.right-55,r.right-180,r.left+55])for(const y of [r.top+140,r.bottom-100])if(!document.elementsFromPoint(x,y).some(el=>el.closest(".workspace-card")))return {x,y};throw new Error("No visible blank Canvas point");});
+  const finishOut=async(f,start,sourceBoard,targetBoard,itemId=f.focus.itemId)=>{
+    const next=await waitGraph(ws=>ws.boards.find(b=>b.id===sourceBoard).placements.some(p=>p.itemId===itemId&&p.removedAt));
+    assert.deepEqual(writes.slice(start).map(w=>w?.type),["move"],"Outward gesture sends one atomic move without geometry or review writes");
+    assert.equal(writes[start].sourceBoardId,sourceBoard);assert.equal(writes[start].targetBoardId,targetBoard);
+    const placed=next.boards.find(b=>b.id===targetBoard).placements.find(p=>p.itemId===itemId&&!p.removedAt);
+    assert(placed,"Moved item is present on destination board");return {next,placed};
+  };
+  for(const width of [1440,390]){
+    const f=await makeOutFixture(`Parent return ${width}`),before=await snapshot(),canonical=before.items.find(i=>i.id===f.focus.itemId);
+    await showBoard(f.group.boardId,width,100);
+    if(width===390){const b=await cardFor(f.focus.placementIds[0]).boundingBox();await page.mouse.move(width-10,850);await page.mouse.wheel(b.x+b.width/2-width/2,0);await page.waitForTimeout(80);}
+    const parent=page.locator("#workspace-parent");await page.waitForFunction(()=>document.getElementById("workspace-parent")?.getAttribute("href")?.startsWith("/boards/"));
+    const start=writes.length;await beginDrag(cardFor(f.focus.placementIds[0]),parent);await page.locator("#workspace-parent.workspace-drop-target").waitFor();
+    assert.match(await page.locator("#workspace-drop-hint").textContent(),/Parent|parent|Move/);
+    if(width===1440)await page.screenshot({path:path.join(evidence,"parent-drag-hover-1440.png")});
+    await page.mouse.up();const {next,placed}=await finishOut(f,start,f.group.boardId,f.parent.boardId);
+    assert.deepEqual(next.items.find(i=>i.id===f.focus.itemId),canonical);
+    assert.equal(page.url(),base+`/boards/${f.group.boardId}/`,"Parent drop does not navigate away");
+    const owner=next.boards.find(b=>b.id===f.parent.boardId).placements.find(p=>p.id===f.group.placementIds[0]);
+    assert(placed.x>=owner.x+owner.width||placed.x+placed.width<=owner.x||placed.y>=owner.y+owner.height||placed.y+placed.height<=owner.y,"Parent drop places returned item clear of its collection card");
+    await parent.click();await page.waitForURL(base+`/boards/${f.parent.boardId}/`);await cardFor(placed.id).waitFor();await coverReady(f);
+    assert.equal(await cardFor(f.group.placementIds[0]).locator("[data-cover-tile]").count(),2,"Returning to parent shows a cover reduced from three to two");
+    outReceipts.push({gesture:"parent",width,types:writes.slice(start).map(w=>w.type),coverCount:2});
+  }
+  for(const zoom of [50,100,125]){
+    const f=await makeOutFixture(`Cover pullout ${zoom}`);await showBoard(f.parent.boardId,1440,zoom);await coverReady(f);
+    const group=cardFor(f.group.placementIds[0]),tile=tileFor(f),before=await snapshot(),canonical=before.items.find(i=>i.id===f.focus.itemId);
+    if(zoom===100){const n=writes.length,p=await tilePoint(tile);await page.mouse.click(p.x,p.y);await page.waitForURL(base+`/boards/${f.group.boardId}/?from=${f.parent.boardId}`);assert.equal(writes.length,n,"Short cover-tile click opens the collection without moving a child");await page.locator("#workspace-parent").click();await page.waitForURL(base+`/boards/${f.parent.boardId}/`);await coverReady(f);await setZoom(zoom);}
+    await group.evaluate(card=>{window.pulloutMounts=[...card.querySelectorAll("[data-cover-tile]")].slice(0,2).map(tile=>{const frame=tile.querySelector("iframe"),p={tile,frame,loads:0,src:frame.src,changes:[]};frame.addEventListener("load",()=>p.loads++);new MutationObserver(records=>records.forEach(record=>p.changes.push({attribute:record.attributeName,value:frame.getAttribute(record.attributeName)}))).observe(frame,{attributes:true,attributeFilter:["src"]});return p;});});
+    const identityTokens=await Promise.all((await group.locator("iframe").all()).slice(0,2).map(frame=>frame.contentFrame().locator("body").evaluate(()=>window.qaPulloutToken=crypto.randomUUID())));
+    if(zoom===100){
+      let n=writes.length,p=await tilePoint(tile);await page.mouse.move(p.x,p.y);await page.mouse.down();await page.mouse.move(p.x+20,p.y+12,{steps:4});await page.mouse.up();
+      await waitGraph(ws=>ws.boards.find(b=>b.id===f.parent.boardId).placements.find(p=>p.id===f.group.placementIds[0]).x!==0);
+      assert.deepEqual(writes.slice(n).map(w=>w?.type),["updatePlacement"],"Immediate cover drag moves the whole collection");
+      assert.equal(await page.locator("#workspace-child-drag").count(),0);
+      n=writes.length;await holdChild(tile);await page.mouse.up();await page.waitForTimeout(80);assert.equal(writes.length,n,"Hold and release inside source collection moves no child");
+      for(const cancel of ["Escape","pointercancel","blur","multipointer"]){
+        n=writes.length;await holdChild(tile);
+        if(cancel==="Escape")await page.keyboard.press("Escape");
+        else if(cancel==="blur")await page.evaluate(()=>window.dispatchEvent(new Event("blur")));
+        else await page.evaluate(kind=>document.getElementById("viewport").dispatchEvent(new PointerEvent(kind==="multipointer"?"pointerdown":"pointercancel",{pointerId:kind==="multipointer"?99:1,pointerType:"mouse",bubbles:true,button:0})),cancel);
+        await page.mouse.up();if(cancel==="multipointer")await page.evaluate(()=>document.getElementById("viewport").dispatchEvent(new PointerEvent("pointerup",{pointerId:99,pointerType:"mouse",bubbles:true,button:0})));await page.waitForTimeout(70);
+        assert.equal(writes.length,n,`${cancel} cancels lifted child without writes`);assert.equal(await page.locator("#workspace-child-drag").count(),0);
+      }
+    }
+    const start=writes.length;await holdChild(tile);assert.equal(await tile.getAttribute("class").then(c=>c.includes("workspace-cover-lifted")),true);
+    const drop=await blankPoint();await page.mouse.move(drop.x,drop.y,{steps:12});
+    const logical=await page.locator("#world").evaluate((world,p)=>{const r=world.getBoundingClientRect(),scale=new DOMMatrix(getComputedStyle(world).transform).a;return {x:(p.x-r.x)/scale-70,y:(p.y-r.y)/scale-70};},drop);
+    if(zoom===100)await page.screenshot({path:path.join(evidence,"cover-child-lift-1440.png")});
+    await page.mouse.up();const {next,placed}=await finishOut(f,start,f.group.boardId,f.parent.boardId);
+    await cardFor(placed.id).waitFor();await page.waitForFunction(id=>document.querySelectorAll(`[data-placement="${id}"] [data-cover-tile]`).length===2,f.group.placementIds[0]);
+    assert.deepEqual(next.items.find(i=>i.id===f.focus.itemId),canonical,"Pullout keeps canonical review/star/build/resource identity");
+    assert(next.boards.find(b=>b.id===second.boardId).placements.some(p=>p.id===f.shared.placementIds[0]&&!p.removedAt),"Independent reference remains present");
+    const media=await page.evaluate(()=>window.pulloutMounts.map(p=>({tileConnected:p.tile.isConnected,frameConnected:p.frame.isConnected,loads:p.loads})));
+    assert(media.every(p=>p.tileConnected&&p.frameConnected&&p.loads===0),"Remaining cover tiles retain mounted documents without reload: "+JSON.stringify({zoom,media}));
+    assert.deepEqual(await Promise.all((await group.locator("iframe").all()).slice(0,2).map(frame=>frame.contentFrame().locator("body").evaluate(()=>window.qaPulloutToken))),identityTokens,"Remaining cover documents retain their JavaScript identity");
+    assert(writes[start].targetPosition&&Number.isFinite(placed.x)&&Number.isFinite(placed.y),"Canvas pullout includes atomic release geometry");
+    assert(Math.abs(placed.x-logical.x)<=1&&Math.abs(placed.y-logical.y)<=1,"Release geometry stays near pointer at selected zoom");
+    assert.equal(page.url(),base+`/boards/${f.parent.boardId}/`,"Pullout stays on current canvas");
+    if(zoom===100)await page.screenshot({path:path.join(evidence,"cover-child-after-1440.png")});
+    outReceipts.push({gesture:"cover-pullout",zoom,position:{x:placed.x,y:placed.y},release:logical,coverCount:2,remainingLoads:0});
+  }
+  // One child can move into another collection; the now-empty cover has no child to lift.
+  revision=(await snapshot()).revision;
+  const singleParent=await op("createBoard",{title:"Single and empty cover"}),single=await op("createBoard",{title:"Single",parentBoardId:singleParent.boardId}),other=await op("createBoard",{title:"Other",parentBoardId:singleParent.boardId});
+  await op("updatePlacement",{boardId:singleParent.boardId,placementId:single.placementIds[0],patch:{x:0,y:0,width:300,height:280}});await op("updatePlacement",{boardId:singleParent.boardId,placementId:other.placementIds[0],patch:{x:470,y:0,width:300,height:280}});
+  const only=await op("createItem",{boardId:single.boardId,item:{title:"Only child",content:first.content}}),one={parent:singleParent,group:single,focus:only};
+  await showBoard(singleParent.boardId,1440,100);await coverReady(one);let n=writes.length;await holdChild(tileFor(one));const dest=await cardFor(other.placementIds[0]).boundingBox();await page.mouse.move(dest.x+dest.width/2,dest.y+65,{steps:10});await page.locator(".workspace-drop-target").waitFor();await page.mouse.up();await finishOut(one,n,single.boardId,other.boardId,only.itemId);
+  await page.waitForFunction(id=>!document.querySelector(`[data-placement="${id}"] [data-cover-tile]`),single.placementIds[0]);n=writes.length;const empty=await cardFor(single.placementIds[0]).locator(".workspace-preview-launch").boundingBox();await page.mouse.move(empty.x+empty.width/2,empty.y+empty.height/2);await page.mouse.down();await page.waitForTimeout(500);assert.equal(await page.locator("#workspace-child-drag").count(),0,"Empty collection cannot lift a cover child");await page.keyboard.press("Escape");await page.mouse.up();assert.equal(writes.length,n);
+  // An unresolved parent chooser never silently selects a destination.
+  const ambiguous=await makeOutFixture("Ambiguous parent fixture");revision=(await snapshot()).revision;await op("reference",{sourceBoardId:ambiguous.parent.boardId,placementIds:ambiguous.group.placementIds,targetBoardId:second.boardId});await showBoard(ambiguous.group.boardId,1440,100);await page.waitForFunction(()=>document.getElementById("workspace-parent")?.getAttribute("href")==="#parents");n=writes.length;await beginDrag(cardFor(ambiguous.focus.placementIds[0]),page.locator("#workspace-parent"));assert.equal(await page.locator("#workspace-parent.workspace-drop-target").count(),0);await page.mouse.up();await page.waitForTimeout(100);assert.equal(writes.slice(n).some(w=>w?.type==="move"),false,"Unresolved multiple parents do not choose a destination");
+  // A lifted board item cannot move into its own descendant.
+  revision=(await snapshot()).revision;const childBoard=await op("createBoard",{title:"Lifted ancestor",parentBoardId:ambiguous.group.boardId}),descendant=await op("createBoard",{title:"Descendant",parentBoardId:childBoard.boardId}),alias=await op("reference",{sourceBoardId:childBoard.boardId,placementIds:descendant.placementIds,targetBoardId:ambiguous.parent.boardId});await op("updatePlacement",{boardId:ambiguous.parent.boardId,placementId:alias.placementIds[0],patch:{x:470,y:0,width:260,height:250}});await showBoard(ambiguous.parent.boardId,1440,100);await coverReady(ambiguous);n=writes.length;await holdChild(tileFor(ambiguous,{placementIds:childBoard.placementIds}));const invalid=await cardFor(alias.placementIds[0]).boundingBox();await page.mouse.move(invalid.x+invalid.width/2,invalid.y+65,{steps:10});assert.equal(await page.locator(".workspace-drop-target").count(),0);await page.mouse.up();await page.waitForTimeout(100);assert.equal(writes.length,n,"Lifted ancestor cycle cancels without metadata writes");
+  // A rejected lifted move must restore the child and keep the user's local draft.
+  const f=await makeOutFixture("Lift conflict fixture");await showBoard(f.parent.boardId,1440,100);await coverReady(f);
+  const draftKey=`tinka/${cfg.workspaceId}/item-review-drafts`,drafts=JSON.stringify({[f.focus.itemId]:{note:"Unsaved child review"}});
+  await page.addInitScript(({key,value,path})=>{if(location.pathname===path&&!sessionStorage.getItem(key+"/test-injected")){localStorage.setItem(key,value);sessionStorage.setItem(key+"/test-injected","1");}},{key:draftKey,value:drafts,path:`/boards/${f.parent.boardId}/`});await page.reload();await cardFor(f.group.placementIds[0]).waitFor();await coverReady(f);
+  await page.route("**/api/operations",async route=>{if(route.request().postDataJSON()?.type==="move")await route.fulfill({status:409,contentType:"application/json",body:JSON.stringify({error:"Stale revision"})});else await route.continue();});
+  const start=writes.length;await holdChild(tileFor(f));const blank=await blankPoint();await page.mouse.move(blank.x,blank.y,{steps:8});await page.mouse.up();await page.waitForTimeout(150);
+  assert.deepEqual(writes.slice(start).map(w=>w?.type),["move"],"Rejected lift does not save geometry or flush review drafts");
+  assert.equal(await page.locator("#workspace-child-drag").count(),0);assert.equal(await page.evaluate(key=>localStorage.getItem(key),draftKey),drafts,"409 preserves local child review draft");
+  assert.equal(await tileFor(f).count(),1,"409 restores the same source child tile");
+  await page.unroute("**/api/operations");await page.evaluate(key=>localStorage.removeItem(key),draftKey);
+  await writeFile(path.join(evidence,"drag-out-receipt.json"),JSON.stringify({gestures:outReceipts,cancel:true,conflict:true},null,2));
   page.off("request",observeMove);
   }
   assert.equal(errors.length, 0, errors.join("\n"));
   console.log(
     JSON.stringify({
-      passed: process.env.TINKA_DRAG_BOARDS_ONLY ? "Pointer drag into board: atomic move, zoom50/100/125, narrow, stable 2-to-3 cover documents, Escape, overlap, cycle and 409 rollback" : process.env.TINKA_COVERS_ONLY ? "Automatic collection covers for 1/2/4/5 children, script-built HTML in opaque sandbox, full viewport fit, stable geometry/review/reorder mounts, targeted sibling CSS refresh, immediate grouping, explicit preview precedence, archive/remove and bounded nested-board fallbacks" : process.env.TINKA_FOCUSED_ONLY ? "Quiet header/Tools/parent routes at 390/900/1440; mounted previews across geometry/review/decorations, targeted content reload, Grid filter/reorder, attached appearance popup and targeted image refresh" :
+      passed: process.env.TINKA_DRAG_OUT_ONLY ? "Parent header drop and long-press child pullout: atomic moves, cover updates, zoom50/100/125, narrow, normal whole-group drag, cancellation and409 draft preservation" : process.env.TINKA_DRAG_BOARDS_ONLY ? "Pointer drag into board: atomic move, zoom50/100/125, narrow, stable 2-to-3 cover documents, Escape, overlap, cycle and 409 rollback" : process.env.TINKA_COVERS_ONLY ? "Automatic collection covers for 1/2/4/5 children, script-built HTML in opaque sandbox, full viewport fit, stable geometry/review/reorder mounts, targeted sibling CSS refresh, immediate grouping, explicit preview precedence, archive/remove and bounded nested-board fallbacks" : process.env.TINKA_FOCUSED_ONLY ? "Quiet header/Tools/parent routes at 390/900/1440; mounted previews across geometry/review/decorations, targeted content reload, Grid filter/reorder, attached appearance popup and targeted image refresh" :
         "Canvas default and explicit Grid persistence, mouse background no-grab, wheel/horizontal/Shift-wheel/Ctrl zoom, real touch pan and pinch, threshold body/preview drag and click, notes/controls/resize persistence at390/1440; graph reader/history/revisions/shared durable review/moved aliases/geometry/archive/mixed legacy/offline content",
       assertions,
       evidence,
