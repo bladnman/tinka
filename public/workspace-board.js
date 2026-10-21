@@ -1,5 +1,6 @@
 import {reconcileChildren} from "./reconcile.js";
 import {coverMarkup, observeCovers} from "./board-covers.js";
+import {MovementHistory} from "./movement-history.js";
 import {
   WorkspaceClient,
   escape as esc,
@@ -17,6 +18,8 @@ export class WorkspaceBoard {
     this.snapshot = snapshot;
     this.hooks = hooks;
     this.client = new WorkspaceClient(config, snapshot.revision);
+    this.history = new MovementHistory(this.client,config.workspaceId,() => this.updateHistoryControls());
+    this.client.onState = () => this.updateHistoryControls();
     this.selection = new Set();
     this.filters = {
       search: "",
@@ -145,6 +148,7 @@ export class WorkspaceBoard {
     const bar = document.createElement("section");
     $("help-panel").append(" Select several cards and drag a selected card to carry them together, into a board or onto Parent. An unselected card, resize or held cover child still acts alone.");
     $("help-panel").append(" With a mouse or pen, drag a box on empty Canvas space to select cards. Hold Shift when starting to add to your selection; Escape cancels. An empty click clears selection. Unused colored-region interiors also work; use a region’s label or border to move it. Touch keeps swiping and pinching.");
+    $("help-panel").append(" The bottom name bar also drags; a title click opens the item. Right-click a card for its notes and appearance. Use ⌘/Ctrl-Z to undo movement and Shift-⌘/Ctrl-Z to redo, or find Undo/Redo in Tools. This tab remembers movements across boards; text fields keep their own undo. New-board creation and deletion are outside movement history.");
     bar.id = "workspace-toolbar";
     bar.className = "workspace-toolbar";
     bar.setAttribute("aria-label", "Organize this board");
@@ -157,6 +161,22 @@ export class WorkspaceBoard {
     add.setAttribute("aria-haspopup", "menu");
     add.setAttribute("aria-expanded", "false");
     bar.prepend(add);
+    const history = document.createElement("div");
+    history.className = "workspace-history-actions";
+    history.innerHTML = '<button type="button" id="workspace-undo" disabled>Undo</button><button type="button" id="workspace-redo" disabled>Redo</button>';
+    bar.append(history);
+    $("workspace-undo").onclick = () => this.replayMovement("undo");
+    $("workspace-redo").onclick = () => this.replayMovement("redo");
+    this.updateHistoryControls();
+    document.addEventListener("keydown", e => {
+      if (!(e.metaKey || e.ctrlKey) || e.altKey || e.key.toLowerCase() !== "z" ||
+          e.target.closest("input,textarea,select,[contenteditable],[role=dialog]") || document.querySelector("dialog[open]")) return;
+      // Browser text editing keeps its own undo; movement replay is available
+      // only when no pointer gesture or operation is still being committed.
+      e.preventDefault(); e.stopImmediatePropagation();
+      if (this.pointerGesture || this.decorationGesture || this.movePending || this.historyBusy || this.client.pendingWrites || this.saving) return;
+      this.replayMovement(e.shiftKey ? "redo" : "undo");
+    }, true);
     add.onclick = () => {
       // Anchor the creation menu to the still-visible Tools control before closing its drawer.
       this.addMenu($("board-info-toggle"));
@@ -378,6 +398,42 @@ export class WorkspaceBoard {
     this.hooks.data(this.adapt(snapshot));
     this.loadCrumb();
   }
+  updateHistoryControls() {
+    const busy = this.pointerGesture || this.decorationGesture || this.movePending || this.historyBusy || this.client.pendingWrites || this.saving || this.history?.busy;
+    for (const direction of ["undo","redo"]) {
+      const button = $("workspace-" + direction);
+      if (!button) continue;
+      const verb = direction === "undo" ? "Undo" : "Redo", label = this.history?.label(direction);
+      button.textContent = label ? `${verb} ${label.toLowerCase()}` : verb;
+      button.disabled = !!busy || !this.history?.available(direction);
+      button.title = direction === "undo" ? "Undo movement (⌘/Ctrl Z)" : "Redo movement (⌘/Ctrl Shift Z)";
+    }
+  }
+  async replayMovement(direction) {
+    if (this.pointerGesture || this.decorationGesture || this.movePending || this.historyBusy || this.client.pendingWrites || this.saving ||
+        document.activeElement?.closest("input,textarea,select,[contenteditable],[role=dialog]") || document.querySelector("dialog[open]") ||
+        !this.history.available(direction)) return;
+    this.historyBusy = true;
+    this.movePending = true;
+    this.updateHistoryControls();
+    try {
+      // Refresh the revision without flushing review drafts. The server receipt
+      // independently checks the affected arrangements before changing them.
+      await this.refresh({saveReview:false});
+      const result = await this.history.replay(direction);
+      if (!result) return;
+      await this.refresh({saveReview:false});
+      toast(`${direction === "undo" ? "Undid" : "Redid"} ${result.label.toLowerCase()}.`);
+    } catch (error) {
+      try { await this.refresh({saveReview:false}); } catch {}
+      toast(error.conflict ? `Movement history could not apply because the board changed. ${error.message}`
+        : `Could not confirm the history change. Check the latest board before trying again. ${error.message}`);
+    } finally {
+      this.historyBusy = false;
+      this.movePending = false;
+      this.updateHistoryControls();
+    }
+  }
   setMode(mode, rebuild = true) {
     this.mode = mode;
     try {
@@ -573,7 +629,7 @@ export class WorkspaceBoard {
           kind: type,
           refresh: async () => {
             this.selection.clear();
-            await this.refresh();
+            await this.refresh({saveReview:false});
           },
         });
         return;
@@ -845,6 +901,7 @@ export class WorkspaceBoard {
     let marquee = null;
     let suppressedClick = null;
     let highlighted = null;
+    let lastPointerType = "";
     const pointers = new Set();
     const viewport = $("viewport");
     const emptyCanvas = e => {
@@ -904,6 +961,7 @@ export class WorkspaceBoard {
         anchor:{x:(e.clientX - world.left) / zoom,y:(e.clientY - world.top) / zoom},
         original:new Set(this.selection),additive:e.shiftKey,cards,active:false};
       this.pointerGesture = true;
+      this.updateHistoryControls();
       // The toolbar keeps its existing visibility until this gesture finishes.
       // Only the count and card selection state change while the box is active.
       e.preventDefault();
@@ -930,6 +988,7 @@ export class WorkspaceBoard {
       const after = viewport.getBoundingClientRect();
       this.hooks.shiftViewport?.(before.left - after.left,before.top - after.top);
       this.pointerGesture = false;
+      this.updateHistoryControls();
       try { viewport.releasePointerCapture(done.pointerId); } catch {}
       drainRefresh();
     };
@@ -1057,6 +1116,7 @@ export class WorkspaceBoard {
       const done = drag;
       drag = null;
       this.pointerGesture = false;
+      this.updateHistoryControls();
       if (done.active) suppressedClick = true;
       restore(done);
       finishVisuals(done);
@@ -1070,6 +1130,7 @@ export class WorkspaceBoard {
       "pointerdown",
       e => {
         suppressedClick = null;
+        lastPointerType = e.pointerType;
         pointers.add(e.pointerId);
         if (pointers.size > 1) {
           const selecting = !!marquee;
@@ -1102,7 +1163,7 @@ export class WorkspaceBoard {
         const card = e.target.closest(".workspace-card");
         if (!card) { beginMarquee(e); return; }
         const handle = e.target.closest("[data-drag],[data-resize]");
-        const preview = e.target.closest(".workspace-preview-launch,.workspace-icon-entry");
+        const preview = e.target.closest(".workspace-preview-launch,.workspace-icon-entry,.workspace-panel-title,.workspace-card-copy h3 [data-open]");
         if (
           !handle &&
           !preview &&
@@ -1137,6 +1198,7 @@ export class WorkspaceBoard {
         drag.entries = (selected.some(p => p.id === id) ? selected : [p])
           .map(p => ({p:{...p},element:visible.get(p.id)}));
         this.pointerGesture = true;
+        this.updateHistoryControls();
         if (!this.workspaceGraph || this.workspaceGraph.revision !== this.snapshot.revision)
           this.client.get("/api/workspace?covers=0").then(ws => {
             if (!this.workspaceGraph || ws.revision >= this.workspaceGraph.revision) this.workspaceGraph = ws;
@@ -1227,6 +1289,7 @@ export class WorkspaceBoard {
         const target = done.active ? this.boardDropTarget(done, e.clientX, e.clientY) : null;
         drag = null;
         this.pointerGesture = false;
+        this.updateHistoryControls();
         done.element.classList.remove("workspace-dragging");
         finishVisuals(done);
         if (!done.active || (done.lifted ? !done.moved : !done.patch)) {
@@ -1311,7 +1374,7 @@ export class WorkspaceBoard {
             placementId: done.id,
             patch: done.patch,
           });
-          await this.refresh();
+          await this.refresh({saveReview:false});
         } catch (error) {
           showFailure(error);
           this.rebuild();
@@ -1331,6 +1394,15 @@ export class WorkspaceBoard {
     document.addEventListener("pointercancel", e => pointers.delete(e.pointerId), true);
     viewport.addEventListener("lostpointercapture", e => { if (drag?.pointerId === e.pointerId || marquee?.pointerId === e.pointerId) cancel(); });
     viewport.addEventListener("contextmenu", e => { if (marquee) cancel(); if (drag?.hold || drag?.lifted) e.preventDefault(); });
+    viewport.addEventListener("contextmenu", e => {
+      if (e.pointerType === "touch" || (!e.pointerType && lastPointerType === "touch") || e.target.closest("input,textarea,[contenteditable]")) return;
+      const card = e.target.closest(".workspace-card[data-placement]");
+      if (!card) return;
+      e.preventDefault(); e.stopImmediatePropagation();
+      const id = card.dataset.placement;
+      if (this.contextPlacement === id && this.context) this.positionContext();
+      else this.itemControls(id,"appearance");
+    });
     let marqueeFrame;
     const updateMarquee = () => {
       if (!marquee?.active) return;
@@ -1496,6 +1568,8 @@ export class WorkspaceBoard {
       drag = { d: { ...d }, x: e.clientX, y: e.clientY, pointerId: e.pointerId,
         endpoint: e.target.closest("[data-endpoint]")?.dataset.endpoint,
         resize: !!e.target.closest("[data-decoration-resize]"), active: false };
+      this.decorationGesture = true;
+      this.updateHistoryControls();
       document.querySelector(`[data-decoration="${CSS.escape(id)}"]`)?.focus({ preventScroll: true });
       e.stopImmediatePropagation();
     }, true);
@@ -1516,16 +1590,19 @@ export class WorkspaceBoard {
     document.addEventListener("pointerup", async e => {
       if (!drag || e.pointerId !== drag.pointerId) return;
       const done = drag; drag = null;
+      this.decorationGesture = false;
+      this.updateHistoryControls();
       if (!done.active || !done.next) return;
       e.preventDefault(); e.stopImmediatePropagation();
       try { await this.writeDecorations(this.snapshot.decorations.map(d => d.id === done.d.id ? done.next : d)); }
       catch (error) { showFailure(error); this.rebuild(); }
     }, true);
-    document.addEventListener("pointercancel", () => { if (drag) { this.updateDecorationElement(drag.d); drag = null; } }, true);
+    document.addEventListener("pointercancel", () => { if (drag) { this.updateDecorationElement(drag.d); drag = null; this.decorationGesture = false; this.updateHistoryControls(); } }, true);
+    window.addEventListener("blur", () => { if (drag) { this.updateDecorationElement(drag.d); drag = null; this.decorationGesture = false; this.updateHistoryControls(); } });
     document.addEventListener("keydown", async e => {
       if (document.querySelector("#reader-dialog[open],dialog.workspace-dialog[open]")) return;
       if (e.key === "Escape") {
-        if (drag) { this.updateDecorationElement(drag.d); drag = null; e.preventDefault(); e.stopImmediatePropagation(); return; }
+        if (drag) { this.updateDecorationElement(drag.d); drag = null; this.decorationGesture = false; this.updateHistoryControls(); e.preventDefault(); e.stopImmediatePropagation(); return; }
         if (this.context) { this.closeContext(true); e.preventDefault(); e.stopImmediatePropagation(); return; }
         if (this.addPopup) { this.closeAddMenu(); $("workspace-add").focus(); e.preventDefault(); e.stopImmediatePropagation(); return; }
         if (this.activeDecoration) { const old = this.snapshot.decorations.find(d => d.id === this.activeDecoration); this.activeDecoration = null; if (old) this.updateDecorationElement(old); e.preventDefault(); return; }
@@ -1538,16 +1615,15 @@ export class WorkspaceBoard {
       if (this.selection.size && ["Delete", "Backspace"].includes(e.key)) { e.preventDefault(); this.bulk("remove"); return; }
       if (!delta || (!this.activeDecoration && !this.selection.size)) return;
       e.preventDefault(); e.stopImmediatePropagation();
+      if (this.pointerGesture || this.movePending || this.historyBusy) return;
       const [dx,dy] = delta.map(v => v * (e.shiftKey ? 10 : 1));
       try {
         if (this.activeDecoration) await this.writeDecorations(this.snapshot.decorations.map(d => d.id === this.activeDecoration ? { ...d, x: d.x + dx, y: d.y + dy } : d));
         else {
-          for (const id of this.selection) {
-            const p = this.snapshot.placements.find(p => p.id === id); if (!p) continue;
-            const patch = { x: p.x + dx, y: p.y + dy }; Object.assign(p, patch);
-            await this.client.write("updatePlacement", { boardId: this.snapshot.id, placementId: id, patch });
-          }
-          await this.refresh();
+          const placementIds = [...this.selection].filter(id => this.snapshot.placements.some(p => p.id === id && !p.removedAt && !p.deletedAt));
+          if (!placementIds.length) return;
+          await this.client.write("translatePlacements", {boardId:this.snapshot.id,placementIds,dx,dy});
+          await this.refresh({saveReview:false});
         }
       } catch (error) { showFailure(error); }
     }, true);

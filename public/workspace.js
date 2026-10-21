@@ -39,6 +39,7 @@ export class WorkspaceClient {
     this.config = config;
     this.revision = revision;
     this.queue = Promise.resolve();
+    this.pendingWrites = 0;
   }
   async get(url) {
     const r = await fetch(url, { cache: "no-store" });
@@ -46,8 +47,10 @@ export class WorkspaceClient {
     if (!r.ok) throw new Error(d.error || `Request failed (${r.status})`);
     return d;
   }
-  write(type, data = {}) {
+  write(type, data = {}, {recordHistory = true,includeHistory = false} = {}) {
     const operationId = crypto.randomUUID();
+    this.pendingWrites++;
+    this.onState?.();
     const pending = this.queue
       .catch(() => {})
       .then(async () => {
@@ -75,8 +78,9 @@ export class WorkspaceClient {
           throw e;
         }
         this.revision = d.revision;
-        return d.result || d;
-      });
+        if (d.history && recordHistory && type !== "restoreMovement") this.onHistory?.(d.history,{type,data});
+        return includeHistory ? {result:d.result || d,history:d.history || null} : d.result || d;
+      }).finally(() => { this.pendingWrites--; this.onState?.(); });
     this.queue = pending;
     return pending;
   }

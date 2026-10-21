@@ -15,6 +15,8 @@
   min-height: 44px;
   white-space: nowrap;
 }
+.workspace-history-actions { display: flex; flex-wrap: wrap; gap: 5px; flex-basis: 100%; }
+.workspace-history-actions button { max-width: 100%; white-space: normal; text-align: left; }
 .workspace-segments {
   display: flex;
   border: 1px solid #c6cfbb;
@@ -979,6 +981,9 @@ html[data-theme="night"] .item-representation p {
   cursor: grab;
 }
 .workspace-board[data-board-layout="canvas"] .workspace-preview-launch {
+  cursor: grab;
+}
+.workspace-board[data-board-layout="canvas"] :is(.workspace-panel-title,.workspace-card-copy h3 [data-open]) {
   cursor: grab;
 }
 .workspace-board .workspace-dragging,

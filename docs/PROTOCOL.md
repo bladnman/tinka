@@ -106,6 +106,32 @@ coordinates, then moves the entire selection by that delta in one revision. Size
 presentation, z order and canonical items stay unchanged. An invalid/missing ID,
 coordinate overflow or revision conflict rejects the entire operation.
 
+Successful geometry `updatePlacement`, `translatePlacements` and `move` operations
+from source placements into an existing board also return an opaque, signed
+top-level `history` receipt beside `revision` and `result`. A geometry patch can
+include presentation changes; presentation-only patches and unchanged arrangements
+do not return receipts. New-board creation, home-only moves, references, removal,
+deletion and canonical item edits are outside movement history.
+
+Submit `{"type":"restoreMovement","history":RECEIPT}` to undo that movement.
+The operation accepts the usual `expectedRevision` and `operationId`, restores
+the original placement IDs, complete geometry, presentation, placement-array and
+review order in one transaction, and returns a reciprocal `history` receipt for
+redo. Existing-board moves also restore any home membership/order they changed.
+Receipts contain only affected placement states and arrangement preconditions;
+they do not restore canonical items, notes, stars, content or resource files.
+Normal geometry and containment-cycle validation still applies.
+
+Receipts are bound to their durable workspace and authenticated using a private
+key stored lazily in workspace metadata. Public workspace/board responses and
+CLI workspace views omit this key. A changed arrangement on either affected board
+(or changed home order when the movement changed it) rejects restoration with 409
+before any commit. Unrelated note, star, item title and board title edits remain
+valid. Receipts remain usable after the 64-operation idempotence window expires;
+they are not a general workspace rollback API. Clients retain a bounded movement
+history for the current tab session, including navigation between boards, clear
+redo after a new movement, and consume reciprocal receipts only after success.
+
 Dragging a selected Canvas card carries the valid selected placements currently
 shown on that board. Each card keeps its offset; ordinary canvas drops submit one
 `translatePlacements`, and board/Parent drops submit one `move` with group geometry.
@@ -152,7 +178,7 @@ POST `/api/operations` accepts one operation as its JSON body. PATCH `/api/items
 
 Every HTTP write requires `Content-Type: application/json` and `x-tinka-workspace` equal to the **live `/api/config.workspaceId`**. That machine identity preserves the existing config/boards namespace for the default metadata location, and additionally scopes a genuinely custom workspaceRoot. It is distinct from the durable `/api/workspace.workspaceId`. Same-origin Host/Origin checks and a 1 MB request limit apply. A stale tab or changed live config cannot save into a different project. CLI operations address their explicit config and use the same locks.
 
-Each operation may include `expectedRevision` and a unique `operationId`. A stale revision returns 409; reload and reconcile the intended edit before retrying. A repeated operation ID with identical payload replays its result; reuse with different input fails. Idempotence receipts retain the most recent 64 operations. Successful operations return `{revision,result}` with created IDs. Invalid operations return 400, unknown targets 404, cycles/conflicts 409; no partial metadata change is committed.
+Each operation may include `expectedRevision` and a unique `operationId`. A stale revision returns 409; reload and reconcile the intended edit before retrying. A repeated operation ID with identical payload replays its result; reuse with different input fails. The idempotence cache retains up to the most recent 64 operations, evicting older responses sooner when needed to fit the metadata byte budget. If a single exceptional movement receipt cannot fit, the original response still returns its full `history`; an identical retry retains the original result/revision but may omit that optional receipt. Independently held movement receipts remain valid after cache eviction. Successful operations return `{revision,result}` with created IDs and optional movement `history`. Invalid operations return 400, unknown targets 404, cycles/conflicts 409; no partial metadata change is committed.
 
 ## Legacy boards
 

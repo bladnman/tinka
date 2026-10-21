@@ -143,6 +143,27 @@ pixels) and six screen pixels along the border retain decoration manipulation.
 Text/arrows, controls, editable labels, menus, scrollbars, Grid and modal/reader
 views are excluded. Touch background pan/pinch and wheel/zoom behavior remain.
 
+Movement history is local to a browser tab and config workspace identity, retained
+in sessionStorage across board navigation with at most 50 total undo/redo entries.
+WorkspaceClient exposes optional receipt capture while preserving existing result
+values. Successful server-authenticated movement inverses are treated as opaque;
+restoreMovement returns a reciprocal receipt for the opposite stack. No receipt is
+recorded for failure, cancellation or no-op, and a new eligible movement clears redo.
+Eligible changes are placement geometry/resize, translatePlacements (including one
+atomic selected arrow nudge), and source-placement moves to existing boards. Moves
+creating a board, home-only operations and deletion are outside browser movement
+history. Canonical content, review and titles are never rolled back. Replay refreshes
+the current revision and latest board without flushing review drafts, then relies on
+server arrangement preconditions to reject conflicts rather than overwrite them.
+Cmd/Ctrl-Z and Shift-Cmd/Ctrl-Z replay only outside editing fields/dialogs/readers
+and when no pointer gesture or write is active. Tools contains dynamically labelled
+Undo/Redo controls without adding header actions. Keyed reconciliation retains all
+unaffected previews through replay. Right-clicking a native card opens its existing
+anchored notes/appearance popup; editable fields and touch context gestures retain
+their behavior. Canvas bottom name-bar and title drags share normal thresholds and
+selection movement, while title clicks open the item and checkbox/star/overflow/
+resize controls retain their independent actions.
+
 ## Legacy data
 Each immediate subfolder with board.json is a board. Slug [a-z0-9][a-z0-9-]*.
 board.json: {schemaVersion:1,title,description,createdAt,cover?,legacyNotesKey?}.
