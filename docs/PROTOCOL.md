@@ -237,11 +237,11 @@ coordinates, then moves the entire selection by that delta in one revision. Size
 presentation, z order and canonical items stay unchanged. An invalid/missing ID,
 coordinate overflow or revision conflict rejects the entire operation.
 
-Successful `pastePlacements`, geometry `updatePlacement`, `translatePlacements` and `move` operations
+Successful `remove`, `pastePlacements`, geometry `updatePlacement`, `translatePlacements` and `move` operations
 from source placements into an existing board also return an opaque, signed
 top-level `history` receipt beside `revision` and `result`. A geometry patch can
 include presentation changes; presentation-only patches and unchanged arrangements
-do not return receipts. New-board creation, home-only moves, references, removal,
+do not return receipts. New-board creation, home-only moves, references, canonical
 deletion and canonical item edits are outside movement history.
 
 Submit `{"type":"restoreMovement","history":RECEIPT}` to undo that movement.
@@ -249,6 +249,15 @@ The operation accepts the usual `expectedRevision` and `operationId`, restores
 the original placement IDs, complete geometry, presentation, placement-array and
 review order in one transaction, and returns a reciprocal `history` receipt for
 redo. Existing-board moves also restore any home membership/order they changed.
+Removing selected placements is one atomic history step; undo restores their exact
+IDs, geometry, presentation and review order, while other references, current
+canonical notes/stars, children and resources remain intact. Delete or Backspace
+removes the current rendered selection immediately outside editing fields, readers,
+dialogs, previews and active gestures/writes. Holding the key makes one request.
+The toolbar keeps its confirmation and produces the same undoable operation. A
+successful removal cancels only the pending cut intent captured before its request,
+so the next Cmd/Ctrl-Z can restore the removed placements. A rejected removal
+retains that cut intent.
 Undoing a paste detaches its new placements; redo restores those exact IDs and
 arrangement. Copied canonical data and child boards remain available privately,
 later review edits survive, and undone child boards do not appear on Home.

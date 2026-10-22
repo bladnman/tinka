@@ -156,8 +156,8 @@ values. Successful server-authenticated movement inverses are treated as opaque;
 restoreMovement returns a reciprocal receipt for the opposite stack. No receipt is
 recorded for failure, cancellation or no-op, and a new eligible movement clears redo.
 Eligible changes are placement geometry/resize, translatePlacements (including one
-atomic selected arrow nudge), source-placement moves to existing boards, and pastePlacements. Moves
-creating a board, home-only operations and deletion are outside browser movement
+atomic selected arrow nudge), source-placement moves to existing boards, pastePlacements and board-placement remove. Moves
+creating a board, home-only operations and canonical deletion are outside browser movement
 history. Movement replay does not roll back canonical content, review or titles. Paste
 receipts remove/restore only the new copied identities and arrangements. Replay refreshes
 the current revision and latest board without flushing review drafts, then relies on
@@ -170,6 +170,17 @@ anchored notes/appearance popup; editable fields and touch context gestures reta
 their behavior. Canvas bottom name-bar and title drags share normal thresholds and
 selection movement, while title clicks open the item and checkbox/star/overflow/
 resize controls retain their independent actions.
+
+Delete/Backspace removes visible valid selected board placements immediately via
+one existing atomic remove operation; key repeat, native editing, reader/dialog,
+active gesture and pending-write guards prevent accidental commands. It records
+one signed single-board movement-history receipt. Removal tombstones placements
+only; canonical review/content/children, resources and other references stay.
+Undo/redo restores exact placement IDs, geometry/presentation and review order.
+Toolbar removal retains confirmation and shares the same undoable path. Pending
+Cut intent is canceled only after successful removal, so following Cmd/Ctrl-Z
+restores removal rather than canceling an obsolete Cut. No canonical delete or
+resource-file deletion is introduced.
 
 Clipboard uses native copy/cut/paste events outside editing fields, readers/dialogs,
 previews and active gestures/writes. The versioned custom MIME is

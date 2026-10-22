@@ -160,12 +160,19 @@ The card’s bottom name bar also drags; clicking its title still opens the item
 Checkboxes, stars, ⋯ and resize controls keep their separate actions. Right-click
 a native card to open the same notes-and-appearance popup as its ⋯ button.
 
+Press Delete or Backspace to remove selected Tinkas from this board immediately.
+⌘Z / Ctrl-Z restores the exact placements and arrangement; Redo removes them
+again. Notes, stars, child boards, resource files and references on other boards
+stay available. The toolbar’s Remove from board action is also undoable and
+retains its confirmation. Editing fields, readers, dialogs and active gestures
+keep their normal keys. A successful removal cancels any pending Cut intent.
+
 Use ⌘Z / Ctrl-Z to undo a move and ⇧⌘Z / Ctrl-Shift-Z to redo it. Tools also has
-Undo and Redo. This tab remembers up to 50 successful movement or paste steps for this
+Undo and Redo. This tab remembers up to 50 successful movement, paste or board-removal steps for this
 workspace, including across Parent/child navigation: card positioning, resizing,
 selected-card nudges, and moves into or out of existing boards. A selection moves
 as one step, with exact placement identities and arrangement restored. Movement undo keeps notes,
-titles and content; paste undo removes only the copies that paste created. New-board creation and deletion are outside
+titles and content; paste undo removes only the copies that paste created. New-board creation and canonical item deletion are outside
 movement history. Text fields keep their own undo, and replay is available after
 gestures and writes finish. A conflicting arrangement is never overwritten; review the
 latest board before retrying. New successful movement clears the redo branch.

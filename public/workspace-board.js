@@ -161,7 +161,7 @@ export class WorkspaceBoard {
     $("help-panel").append(" Copy selected Tinkas with ⌘/Ctrl-C, then paste here or in another board with ⌘/Ctrl-V. Copies retain their arrangement and use the same files. A pasted link gets a saved representation; pasted text becomes a document. Undo also reverses paste. Text fields keep their normal clipboard.");
     $("help-panel").append(" Select several cards and drag a selected card to carry them together, into a board or onto Parent. An unselected card, resize or held cover child still acts alone.");
     $("help-panel").append(" With a mouse or pen, drag a box on empty Canvas space to select cards. Hold Shift when starting to add to your selection; Escape cancels. An empty click clears selection. Unused colored-region interiors also work; use a region’s label or border to move it. Touch keeps swiping and pinching.");
-    $("help-panel").append(" The bottom name bar also drags; a title click opens the item. Right-click a card for its notes and appearance. Use ⌘/Ctrl-Z to undo movement and Shift-⌘/Ctrl-Z to redo, or find Undo/Redo in Tools. This tab remembers movements across boards; text fields keep their own undo. New-board creation and deletion are outside movement history.");
+    $("help-panel").append(" The bottom name bar also drags; a title click opens the item. Right-click a card for its notes and appearance. Use ⌘/Ctrl-Z to undo movement and Shift-⌘/Ctrl-Z to redo, or find Undo/Redo in Tools. This tab remembers movements across boards; text fields keep their own undo. Delete or Backspace removes the visible selection from this board; ⌘/Ctrl-Z restores it. New-board creation and canonical deletion are outside movement history.");
     bar.id = "workspace-toolbar";
     bar.className = "workspace-toolbar";
     bar.setAttribute("aria-label", "Organize this board");
@@ -189,7 +189,7 @@ export class WorkspaceBoard {
       // Browser text editing keeps its own undo; movement replay is available
       // only when no pointer gesture or operation is still being committed.
       e.preventDefault(); e.stopImmediatePropagation();
-      if (this.pointerGesture || this.decorationGesture || this.movePending || this.historyBusy || this.client.pendingWrites || this.saving) return;
+      if (this.pointerGesture || this.decorationGesture || this.movePending || this.historyBusy || this.pasteBusy || this.history?.busy || this.client.pendingWrites || this.saving) return;
       if (!e.shiftKey && this.cutIntent.active()) { this.cancelCut(); return; }
       this.replayMovement(e.shiftKey ? "redo" : "undo");
     }, true);
@@ -761,14 +761,14 @@ export class WorkspaceBoard {
       const verb = direction === "undo" ? "Undo" : "Redo", label = this.history?.label(direction);
       button.textContent = label ? `${verb} ${label.toLowerCase()}` : verb;
       button.disabled = !!busy || !this.history?.available(direction);
-      button.title = direction === "undo" ? "Undo movement or paste (⌘/Ctrl Z)" : "Redo movement or paste (⌘/Ctrl Shift Z)";
+      button.title = direction === "undo" ? "Undo movement, paste or removal (⌘/Ctrl Z)" : "Redo movement, paste or removal (⌘/Ctrl Shift Z)";
     }
     const copy = $("workspace-copy"), paste = $("workspace-paste");
     if (copy) copy.disabled = !!busy || !this.clipboardCandidates().length;
     if (paste) paste.disabled = !!busy;
   }
   async replayMovement(direction) {
-    if (this.pointerGesture || this.decorationGesture || this.movePending || this.historyBusy || this.client.pendingWrites || this.saving ||
+    if (this.pointerGesture || this.decorationGesture || this.movePending || this.historyBusy || this.pasteBusy || this.history?.busy || this.client.pendingWrites || this.saving ||
         document.activeElement?.closest("input,textarea,select,[contenteditable],[role=dialog]") || document.querySelector("dialog[open]") ||
         !this.history.available(direction)) return;
     this.historyBusy = true;
@@ -981,7 +981,7 @@ export class WorkspaceBoard {
     this.updateHistoryControls();
   }
   async bulk(type) {
-    const ids = [...this.selection];
+    const ids = type === "remove" ? this.clipboardCandidates().map(p => p.id) : [...this.selection];
     try {
       if (type === "clear") {
         this.selection.clear();
@@ -1005,18 +1005,11 @@ export class WorkspaceBoard {
         return;
       }
       if (type === "remove") {
+        if (!ids.length) return;
         makeDialog(
           "Remove these placements?",
           `<p>Remove ${ids.length} placement${ids.length === 1 ? "" : "s"} from this board. Other references, canonical items, notes and all resource files remain intact.</p><button type="submit" class="workspace-primary">Remove from this board</button>`,
-          async () => {
-            await this.client.write("remove", {
-              boardId: this.snapshot.id,
-              placementIds: ids,
-            });
-            this.selection.clear();
-            await this.refresh();
-            toast("Placements removed. Item content and files remain intact.");
-          },
+          () => this.removePlacements(ids),
         );
         return;
       }
@@ -1034,6 +1027,35 @@ export class WorkspaceBoard {
       );
     } catch (e) {
       showFailure(e);
+    }
+  }
+  async removePlacements(ids) {
+    // This shared write guard deliberately permits the confirmed toolbar dialog.
+    if (!ids.length || this.pointerGesture || this.decorationGesture || this.movePending ||
+        this.historyBusy || this.history?.busy || this.pasteBusy || this.client.pendingWrites || this.saving) return;
+    const eligible = new Set(this.clipboardCandidates().map(p => p.id));
+    if (new Set(ids).size !== ids.length || ids.some(id => !eligible.has(id))) return;
+    this.movePending = true;
+    this.updateHistoryControls();
+    const cut = this.cutIntent.active();
+    let confirmedRemoved = false;
+    try {
+      await this.client.write("remove", {boardId:this.snapshot.id,placementIds:ids});
+      confirmedRemoved = true;
+      // Clear only the intent captured before this request, never a newer tab's cut.
+      this.cutIntent.clear(cut);
+      ids.forEach(id => this.selection.delete(id));
+      if (ids.includes(this.contextPlacement)) this.closeContext();
+      await this.refresh({saveReview:false});
+      toast(`Removed ${ids.length} Tinka${ids.length === 1 ? "" : "s"} from this board. Undo to restore.`);
+    } catch (error) {
+      try { await this.refresh({saveReview:false}); } catch {}
+      if (confirmedRemoved) toast("Removed from this board. Reload to see the latest board; Undo remains available.");
+      else if (error.rejected || error.conflict) showFailure(error);
+      else toast("Could not confirm removal. Check the latest board before trying again.");
+    } finally {
+      this.movePending = false;
+      this.updateHistoryControls();
     }
   }
   group(ids) {
@@ -1976,11 +1998,18 @@ export class WorkspaceBoard {
         if (this.activeDecoration) { const old = this.snapshot.decorations.find(d => d.id === this.activeDecoration); this.activeDecoration = null; if (old) this.updateDecorationElement(old); e.preventDefault(); return; }
         if (this.selection.size) { this.selection.clear(); this.build(this.hooks.concepts()); e.preventDefault(); return; }
       }
-      if (e.target.closest("input,textarea,select,[contenteditable]")) return;
+      if (e.target.closest("input,textarea,select,[contenteditable],[role=textbox],[role=dialog]")) return;
       if (e.metaKey || e.ctrlKey || e.altKey) return;
       const delta = { ArrowLeft: [-1,0], ArrowRight: [1,0], ArrowUp: [0,-1], ArrowDown: [0,1] }[e.key];
       if (this.activeDecoration && ["Delete", "Backspace"].includes(e.key)) { e.preventDefault(); this.deleteDecoration(); return; }
-      if (this.selection.size && ["Delete", "Backspace"].includes(e.key)) { e.preventDefault(); this.bulk("remove"); return; }
+      if (["Delete", "Backspace"].includes(e.key)) {
+        if (e.repeat || e.shiftKey || this.clipboardBlocked() || this.history?.busy) return;
+        const ids = this.clipboardCandidates().map(p => p.id);
+        if (!ids.length) return;
+        e.preventDefault(); e.stopImmediatePropagation();
+        this.removePlacements(ids);
+        return;
+      }
       if (!delta || (!this.activeDecoration && !this.selection.size)) return;
       e.preventDefault(); e.stopImmediatePropagation();
       if (this.pointerGesture || this.movePending || this.historyBusy) return;
