@@ -160,6 +160,14 @@ The card’s bottom name bar also drags; clicking its title still opens the item
 Checkboxes, stars, ⋯ and resize controls keep their separate actions. Right-click
 a native card to open the same notes-and-appearance popup as its ⋯ button.
 
+Use ⌘D / Ctrl-D to duplicate the visible selection without changing the clipboard.
+The independent copies retain arrangement, dimensions, appearance and feedback,
+share existing resource files, and appear 32 canvas units diagonally from the
+originals. They become selected and are one Undo/Redo step. ⌘A / Ctrl-A selects
+all rendered cards; Enter opens the sole selected item; / opens Tools search;
+Shift-1 fits the board. ? or Tools → Keyboard shortcuts shows the shortcut sheet.
+Editing fields, readers, iframes and dialogs keep their native keys.
+
 Press Delete or Backspace to remove selected Tinkas from this board immediately.
 ⌘Z / Ctrl-Z restores the exact placements and arrangement; Redo removes them
 again. Notes, stars, child boards, resource files and references on other boards

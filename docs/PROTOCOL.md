@@ -76,6 +76,25 @@ Attach children to an existing item with `{"type":"createBoard","itemId":"openin
 
 `duplicate` takes `itemId` and optional `targetBoardId` and creates an independent canonical item pointing at the same files. A board duplicate copies its arrangement while retaining references to its children. `archive` takes `boardId,placementIds,archived`; `archiveItem` takes `itemIds,archived`. `remove` detaches placements. `deleteItem` marks canonical items deleted across placements. None deletes resource files. Restore archives with `archived:false`; removal/deletion remains recoverable in metadata backups/history and the resource payload remains intact.
 
+### Board keyboard commands
+
+Cmd/Ctrl-D duplicates selected valid rendered Tinkas on the current board through
+one existing pastePlacements transaction. Copies have independent identities and
+retain relative arrangement, size, appearance, review data and shared resource
+files, offset by 32 board units in each direction. A copied collection retains
+its layout and references its existing children. Copies become selected and visible.
+Each command records one existing receipt labelled Duplicate for whole-group
+undo/redo. The native clipboard remains unchanged. Confirmed success cancels only
+the pending Cut captured before the command, allowing the next Cmd/Ctrl-Z to undo
+duplication; failure or a newer cross-tab Cut leaves that intent intact.
+
+Cmd/Ctrl-A selects all valid rendered placements under the current filters. Enter
+opens one selected Tinka through its existing open action. Slash opens Tools and
+focuses board search. Shift-1 fits the Canvas. Question mark or Tools → Keyboard
+shortcuts opens a concise key guide. Native editing fields, readers, dialogs,
+iframe focus, held key repeat, gestures and pending writes/history block these
+commands. Browser defaults are prevented only when a command is handled.
+
 ### Deferred cut and paste
 
 Native Cut marks the active selection without changing graph metadata. Paste on

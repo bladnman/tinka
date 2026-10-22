@@ -171,6 +171,19 @@ their behavior. Canvas bottom name-bar and title drags share normal thresholds a
 selection movement, while title clicks open the item and checkbox/star/overflow/
 resize controls retain their independent actions.
 
+Cmd/Ctrl-D duplicates valid rendered selected placements through the existing
+pastePlacements transaction without reading/writing the OS clipboard or replacing
+the copied buffer. It preserves relative arrangement, dimensions/presentation and
+canonical snapshot feedback while creating independent identities using the same
+resource files; destination is offset +32 in x/y. New placements become selected
+and produce one Undo/Redo receipt. Only the captured pending Cut intent clears
+after success; a newer intent survives. Failure leaves the original selection.
+Cmd/Ctrl-A selects all rendered cards under current filters, Enter opens only one
+selected item, / opens Tools search, Shift-1 fits the board, and ? or Tools opens
+a Keyboard shortcuts sheet. Native editors, readers, iframes/dialogs and busy or
+pointer-gesture guards retain their commands. These selection/navigation shortcuts
+make no graph writes; existing Escape/nudge behavior remains.
+
 Delete/Backspace removes visible valid selected board placements immediately via
 one existing atomic remove operation; key repeat, native editing, reader/dialog,
 active gesture and pending-write guards prevent accidental commands. It records

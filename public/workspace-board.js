@@ -183,6 +183,7 @@ export class WorkspaceBoard {
     $("workspace-undo").onclick = () => this.replayMovement("undo");
     $("workspace-redo").onclick = () => this.replayMovement("redo");
     this.updateHistoryControls();
+    this.installBoardCommands(bar);
     document.addEventListener("keydown", e => {
       if (!(e.metaKey || e.ctrlKey) || e.altKey || e.key.toLowerCase() !== "z" ||
           e.target.closest("input,textarea,select,[contenteditable],[role=dialog]") || document.querySelector("dialog[open]")) return;
@@ -414,10 +415,89 @@ export class WorkspaceBoard {
     this.hooks.data(this.adapt(snapshot));
     await this.loadCrumb();
   }
-  clipboardCandidates() {
+  renderedPlacements() {
     const rendered = new Set([...$("world").querySelectorAll(".workspace-card[data-placement]")].map(card => card.dataset.placement));
-    return this.snapshot.placements.filter(p => this.selection.has(p.id) && rendered.has(p.id) && !p.removedAt && !p.deletedAt &&
+    return this.snapshot.placements.filter(p => rendered.has(p.id) && !p.removedAt && !p.deletedAt &&
       this.snapshot.items[p.itemId] && !this.snapshot.items[p.itemId].deletedAt);
+  }
+  clipboardCandidates() {
+    return this.renderedPlacements().filter(p => this.selection.has(p.id));
+  }
+  boardCommandBlocked(event) {
+    return this.clipboardBlocked() || this.history?.busy ||
+      event?.target.closest?.("input,textarea,select,[contenteditable],[role=textbox],[role=dialog]") ||
+      document.activeElement?.closest("[role=textbox]");
+  }
+  installBoardCommands(bar) {
+    const guide = document.createElement("button");
+    guide.type = "button";
+    guide.id = "workspace-keyboard-shortcuts";
+    guide.textContent = "Keyboard shortcuts";
+    guide.onclick = () => { if (!this.boardCommandBlocked()) this.keyboardShortcuts(); };
+    bar.append(guide);
+    document.addEventListener("keydown", event => {
+      if (event.isComposing || event.keyCode === 229 || event.altKey) return;
+      const command = event.metaKey || event.ctrlKey;
+      const key = event.key.toLowerCase();
+      if (command && !event.shiftKey && key === "d") {
+        const editing = "input,textarea,select,[contenteditable],[role=textbox],[role=dialog]";
+        if (event.target.closest?.(editing) || document.activeElement?.closest(editing) ||
+            document.activeElement?.tagName === "IFRAME" || document.querySelector("dialog[open]") ||
+            !this.clipboardCandidates().length) return;
+        // Board-owned Duplicate never falls through to browser Bookmark while
+        // a held key or an in-flight action suppresses another duplication.
+        event.preventDefault(); event.stopImmediatePropagation();
+        if (!event.repeat && !this.boardCommandBlocked(event)) this.duplicateSelection();
+        return;
+      }
+      if (event.repeat || this.boardCommandBlocked(event)) return;
+      let action;
+      if (command && !event.shiftKey && key === "a")
+        action = () => {
+          this.selection = new Set(this.renderedPlacements().map(p => p.id));
+          this.syncSelection();
+          this.selectionMenu();
+        };
+      else if (!command && !event.shiftKey && key === "enter" &&
+          !event.target.closest?.("button,a,[role=button]") && this.clipboardCandidates().length === 1) {
+        const id = this.clipboardCandidates()[0].id;
+        const card = [...$("world").querySelectorAll(".workspace-card[data-placement]")].find(card => card.dataset.placement === id);
+        const open = card?.querySelector("[data-open]:not(:disabled)");
+        if (open) action = () => open.click();
+      } else if (!command && !event.shiftKey && key === "/") action = () => {
+        $("board-info").hidden = false;
+        $("board-info-toggle").setAttribute("aria-expanded","true");
+        $("workspace-search").focus({preventScroll:true});
+      };
+      else if (!command && event.shiftKey && (key === "!" || key === "1") && this.mode === "canvas")
+        action = () => $("fit").click();
+      else if (!command && key === "?") action = () => this.keyboardShortcuts();
+      if (!action) return;
+      event.preventDefault(); event.stopImmediatePropagation();
+      action();
+    }, true);
+  }
+  keyboardShortcuts() {
+    const previousFocus = document.activeElement;
+    const returnFocus = $("board-info").contains(previousFocus) ? $("board-info-toggle") : previousFocus;
+    $("board-info").hidden = true;
+    $("board-info-toggle").setAttribute("aria-expanded","false");
+    const dialog = makeDialog("Keyboard shortcuts", `<p>Use these keys while working on a board. Text fields and previews keep their normal keys.</p>
+      <dl><dt>⌘/Ctrl-A</dt><dd>Select all visible Tinkas</dd>
+      <dt>⌘/Ctrl-D</dt><dd>Duplicate selection</dd>
+      <dt>Enter</dt><dd>Open one selected Tinka</dd>
+      <dt>/</dt><dd>Search this board</dd>
+      <dt>Shift-1</dt><dd>Fit the canvas</dd>
+      <dt>?</dt><dd>Show keyboard shortcuts</dd>
+      <dt>⌘/Ctrl-C · X · V</dt><dd>Copy · Cut · Paste</dd>
+      <dt>Delete / Backspace</dt><dd>Remove selection from this board</dd>
+      <dt>⌘/Ctrl-Z · Shift-⌘/Ctrl-Z</dt><dd>Undo · Redo</dd>
+      <dt>Arrow keys · Shift-Arrow</dt><dd>Move selection 1 · 10 units</dd>
+      <dt>Escape</dt><dd>Cancel a gesture, pending Cut or selection</dd></dl>`);
+    dialog.addEventListener("close", () => {
+      if (returnFocus?.isConnected) returnFocus.focus({preventScroll:true});
+    });
+    return dialog;
   }
   clipboardBlocked() {
     return this.pointerGesture || this.decorationGesture || this.movePending || this.historyBusy || this.pasteBusy ||
@@ -699,12 +779,25 @@ export class WorkspaceBoard {
     if (next && next.x < bottom.x - 40 && next.y < bottom.y - 40) return next;
     return {x:Math.max(top.x,Math.min(center.x,bottom.x - width)),y:Math.max(top.y,Math.min(center.y,bottom.y - height))};
   }
+  duplicateSelection() {
+    if (this.clipboardBlocked() || this.history?.busy) return;
+    try {
+      const clipboard = this.copySnapshot();
+      if (!clipboard) return;
+      // Duplicate uses the copy transaction directly, leaving native clipboard
+      // contents untouched. A successful duplicate cancels its captured Cut.
+      const targetPosition = {x:Math.min(...clipboard.placements.map(p => p.x)) + 32,
+        y:Math.min(...clipboard.placements.map(p => p.y)) + 32};
+      return this.pasteClipboard({kind:"duplicate",clipboard,targetPosition});
+    } catch (error) { toast(error.message); }
+  }
   async pasteClipboard(source) {
     this.pasteBusy = true;
     this.pasteCancelled = false;
     this.movePending = true;
     this.updateHistoryControls();
     let written = false;
+    const cut = source.kind === "duplicate" ? this.cutIntent.active() : null;
     try {
       let clipboard = source.clipboard;
       if (!clipboard) {
@@ -724,13 +817,19 @@ export class WorkspaceBoard {
       if (this.pasteCancelled) return;
       await this.refresh({saveReview:false});
       if (this.pasteCancelled) return;
-      const targetPosition = this.pastePosition(clipboard);
+      const targetPosition = source.targetPosition || this.pastePosition(clipboard);
       const operation = {clipboard,targetBoardId:this.snapshot.id,targetPosition};
       if (clipboardBytes({type:"pastePlacements",...operation}) > 900000)
         throw new Error("This paste is too large to save at once. Paste a smaller document or selection; its text has not been truncated.");
       this.moveCommitting = true;
-      const result = await this.client.write("pastePlacements",operation);
+      let result;
+      if (source.kind === "duplicate") {
+        const response = await this.client.write("pastePlacements",operation,{recordHistory:false,includeHistory:true});
+        result = response.result;
+        if (response.history) this.history.record(response.history,{type:"duplicate",data:operation});
+      } else result = await this.client.write("pastePlacements",operation);
       written = true;
+      if (source.kind === "duplicate") this.cutIntent.clear(cut);
       this.moveCommitting = false;
       this.lastPastePosition = targetPosition;
       this.filters = {search:"",favorites:false,recent:false,archive:false};
@@ -739,12 +838,13 @@ export class WorkspaceBoard {
       this.selection = new Set(result.placementIds || []);
       await this.refresh({saveReview:false});
       this.hooks.revealPlacements?.(this.snapshot.placements.filter(p => this.selection.has(p.id)));
-      toast(source.kind === "url" ? "Link pasted." : source.kind === "text" ? "Document pasted." : `Pasted ${result.placementIds.length} Tinkas.`);
+      toast(source.kind === "duplicate" ? `Duplicated ${result.placementIds.length} Tinka${result.placementIds.length === 1 ? "" : "s"}.` : source.kind === "url" ? "Link pasted." : source.kind === "text" ? "Document pasted." : `Pasted ${result.placementIds.length} Tinkas.`);
     } catch (error) {
       this.moveCommitting = false;
       try { await this.refresh({saveReview:false}); } catch {}
-      toast(written ? "Paste saved. Reload the board to see it." : error.conflict ? `Paste not saved. ${error.message}` :
-        `Could not confirm the paste. ${error.message}`);
+      const action = source.kind === "duplicate" ? "Duplication" : "Paste";
+      toast(written ? `${action} saved. Reload the board to see it.` : error.conflict ? `${action} not saved. ${error.message}` :
+        `Could not confirm ${source.kind === "duplicate" ? "duplication" : "the paste"}. ${error.message}`);
     } finally {
       this.pasteBusy = false;
       this.movePending = false;

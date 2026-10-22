@@ -34,7 +34,7 @@ export class MovementHistory {
     if (operationId && this.state.seen.includes(operationId)) return;
     if (operationId) this.state.seen = [...this.state.seen,operationId].slice(-100);
     const count = data.placementIds?.length || data.clipboard?.placements?.length || data.files?.length || 1;
-    const action = type === "remove" ? (count > 1 ? `Remove ${count} items` : "Remove item") : type === "importFiles" ? (count > 1 ? `Import ${count} files` : "Import file") : type === "pastePlacements" ? (count > 1 ? `Paste ${count} items` : "Paste item") : type === "updatePlacement" && ("width" in (data.patch || {}) || "height" in (data.patch || {}))
+    const action = type === "duplicate" ? (count > 1 ? `Duplicate ${count} items` : "Duplicate item") : type === "remove" ? (count > 1 ? `Remove ${count} items` : "Remove item") : type === "importFiles" ? (count > 1 ? `Import ${count} files` : "Import file") : type === "pastePlacements" ? (count > 1 ? `Paste ${count} items` : "Paste item") : type === "updatePlacement" && ("width" in (data.patch || {}) || "height" in (data.patch || {}))
       ? "Resize item" : count > 1 ? `Move ${count} items` : "Move item";
     this.state.undo.push({history,label:action});
     this.state.redo = [];
