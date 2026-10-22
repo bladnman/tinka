@@ -110,6 +110,7 @@ try {
   await replay(true);assert.deepEqual(arrange(await snapshot(),source.boardId),arrange(removed.after,source.boardId));assert.deepEqual((await snapshot()).items,currentItems);
   assert.equal(await page.evaluate(()=>window.keptFrame.isConnected&&window.keptLoads===0),true,'Surviving native preview stays mounted across remove/undo/redo');
   assert.equal(await readFile(path.join(boards,'resources/prototype.html'),'utf8'),resource);
+  await page.waitForFunction(()=>document.getElementById('live-status')?.textContent==='Live · 1 items');
   await page.screenshot({path:path.join(evidence,'remove-undone-redone-1440.png')});
   await replay(false);await select([ids[0]]);const backspace=await commit(()=>page.keyboard.press('Backspace'));await replay(false);assert.deepEqual(arrange(await snapshot(),source.boardId),arrange(backspace.before,source.boardId));
   // Editing, reader, arbitrary modal, iframe focus, modifiers and repeats keep ownership.
