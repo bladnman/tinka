@@ -121,6 +121,8 @@ try {
   assert.equal((await history()).undo.at(-1).label,'Duplicate 4 items');
   for(const id of fresh.slice(0,2))await card(id).locator('iframe').contentFrame().locator('.item-full-frame').contentFrame().getByRole('heading').waitFor();
   await page.waitForFunction(ids=>ids.every(id=>window.qaLoads.get(document.querySelector(`[data-placement="${id}"] iframe`))>0),fresh.slice(0,2));
+  const liveCount=board(duplicated.after).placements.filter(p=>!p.removedAt&&!p.deletedAt&&!p.archivedAt).length;
+  await page.waitForFunction(count=>document.getElementById('live-status')?.textContent===`Live · ${count} items`,liveCount);
   await page.screenshot({path:path.join(evidence,'duplicate-arrangement-1440.png')});
   await replay(false);assert.deepEqual(arrangement(await snapshot()),arrangement(duplicated.before));
   await replay(true);assert.deepEqual(arrangement(await snapshot()),arrangement(duplicated.after));assert.equal(await page.evaluate(()=>window.qaOriginalFrames.every(p=>p.frame.isConnected&&p.loads===0)),true);
