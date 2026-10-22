@@ -1413,6 +1413,8 @@ try {
   assert.deepEqual(coverProof.map(p => [p.width,p.height,p.sandbox]), [[440,620,"allow-scripts"],[440,620,"allow-scripts"]], "HTML tiles retain the whole supplied design viewport");
   const frameIdentities = [];
   for (const frame of await twoCard.locator(".board-collage iframe").all()) frameIdentities.push(await frame.contentFrame().locator("body").evaluate(() => window.coverIdentity = crypto.randomUUID()));
+  // Establish the initial live baseline before external mutations can advance it.
+  await page.locator('#live-status[data-connection="live"]').waitFor();
   await post("/api/operations", {type:"updatePlacement",boardId:coverParent.boardId,placementId:two.placementIds[0],patch:{x:21,width:350}});
   await post("/api/operations", {type:"review",itemId:two.itemId,patch:{star:true,note:"Collage stays mounted"}});
   await page.waitForFunction(id => document.querySelector(`[data-placement="${id}"] [data-star]`).getAttribute("aria-pressed")==="true", two.placementIds[0]);
