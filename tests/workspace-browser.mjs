@@ -1476,7 +1476,9 @@ try {
   page.on("request", observeMove);
   const snapshot = async () => (await fetch(base + "/api/workspace")).json();
   const waitGraph = async test => {
-    for (let i=0;i<100;i++) { const next=await snapshot(); if(test(next)) return next; await new Promise(resolve=>setTimeout(resolve,30)); }
+    // A persisted revision precedes the completed browser refresh and gesture cleanup.
+    // Wait for the existing Paste control to reflect idle before starting another pointer gesture.
+    for (let i=0;i<100;i++) { const next=await snapshot(); if(test(next)) { await page.waitForFunction(()=>document.getElementById("workspace-paste")?.disabled===false); return next; } await new Promise(resolve=>setTimeout(resolve,30)); }
     throw new Error("Drag graph change did not persist");
   };
   const setZoom = async percent => {

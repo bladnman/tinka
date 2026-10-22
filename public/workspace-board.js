@@ -1597,6 +1597,7 @@ export class WorkspaceBoard {
           } finally {
             this.moveCommitting = false;
             this.movePending = false;
+            this.updateHistoryControls();
             drainRefresh();
           }
           return;
@@ -1624,6 +1625,7 @@ export class WorkspaceBoard {
           } finally {
             this.moveCommitting = false;
             this.movePending = false;
+            this.updateHistoryControls();
             drainRefresh();
           }
           return;
