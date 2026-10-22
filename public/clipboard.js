@@ -21,7 +21,7 @@ export function readClipboard(data, workspaceId) {
       throw new Error("These Tinkas belong to a different workspace or clipboard version.");
     if (!Array.isArray(clipboard.placements) || !clipboard.placements.length || !clipboard.items || !clipboard.boards)
       throw new Error("This Tinka clipboard is incomplete. Copy the selection again.");
-    return {kind:"tinkas",clipboard};
+    return {kind:Object.hasOwn(clipboard,"cut") ? "cut" : "tinkas",clipboard};
   }
   if (!text.trim()) return null;
   const single = /^https?:\/\/\S+$/i.test(text.trim());

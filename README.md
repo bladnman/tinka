@@ -178,6 +178,18 @@ stay in place. Tools also offers Copy selection and a Paste shortcut reminder.
 The clipboard carries the selection itself, including across tabs; unrelated text
 never pastes a stale selection. Another workspace's Tinkas are rejected.
 
+Use ⌘X / Ctrl-X on selected Tinkas to mark them for moving, then paste on another
+board in this workspace. Cut leaves originals in place until paste succeeds. The
+move keeps the same items, notes, stars, resources, children and relative layout;
+Undo restores the original source placements. Pasting back onto the source board
+makes no change and keeps the pending cut. Escape, Copy or a new Cut cancels it;
+Undo first cancels a pending cut before replaying movement history. Cut is usable
+once across tabs in the same browser profile. Browsers without Web Locks keep
+Copy available but decline board Cut. Editing fields and readers retain native Cut.
+If source placement layout/order changed, paste rejects the entire move; later
+item content or feedback edits remain current. An uncertain response can retry the
+same destination without creating a second move.
+
 Paste a single HTTP(S) link to make a link Tinka with a title, description and image
 when available, including public tweet metadata. Unavailable pages retain the
 original address and a recognizable fallback. This explicit paste looks up bounded

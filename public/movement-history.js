@@ -5,10 +5,11 @@ export class MovementHistory {
     this.client = client;
     this.key = `tinka/${workspaceId}/movement-history`;
     this.onChange = onChange;
-    this.state = {undo:[],redo:[]};
+    this.state = {undo:[],redo:[],seen:[]};
     this.busy = false;
     try {
       const saved = JSON.parse(sessionStorage.getItem(this.key) || "null");
+      this.state.seen = (Array.isArray(saved?.seen) ? saved.seen : []).filter(id=>typeof id === "string").slice(-100);
       for (const direction of ["undo","redo"])
         this.state[direction] = (Array.isArray(saved?.[direction]) ? saved[direction] : [])
           .filter(entry => entry && typeof entry.label === "string" && entry.history && typeof entry.history === "object")
@@ -29,7 +30,9 @@ export class MovementHistory {
     try { sessionStorage.setItem(this.key,JSON.stringify(this.state)); } catch {}
     this.onChange();
   }
-  record(history, {type,data}) {
+  record(history, {type,data}, operationId) {
+    if (operationId && this.state.seen.includes(operationId)) return;
+    if (operationId) this.state.seen = [...this.state.seen,operationId].slice(-100);
     const count = data.placementIds?.length || data.clipboard?.placements?.length || data.files?.length || 1;
     const action = type === "importFiles" ? (count > 1 ? `Import ${count} files` : "Import file") : type === "pastePlacements" ? (count > 1 ? `Paste ${count} items` : "Paste item") : type === "updatePlacement" && ("width" in (data.patch || {}) || "height" in (data.patch || {}))
       ? "Resize item" : count > 1 ? `Move ${count} items` : "Move item";

@@ -70,8 +70,7 @@ export class WorkspaceClient {
     this.queue = pending;
     return pending;
   }
-  write(type, data = {}, {recordHistory = true,includeHistory = false} = {}) {
-    const operationId = crypto.randomUUID();
+  write(type, data = {}, {recordHistory = true,includeHistory = false,operationId = crypto.randomUUID()} = {}) {
     this.pendingWrites++;
     this.onState?.();
     const pending = this.queue
@@ -98,11 +97,12 @@ export class WorkspaceClient {
               : d.error || `Change failed (${r.status})`,
           );
           e.conflict = r.status === 409;
+          e.rejected = r.status >= 400 && r.status < 500;
           throw e;
         }
-        this.revision = d.revision;
+        this.revision = Math.max(this.revision,d.revision);
         if (d.history && recordHistory && type !== "restoreMovement") this.onHistory?.(d.history,{type,data});
-        return includeHistory ? {result:d.result || d,history:d.history || null} : d.result || d;
+        return includeHistory ? {result:d.result || d,history:d.history || null,replayed:!!d.replayed} : d.result || d;
       }).finally(() => { this.pendingWrites--; this.onState?.(); });
     this.queue = pending;
     return pending;

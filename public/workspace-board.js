@@ -1,6 +1,7 @@
 import {reconcileChildren} from "./reconcile.js";
 import {coverMarkup, observeCovers} from "./board-covers.js";
 import {eventFiles,hasFileDrag,validateImportFiles,importLayout,pdfSupported,pdfPreviewURL} from "./file-import.js";
+import {CutIntent} from "./cut-intent.js";
 import {MovementHistory} from "./movement-history.js";
 import {CLIPBOARD_MIME,CLIPBOARD_PREFIX,clipboardBytes,readClipboard,externalClipboard} from "./clipboard.js";
 import {
@@ -24,6 +25,7 @@ export class WorkspaceBoard {
     this.history = new MovementHistory(this.client,config.workspaceId,() => this.updateHistoryControls());
     this.client.onState = () => this.updateHistoryControls();
     this.selection = new Set();
+    this.cutIntent = new CutIntent(config.workspaceId,snapshot.workspaceId,()=>this.syncCutMarks());
     this.filters = {
       search: "",
       favorites: false,
@@ -155,6 +157,7 @@ export class WorkspaceBoard {
     $("help-panel").innerHTML =
       "<strong>Make yourself at home.</strong> Scroll with your mouse or trackpad, or swipe the background on a touch screen, to move around Canvas; Shift-scroll moves sideways. Pinch, or hold Control or ⌘ while scrolling, to zoom. Drag a card’s body to move it; drop inside a highlighted board to move the item into it. Escape cancels a drag. Notes and buttons keep their usual behavior. A click opens a preview. Select an item and use arrow keys to move it, or drag its corner to resize. Move… in the selection toolbar also moves items into boards. Double-click text or a region label to edit it. Grid keeps comparison order. Open an item to try it, then step with Previous, Next or the dots. Escape returns here. Stars and notes follow the item across references.";
     const bar = document.createElement("section");
+    $("help-panel").append(" Use ⌘/Ctrl-X to cut selected Tinkas, then paste on another board to move them together. Originals stay safe until paste succeeds. Escape or ⌘/Ctrl-Z cancels a pending cut; text fields keep their normal cut.");
     $("help-panel").append(" Copy selected Tinkas with ⌘/Ctrl-C, then paste here or in another board with ⌘/Ctrl-V. Copies retain their arrangement and use the same files. A pasted link gets a saved representation; pasted text becomes a document. Undo also reverses paste. Text fields keep their normal clipboard.");
     $("help-panel").append(" Select several cards and drag a selected card to carry them together, into a board or onto Parent. An unselected card, resize or held cover child still acts alone.");
     $("help-panel").append(" With a mouse or pen, drag a box on empty Canvas space to select cards. Hold Shift when starting to add to your selection; Escape cancels. An empty click clears selection. Unused colored-region interiors also work; use a region’s label or border to move it. Touch keeps swiping and pinching.");
@@ -187,6 +190,7 @@ export class WorkspaceBoard {
       // only when no pointer gesture or operation is still being committed.
       e.preventDefault(); e.stopImmediatePropagation();
       if (this.pointerGesture || this.decorationGesture || this.movePending || this.historyBusy || this.client.pendingWrites || this.saving) return;
+      if (!e.shiftKey && this.cutIntent.active()) { this.cancelCut(); return; }
       this.replayMovement(e.shiftKey ? "redo" : "undo");
     }, true);
     add.onclick = () => {
@@ -421,7 +425,7 @@ export class WorkspaceBoard {
       document.activeElement?.closest("input,textarea,select,[contenteditable],[role=dialog]") ||
       document.activeElement?.tagName === "IFRAME";
   }
-  copySnapshot() {
+  copySnapshot({cut=false} = {}) {
     const placements = this.clipboardCandidates();
     if (!placements.length) return null;
     const items = {}, boards = {};
@@ -429,7 +433,7 @@ export class WorkspaceBoard {
       const item = this.snapshot.items[p.itemId];
       items[item.id] = structuredClone(item);
       if (this.pendingReview.has(item.id)) items[item.id].review = {...item.review,...this.pendingReview.get(item.id)};
-      if (!item.childBoardId) continue;
+      if (!item.childBoardId || cut) continue;
       const board = this.workspaceGraph?.boards.find(b => b.id === item.childBoardId);
       if (this.workspaceGraph?.revision !== this.snapshot.revision || !board) {
         this.refresh({saveReview:false}).catch(() => {});
@@ -459,6 +463,7 @@ export class WorkspaceBoard {
     };
     document.addEventListener("copy", e => {
       if (this.clipboardBlocked() || e.target.closest?.("input,textarea,select,[contenteditable],[role=dialog]")) return;
+      this.cutIntent.clear();
       try {
         const clipboard = this.copySnapshot();
         if (!clipboard || !e.clipboardData) return;
@@ -470,10 +475,36 @@ export class WorkspaceBoard {
         toast(`Copied ${clipboard.placements.length} ${clipboard.placements.length === 1 ? "Tinka" : "Tinkas"}.`);
       } catch (error) { toast(error.message); }
     });
+    document.addEventListener("cut", e => {
+      if (this.clipboardBlocked() || e.target.closest?.("input,textarea,select,[contenteditable],[role=dialog]")) return;
+      this.cutIntent.clear();
+      try {
+        const clipboard=this.copySnapshot({cut:true});
+        if (!clipboard || !e.clipboardData) return;
+        const owner=this.snapshot.items[this.snapshot.ownerItemId];
+        if (owner?.archivedAt || owner?.deletedAt || clipboard.placements.some(p=>p.archivedAt || this.snapshot.items[p.itemId]?.archivedAt))
+          throw new Error("Restore archived Tinkas and their board before cutting them. Copy remains available.");
+        clipboard.placements=clipboard.reviewOrder.map(id=>clipboard.placements.find(p=>p.id===id));
+        const envelope=this.cutIntent.prepare(clipboard,this.snapshot.id), json=JSON.stringify(envelope);
+        if (clipboardBytes(envelope)>900000) throw new Error("This cut selection is too large. Select fewer Tinkas.");
+        e.clipboardData.clearData?.();
+        try { e.clipboardData.setData(CLIPBOARD_MIME,json); } catch {}
+        e.clipboardData.setData("text/plain",CLIPBOARD_PREFIX+json);
+        e.preventDefault();
+        this.cutIntent.changed();
+        toast(`Cut ${clipboard.placements.length} ${clipboard.placements.length===1 ? "Tinka" : "Tinkas"}. Paste on another board to move; Escape cancels.`);
+      } catch(error) { this.cutIntent.clear(); toast(error.message); }
+    });
+    window.addEventListener("storage",e=>{if(e.key===this.cutIntent.key || e.key===null)this.syncCutMarks();});
+    document.addEventListener("keydown",e=>{
+      if(e.key!=="Escape" || this.clipboardBlocked() || e.target.closest?.("input,textarea,select,[contenteditable],[role=dialog]") || !this.cutIntent.active()) return;
+      this.cancelCut();
+    });
     document.addEventListener("paste", e => {
       if (this.clipboardBlocked() || e.target.closest?.("input,textarea,select,[contenteditable],[role=dialog]")) return;
       const files = eventFiles(e.clipboardData);
       if (files.length) {
+        this.cutIntent.clear();
         e.preventDefault();
         try { validateImportFiles(files,{clipboard:true}); } catch (error) { toast(error.message); return; }
         this.importMedia(files);
@@ -482,11 +513,85 @@ export class WorkspaceBoard {
       let source;
       try { source = readClipboard(e.clipboardData,this.snapshot.workspaceId); }
       catch (error) { e.preventDefault(); toast(error.message); return; }
-      if (!source) return;
+      if (!source) { this.cutIntent.clear(); return; }
       e.preventDefault();
-      this.pasteClipboard(source);
+      if (source.kind === "cut") this.pasteCut(source.clipboard);
+      else { this.cutIntent.clear(); this.pasteClipboard(source); }
     });
     window.addEventListener("pagehide", () => { this.pasteCancelled = true; this.pasteController?.abort(); });
+  }
+  cancelCut() {
+    const intent=this.cutIntent.active();
+    this.cutIntent.clear(intent);
+    toast(intent?.operation ? "Cut marking cleared. Check the source and destination boards for the submitted move." : "Cut cancelled. The originals stay on their board.");
+  }
+  syncCutMarks() {
+    const intent=this.cutIntent?.active();
+    let ids=new Set();
+    if(intent?.sourceBoardId===this.snapshot.id) {
+      try { ids=new Set(JSON.parse(intent.payload).placements.map(p=>p.id)); } catch {}
+    }
+    for(const card of $("world")?.querySelectorAll(".workspace-card[data-placement]") || []) {
+      const marked=ids.has(card.dataset.placement);
+      card.classList.toggle("workspace-cut-pending",marked);
+      if(marked) {card.dataset.cutPending="true";card.setAttribute("aria-description","Cut pending. Paste on another board to move.");}
+      else {delete card.dataset.cutPending;card.removeAttribute("aria-description");}
+    }
+  }
+  async pasteCut(clipboard) {
+    this.pasteBusy=true;
+    this.movePending=true;
+    this.updateHistoryControls();
+    let moved=false;
+    try {
+      await this.cutIntent.locked(clipboard,async intent=>{
+        if(intent.sourceBoardId===this.snapshot.id) {toast("Open another board to paste this cut selection. The cut is still pending.");return;}
+        if(intent.operation && intent.operation.targetBoardId!==this.snapshot.id)
+          throw new Error("The previous move could not be confirmed. Paste on that same destination board to check it before trying elsewhere.");
+        await this.refresh({saveReview:false});
+        let operation=intent.operation;
+        if(!operation) {
+          operation={sourceBoardId:intent.sourceBoardId,placementIds:clipboard.placements.map(p=>p.id),targetBoardId:this.snapshot.id,
+            targetPosition:this.pastePosition(clipboard),expectedSourcePlacements:clipboard.placements,expectedSourceReviewOrder:clipboard.reviewOrder};
+          const patch={operation,operationId:crypto.randomUUID(),state:"inflight"};
+          if(!this.cutIntent.update(intent,patch)) throw new Error("This cut was replaced. Cut the selection again.");
+          intent={...intent,...patch};
+        }
+        if(intent.state!=="inflight") {
+          if(!this.cutIntent.update(intent,{state:"inflight"})) throw new Error("This cut was replaced. Cut the selection again.");
+          intent={...intent,state:"inflight"};
+        }
+        this.moveCommitting=true;
+        let response;
+        try {
+          response=await this.client.write("move",operation,{recordHistory:false,includeHistory:true,operationId:intent.operationId});
+        } catch(error) {
+          this.cutIntent.update(intent,error.rejected ? {state:"pending",operation:null,operationId:null} : {state:"uncertain"});
+          throw error;
+        }
+        moved=true;
+        if(response.history) this.history.record(response.history,{type:"move",data:operation},intent.operationId);
+        this.cutIntent.consume(intent);
+        this.moveCommitting=false;
+        this.filters={search:"",favorites:false,recent:false,archive:false};
+        $("workspace-search").value="";
+        for(const id of ["workspace-favorites","workspace-recent","workspace-archive"])$(id).setAttribute("aria-pressed","false");
+        this.selection=new Set(response.result.placementIds || []);
+        await this.refresh({saveReview:false});
+        this.hooks.revealPlacements?.(this.snapshot.placements.filter(p=>this.selection.has(p.id)));
+        toast(`Moved ${clipboard.placements.length} ${clipboard.placements.length===1 ? "Tinka" : "Tinkas"} here.`);
+      });
+    } catch(error) {
+      this.moveCommitting=false;
+      try {await this.refresh({saveReview:false});}catch{}
+      toast(moved ? "Move saved. Reload the board to see it." : error.rejected ? `Cut not moved. ${error.message} Cut the selection again if its source changed.` : this.cutIntent.active()?.state === "uncertain" ? "Could not confirm the cut move. Paste on this same board to check it before trying elsewhere." : error.message || "Could not confirm the cut move.");
+    } finally {
+      this.moveCommitting=false;
+      this.movePending=false;
+      this.pasteBusy=false;
+      this.syncCutMarks();
+      this.updateHistoryControls();
+    }
   }
   installFileDrop() {
     const viewport = $("viewport"), hint = document.createElement("div");
@@ -805,6 +910,7 @@ export class WorkspaceBoard {
       ? `url("${resourceURL(bg.resource)}")`
       : "";
     this.selectionMenu();
+    this.syncCutMarks();
     this.sizePreviews();
     this.coverObserver = observeCovers(world,this.coverObserver);
     this.hooks.layout();

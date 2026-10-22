@@ -76,6 +76,40 @@ Attach children to an existing item with `{"type":"createBoard","itemId":"openin
 
 `duplicate` takes `itemId` and optional `targetBoardId` and creates an independent canonical item pointing at the same files. A board duplicate copies its arrangement while retaining references to its children. `archive` takes `boardId,placementIds,archived`; `archiveItem` takes `itemIds,archived`. `remove` detaches placements. `deleteItem` marks canonical items deleted across placements. None deletes resource files. Restore archives with `archived:false`; removal/deletion remains recoverable in metadata backups/history and the resource payload remains intact.
 
+### Deferred cut and paste
+
+Native Cut marks the active selection without changing graph metadata. Paste on
+another board uses the existing `move` transaction, retaining canonical item IDs,
+current content, review, resource references and child boards. Arrangement,
+dimensions and presentation travel together; destination placement IDs are fresh,
+as with other moves. The signed two-board movement receipt restores the original
+source placement IDs on undo and the same destination IDs on redo.
+
+A deferred move can supply the optional pair `expectedSourcePlacements` and
+`expectedSourceReviewOrder`. These require `sourceBoardId`, `placementIds` and an
+existing, distinct `targetBoardId`, with no `itemIds` or `newBoard`.
+`expectedSourcePlacements` contains the complete active placement snapshots in
+`placementIds` order. `expectedSourceReviewOrder` is the source board's review
+order filtered to those IDs. Submit IDs in that filtered order to retain their
+review order at the destination. Malformed or unpaired preconditions return 400.
+The transaction compares the complete selected placements and filtered order
+before changing either board; changed membership, geometry, presentation or
+selected order returns 409. Archived source/destination owners or selected
+items/placements, and deleted selected items, also reject. Missing boards return
+404. Unrelated placement edits and newer canonical content/review/title/children
+remain independent. Omitting both fields retains ordinary `move` behavior.
+
+The browser authenticates a cut through an active intent scoped to this browser
+profile and workspace, matching the exact native clipboard envelope. Cuts work
+across navigation and tabs in that profile. A successful transfer consumes the
+intent, including after undo; paste cannot clone or repeat it. Escape, a new copy
+or a new cut cancels/replaces the pending intent without removing originals.
+Pasting on the source board leaves the cut pending and requests another board.
+Unsupported, cancelled or stale cut data never falls back to a copy or a hidden
+selection. Failed paste leaves graph data intact. An uncertain response retries
+the exact frozen move payload with the same `operationId`, using the existing
+idempotence window; source preconditions reject an aged-out duplicate transfer.
+
 `pastePlacements` takes `targetBoardId`, `targetPosition:{x,y}` and a copy-time
 `clipboard` snapshot. Clipboard version 1 is
 `{version:1,workspaceId,placements,items,boards,reviewOrder?}`: `workspaceId` is the

@@ -1239,3 +1239,6 @@ html[data-theme="night"] .item-representation p {
 .workspace-pdf-fallback small { font-size: 11px; line-height: 1.5; }
 
 .workspace-panel-preview .workspace-pdf-preview { inset: 0; width: 100%; height: 100%; transform: none; }
+
+.workspace-board .workspace-card.workspace-cut-pending { outline: 2px dashed #8a9273; outline-offset: 4px; }
+.workspace-cut-pending .workspace-item-footer { background: #e8ebdd; }

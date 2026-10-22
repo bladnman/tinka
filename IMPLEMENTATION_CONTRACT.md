@@ -171,7 +171,7 @@ their behavior. Canvas bottom name-bar and title drags share normal thresholds a
 selection movement, while title clicks open the item and checkbox/star/overflow/
 resize controls retain their independent actions.
 
-Clipboard uses native copy/paste events outside editing fields, readers/dialogs,
+Clipboard uses native copy/cut/paste events outside editing fields, readers/dialogs,
 previews and active gestures/writes. The versioned custom MIME is
 application/x-tinka-placements+json; text/plain carries TINKA_CLIPBOARD_V1 followed
 by a newline and the same JSON. No old in-memory clipboard fallback is used.
@@ -182,7 +182,7 @@ cached complete layout. Board copy waits for a matching workspace revision befor
 writing clipboard data. Payload files stay referenced, not duplicated; board copies
 shallowly reference existing children. Native clipboard actions remain user driven.
 
-Every paste uses one pastePlacements transaction and one opaque history receipt,
+Copy/text/link paste uses one pastePlacements transaction and one opaque history receipt,
 including synthesized text/link snapshots. Paste preserves relative offsets,
 dimensions/presentation/stacking, picks a bounded (at most 256 candidate) visible
 clear position or diagonal offset, clears filters and selects/reveals the new cards.
@@ -191,7 +191,23 @@ failure retains its original address. All other nonempty text becomes note conte
 with exact newlines, a first-line title, card excerpt and full reader body. Escaping
 applies to every title/body/address; remote HTML is never embedded. The complete
 HTTP payload is limited conservatively below the 1 MB server bound; large pastes
-are rejected without truncation. Cut is outside this scope.
+are rejected without truncation.
+
+Board Cut is deferred: native Cmd/Ctrl-X marks selected active placements without
+saving graph data. The versioned one-use intent is scoped to runtime config and
+durable workspace IDs in browser localStorage, with a nonce and exact payload.
+Web Locks serializes consumption across profile tabs; unsupported browsers fail
+closed for Cut while Copy remains available. Paste to another existing board uses
+one existing move transaction and signed two-board movement-history receipt,
+retaining canonical items/resources/review/children and relative layout. New
+destination placement IDs are restored exactly by redo; undo restores original
+source IDs. Same-board paste is a no-op retaining intent. Escape, Copy, new Cut
+and pending-cut Cmd/Ctrl-Z cancel it. Native text/readers retain ordinary Cut.
+Optional move expectedSourcePlacements and expectedSourceReviewOrder compare the
+selected placement geometry/presentation/order/archive state atomically. Later
+canonical content/review changes are allowed and never rolled back. Unknown
+responses retain a stable operation ID and frozen request for same-target retry,
+without duplicate history. No new graph token service or clipboard polling exists.
 
 File intake supports clipboard PNG/JPEG/GIF/WebP images and dropped images/PDFs
 outside editing fields and readers. Canvas uses the logical cursor, Grid automatic
