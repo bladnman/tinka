@@ -110,6 +110,69 @@ should check serialized UTF-8 bytes before submitting. `preview.url` may hold a
 credential-free HTTP(S) preview image URL; it is validated like `content.url`.
 No resource file is created by a text or URL paste.
 
+### Clipboard images and dropped files
+
+The schema 2 browser can paste clipboard image files or drop PNG, JPEG, GIF,
+WebP and PDF files onto the board. Editing fields and the reader retain their
+ordinary clipboard behavior. Each batch creates independent items with local
+resource content and panel placements. Images use their original bytes as the
+preview; PDF cards and collection covers use the browser's first-page PDF viewer
+when available, with a filename/open fallback. No thumbnail converter or runtime
+package is required. A browser without a PDF viewer can still open the original.
+
+POST `/api/imports` accepts `multipart/form-data`, with one text field `metadata`
+containing JSON and repeated file fields named `files` in placement order:
+
+```json
+{"workspaceId":"DURABLE_GRAPH_ID","targetBoardId":"ideas","targetPosition":{"x":100,"y":120},"expectedRevision":12,"operationId":"UUID","placements":[{"x":0,"y":0,"width":320,"height":260}]}
+```
+
+`workspaceId` is the durable ID returned by GET `/api/workspace`; the required
+`x-tinka-workspace` header is the separate runtime config identity. Host, origin
+and live-config checks match the ordinary write API. `expectedRevision` and a
+stable `operationId` are required. Retry the same batch with its original ID after
+an uncertain response; a successful retry returns the original result and receipt
+within the shared 64-operation idempotence window. Conflicting ID reuse rejects.
+File digests, names, geometry and target are part of retry identity; byte buffers
+are never stored in metadata or history. `importFiles` is internal to this route
+and cannot be submitted through the ordinary operation endpoint or CLI.
+
+Imports accept 1–20 nonempty files, at most **20 MiB per file** and **50 MiB total**.
+The multipart request allows 128 KiB additional envelope overhead and metadata
+is limited to 16 KiB. Unknown fields, unsupported byte signatures, malformed
+geometry, or any failed file validation reject the entire batch. Filename
+extensions and claimed MIME types do not determine content kind. Supported
+formats are identified from their binary headers/structure; this is not a full
+media decoder. SVG, HTML and other file types are rejected. The ordinary JSON
+write endpoints keep their **1 MB** limit.
+
+Optional `placements` must contain one `{x,y,width,height}` per file. The x/y
+values are offsets from `targetPosition`, finite and within ±10000000, including
+resulting coordinates; width/height are finite from 40 to 10000. Without hints,
+the server uses a four-column layout, 320-wide image/PDF panels, image height 240
+and PDF height 438. The client may supply aspect-aware image sizes instead.
+
+Original bytes are retained in `boardsRoot/imports/BATCH/ORDINAL-SAFE-NAME.EXT`,
+outside the replaceable app and workspace metadata. BATCH derives from durable
+workspace and operation IDs. Extensions come from detected bytes; names are
+sanitized and ordinal-prefixed, and original files are never overwritten. Import
+paths reject pre-existing symlinks and unsafe directories. The named resource
+root is registered relative to `workspaceRoot` in the same locked metadata
+transaction as all created placements. An existing root pointing at that folder
+is reused; a conflicting `imports` root is rejected rather than replaced. Keep
+the complete `imports` folder with the project's other durable resource folders.
+
+The response is `{revision,result:{boardId,itemIds,placementIds,resources},history}`.
+There is one revision and one signed movement-history receipt for the entire
+batch. Undo detaches its placements; redo restores their identities and geometry.
+Original files and canonical review edits remain available. All metadata and
+file validation completes before new payload writes. Files already preserved
+are retained even after cancellation, I/O failure, or an interrupted metadata
+commit; such an interruption can leave unreferenced originals for manual recovery.
+Cancellation is honored before commit where possible. A disconnect after commit
+does not roll back saved cards; retry with the same operation ID to resolve an
+uncertain outcome. File removal is never part of import, undo or recovery.
+
 Canvas also submits `move` when a dragged placement is released inside a valid,
 visible board card. An outline and “Move into…” hint identify the destination;
 ordinary card overlap is still freeform arrangement. The existing selection

@@ -852,6 +852,12 @@ function applyBoardSnapshot(snapshot) {
       if (loadedPreviews.has(concept.key) && loadedPreviews.get(concept.key) !== revision) {
         const frame = card?.querySelector('.workspace-live-preview iframe');
         if (frame) replaceFrame(frame, previewHref(concept, null, 'paper', 100, revision));
+        const pdf = card?.querySelector('.workspace-pdf-preview');
+        if (pdf) {
+          const source = new URL(pdf.src, location.href);
+          source.searchParams.set('v', revision);
+          pdf.src = source.href;
+        }
         const image = card?.querySelector('.workspace-card-preview img');
         if (image) {
           const source = new URL(image.src, location.href);

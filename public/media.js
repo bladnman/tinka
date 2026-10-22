@@ -173,8 +173,13 @@ else {
   } else if (kind === 'audio') {
     const audio = document.createElement('audio'); audio.src = asset; audio.controls = true; audio.preload = 'metadata'; audio.setAttribute('aria-label', name); content.append(audio);
   } else if (kind === 'pdf' || kind === 'html') {
-    const frame = document.createElement('iframe'); frame.className = kind === 'pdf' ? 'pdf-frame' : 'app-frame'; frame.src = asset; frame.title = name;
-    content.append(frame);
+    if (kind === 'pdf' && navigator.pdfViewerEnabled === false) {
+      showError('This browser cannot display embedded PDFs. Open the original to read or download the complete document.');
+      const link = document.createElement('a'); link.href = asset; link.target = '_blank'; link.rel = 'noopener noreferrer'; link.textContent = 'Open original PDF ↗'; content.append(link);
+    } else {
+      const frame = document.createElement('iframe'); frame.className = kind === 'pdf' ? 'pdf-frame' : 'app-frame'; frame.src = asset; frame.title = name;
+      content.append(frame);
+    }
   } else if (kind === 'markdown') {
     fetch(asset).then(response => { if (!response.ok) throw new Error(); return response.text(); }).then(text => renderMarkdown(text, new URL(asset, location.href))).catch(() => showError('The Markdown file could not be loaded.'));
   } else showError('This media type is not supported.');

@@ -71,7 +71,8 @@ updateWorkspace. CLI workspace show/op and item show use these same transactions
 Graph-aware board create/status preserve existing command usage. See
 [PROTOCOL.md](docs/PROTOCOL.md#schema-2-workspace) for exact payloads and examples.
 
-All write endpoints require JSON (1 MB HTTP bound), same-origin loopback Host/Origin
+Ordinary write endpoints require JSON (1 MB HTTP bound). The dedicated file-import
+endpoint accepts bounded multipart data as described below. Both enforce same-origin loopback Host/Origin
 checks, and x-tinka-workspace matching live config identity. Absent Origin remains
 valid for loopback API tools. Config identity hashes canonical config and boards paths, adding the metadata
 path when it differs from the default; this retains default browser namespaces. It is distinct from the durable graph workspaceId. Runtime config
@@ -190,7 +191,23 @@ failure retains its original address. All other nonempty text becomes note conte
 with exact newlines, a first-line title, card excerpt and full reader body. Escaping
 applies to every title/body/address; remote HTML is never embedded. The complete
 HTTP payload is limited conservatively below the 1 MB server bound; large pastes
-are rejected without truncation. Files/image paste and cut are outside this scope.
+are rejected without truncation. Cut is outside this scope.
+
+File intake supports clipboard PNG/JPEG/GIF/WebP images and dropped images/PDFs
+outside editing fields and readers. Canvas uses the logical cursor, Grid automatic
+placement. Native image panels fit the complete original; PDF panels and collection
+covers use the browser first-page viewer or an honest filename/open fallback. The
+full reader opens original media without a converter/runtime dependency.
+POST /api/imports is a dedicated multipart route with JSON metadata and repeated
+files fields, the same runtime identity/origin/config guards, required durable
+workspaceId, expectedRevision and operationId. Accept 1-20 nonempty files, at most
+20 MiB each and 50 MiB total plus 128 KiB envelope overhead; metadata is at most
+16 KiB. Ordinary JSON endpoints remain limited to 1 MB. Server format sniffing,
+path containment and symlink checks validate the entire batch before one metadata
+transaction. Originals live in boardsRoot/imports outside app and workspaceRoot;
+the resource root is registered in that same transaction. Every batch has one
+undo/redo receipt: placements detach/restore while original files and later review
+edits remain. No file deletion, migration or OS clipboard polling is introduced.
 Browser QA dispatches synthetic ClipboardEvents/DataTransfer and never reads or
 writes the user's OS clipboard.
 

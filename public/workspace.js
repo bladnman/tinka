@@ -47,6 +47,29 @@ export class WorkspaceClient {
     if (!r.ok) throw new Error(d.error || `Request failed (${r.status})`);
     return d;
   }
+  importFiles(files, metadata, signal) {
+    const operationId = crypto.randomUUID();
+    this.pendingWrites++;
+    this.onState?.();
+    const pending = this.queue.catch(()=>{}).then(async()=>{
+      const body = new FormData();
+      body.append("metadata",JSON.stringify({...metadata,expectedRevision:this.revision,operationId}));
+      for (const file of files) body.append("files",file,file.name || "Pasted image");
+      const response = await fetch("/api/imports",{method:"POST",headers:{"x-tinka-workspace":this.config.workspaceId},body,signal});
+      const data = await response.json();
+      if (!response.ok) {
+        const error = new Error(data.error || `Import failed (${response.status}).`);
+        error.conflict = response.status === 409;
+        error.rejected = true;
+        throw error;
+      }
+      this.revision = data.revision;
+      if (data.history) this.onHistory?.(data.history,{type:"importFiles",data:{files}});
+      return data.result;
+    }).finally(()=>{this.pendingWrites--;this.onState?.();});
+    this.queue = pending;
+    return pending;
+  }
   write(type, data = {}, {recordHistory = true,includeHistory = false} = {}) {
     const operationId = crypto.randomUUID();
     this.pendingWrites++;

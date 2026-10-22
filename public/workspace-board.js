@@ -1,5 +1,6 @@
 import {reconcileChildren} from "./reconcile.js";
 import {coverMarkup, observeCovers} from "./board-covers.js";
+import {eventFiles,hasFileDrag,validateImportFiles,importLayout,pdfSupported,pdfPreviewURL} from "./file-import.js";
 import {MovementHistory} from "./movement-history.js";
 import {CLIPBOARD_MIME,CLIPBOARD_PREFIX,clipboardBytes,readClipboard,externalClipboard} from "./clipboard.js";
 import {
@@ -175,6 +176,7 @@ export class WorkspaceBoard {
     history.innerHTML = '<button type="button" id="workspace-undo" disabled>Undo</button><button type="button" id="workspace-redo" disabled>Redo</button>';
     bar.append(history);
     this.installClipboard(bar);
+    this.installFileDrop();
     $("workspace-undo").onclick = () => this.replayMovement("undo");
     $("workspace-redo").onclick = () => this.replayMovement("redo");
     this.updateHistoryControls();
@@ -470,6 +472,13 @@ export class WorkspaceBoard {
     });
     document.addEventListener("paste", e => {
       if (this.clipboardBlocked() || e.target.closest?.("input,textarea,select,[contenteditable],[role=dialog]")) return;
+      const files = eventFiles(e.clipboardData);
+      if (files.length) {
+        e.preventDefault();
+        try { validateImportFiles(files,{clipboard:true}); } catch (error) { toast(error.message); return; }
+        this.importMedia(files);
+        return;
+      }
       let source;
       try { source = readClipboard(e.clipboardData,this.snapshot.workspaceId); }
       catch (error) { e.preventDefault(); toast(error.message); return; }
@@ -478,6 +487,84 @@ export class WorkspaceBoard {
       this.pasteClipboard(source);
     });
     window.addEventListener("pagehide", () => { this.pasteCancelled = true; this.pasteController?.abort(); });
+  }
+  installFileDrop() {
+    const viewport = $("viewport"), hint = document.createElement("div");
+    hint.id = "workspace-import-drop";
+    hint.className = "workspace-import-drop";
+    hint.hidden = true;
+    hint.setAttribute("role","status");
+    document.body.append(hint);
+    const clear = () => { hint.hidden = true; };
+    const blocked = target => this.clipboardBlocked() || target.closest?.("input,textarea,select,[contenteditable],[role=dialog]") ? "Finish editing or the current action before importing files." : "";
+    const show = e => {
+      if (!hasFileDrag(e.dataTransfer)) return;
+      if (e.target.closest?.("input,textarea,select,[contenteditable],[role=dialog]")) { clear(); return; }
+      e.preventDefault();
+      const message = blocked(e.target), rect = viewport.getBoundingClientRect();
+      hint.textContent = message || "Drop images or PDFs onto this board";
+      hint.dataset.state = message ? "blocked" : "ready";
+      Object.assign(hint.style,{left:rect.left+"px",top:rect.top+"px",width:rect.width+"px",height:rect.height+"px"});
+      hint.hidden = false;
+      e.dataTransfer.dropEffect = message ? "none" : "copy";
+    };
+    viewport.addEventListener("dragenter",show);
+    viewport.addEventListener("dragover",show);
+    viewport.addEventListener("dragleave",e=>{if (!e.relatedTarget || !viewport.contains(e.relatedTarget)) clear();});
+    viewport.addEventListener("drop",e=>{
+      if (!hasFileDrag(e.dataTransfer)) return;
+      if (e.target.closest?.("input,textarea,select,[contenteditable],[role=dialog]")) { clear(); return; }
+      const files = eventFiles(e.dataTransfer), point = this.mode === "canvas" ? this.canvasPoint({x:e.clientX,y:e.clientY}) : undefined;
+      e.preventDefault();
+      clear();
+      const message = blocked(e.target);
+      if (message) { toast(message); return; }
+      try { validateImportFiles(files); } catch (error) { toast(error.message); return; }
+      this.importMedia(files,point);
+    });
+    document.addEventListener("dragend",clear);
+    document.addEventListener("keydown",e=>{if(e.key === "Escape") clear();});
+    window.addEventListener("blur",clear);
+    window.addEventListener("pagehide",clear);
+  }
+  async importMedia(files, point) {
+    this.pasteBusy = true;
+    this.pasteCancelled = false;
+    this.movePending = true;
+    this.pasteController = new AbortController();
+    this.updateHistoryControls();
+    let written = false;
+    try {
+      toast(`Importing ${files.length === 1 ? "file" : files.length + " files"}…`);
+      const placements = await importLayout(files);
+      if (this.pasteCancelled) return;
+      await this.refresh({saveReview:false});
+      if (this.pasteCancelled) return;
+      const targetPosition = point || this.pastePosition({placements});
+      this.moveCommitting = true;
+      const result = await this.client.importFiles(files,{workspaceId:this.snapshot.workspaceId,targetBoardId:this.snapshot.id,targetPosition,placements},this.pasteController.signal);
+      written = true;
+      this.moveCommitting = false;
+      this.filters = {search:"",favorites:false,recent:false,archive:false};
+      $("workspace-search").value = "";
+      for (const id of ["workspace-favorites","workspace-recent","workspace-archive"]) $(id).setAttribute("aria-pressed","false");
+      this.selection = new Set(result.placementIds || []);
+      await this.refresh({saveReview:false});
+      this.hooks.revealPlacements?.(this.snapshot.placements.filter(p=>this.selection.has(p.id)));
+      toast(`Imported ${files.length} ${files.length === 1 ? "file" : "files"}.`);
+    } catch (error) {
+      this.moveCommitting = false;
+      if (this.pasteCancelled) return;
+      try { await this.refresh({saveReview:false}); } catch {}
+      toast(written ? "Files imported. Reload the board to see them." : error.rejected || error.conflict ? `Import not saved. ${error.message}` :
+        `Could not confirm the import. Check the latest board before trying again. ${error.message}`);
+    } finally {
+      this.pasteBusy = false;
+      this.movePending = false;
+      this.moveCommitting = false;
+      this.pasteController = null;
+      this.updateHistoryControls();
+    }
   }
   pastePosition(clipboard) {
     const placements = clipboard.placements, x = Math.min(...placements.map(p => p.x)), y = Math.min(...placements.map(p => p.y));
@@ -635,7 +722,7 @@ export class WorkspaceBoard {
     }
     // Keep the URL stamped by live content updates when its source is unchanged.
     const previews = new Map([...world.querySelectorAll("[data-placement]")].map(card =>
-      [card.dataset.placement, { frame: card.querySelector(".workspace-live-preview iframe"), image: card.querySelector(".workspace-card-preview img") }]));
+      [card.dataset.placement, { frame: card.querySelector(".workspace-live-preview iframe"), image: card.querySelector(".workspace-card-preview img"), pdf:card.querySelector(".workspace-pdf-preview") }]));
     const renderCard = (c) => {
       const item = c.graphItem,
         p = c.placement,
@@ -660,11 +747,15 @@ export class WorkspaceBoard {
       const imageSource = JSON.stringify([item.id, img || url]);
       const image = previous?.image?.dataset.previewSource === imageSource
         ? previous.image.getAttribute("src") : img || url;
+      const pdf = !img && item.content?.kind === "pdf" ? resourceURL(item.content.resource) : null;
+      const pdfSource = JSON.stringify([item.id,pdf]);
+      const pdfURL = previous?.pdf?.dataset.previewSource === pdfSource ? previous.pdf.getAttribute("src") : pdf && pdfPreviewURL(pdf);
       const footer = `<footer class="workspace-item-footer workspace-panel-caption"><button type="button" data-placement-select="${esc(p.id)}" aria-pressed="${selected}" aria-label="${selected ? "Deselect" : "Select"} ${esc(item.title)}">${selected ? "✓" : "□"}</button>${panel ? `<button type="button" class="workspace-panel-title" ${unavailable ? "disabled" : ""} data-open="${esc(c.key)}">${esc(item.title)}</button>` : '<span class="workspace-item-spacer" aria-hidden="true"></span>'}<button type="button" class="shortlist" data-star="${esc(c.key)}" aria-label="Favorite ${esc(item.title)}" aria-pressed="${!!review.star}">${review.star ? "★" : "☆"}</button><button type="button" data-item-controls="${esc(p.id)}" data-controls-focus="notes" aria-label="Details for ${esc(item.title)}" aria-haspopup="dialog" aria-expanded="${this.contextPlacement === p.id}">⋯${review.note ? '<span class="workspace-note-dot" aria-hidden="true"></span>' : ""}</button></footer>`;
       const visual = unavailable
         ? `<div class="workspace-build-placeholder"><strong>${item.build.state === "building" ? "Taking shape." : "A place for a new idea."}</strong><span>${esc(item.build.message || "This slot will open when it is ready for review.")}</span></div>`
         : live ? `<iframe src="${esc(preview)}" data-preview-source="${esc(previewSource)}" title="${esc(item.title)} ${panel ? "design" : "live"} preview" tabindex="-1" loading="lazy" inert></iframe>`
         : img || (url && item.content.kind === "image") ? `<img src="${esc(image)}" data-preview-source="${esc(imageSource)}" referrerpolicy="no-referrer" alt="${esc(item.title)} preview">`
+        : pdf ? `<div class="workspace-pdf-fallback"><strong>${esc(item.title)}</strong><span>PDF · ${pdfSupported() ? "Page 1 preview" : "Preview unavailable in this browser"}</span><small>Open to read all pages or download the original.</small></div>${pdfSupported() ? `<iframe class="workspace-pdf-preview" src="${esc(pdfURL)}" data-preview-source="${esc(pdfSource)}" title="${esc(item.title)} first page" loading="lazy" tabindex="-1" inert></iframe>` : ""}`
         : item.childBoardId && !item.content ? coverMarkup(this.snapshot.boardCovers?.[item.childBoardId],item.childBoardId)
         : item.content?.text ? `<div class="workspace-document-preview">${esc(item.content.text.slice(0,2400))}</div>`
         : `<span class="workspace-title-art">${esc(item.preview?.text || item.title)}</span>`;

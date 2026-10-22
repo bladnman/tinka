@@ -7,11 +7,12 @@ import {boardResponse,discoverBoards,loadBoard,readNotes,writeNotes} from './lib
 import {loadConfig,publicConfig,VERSION,PORT_STEP,PORT_ATTEMPTS,savePort} from './lib/config.mjs';
 import {createLiveState,createWorkspaceLiveState} from './lib/live.mjs';
 import {boardDirectory,existingInside,HttpError,safeRelative} from './lib/paths.mjs';
-import {readWorkspace,getBoardSnapshot,applyOperation} from './lib/workspace.mjs';
+import {readWorkspace,getBoardSnapshot,applyOperation,applyFileImport} from './lib/workspace.mjs';
 import {migrateLegacy} from './lib/migrate.mjs';
 import {resolveResource,resourceUrl} from './lib/resources.mjs';
 import {withStore} from './lib/store.mjs';
 import {createLinkPreview} from './lib/link-preview.mjs';
+import {readImportRequest} from './lib/file-import.mjs';
 
 const appRoot=path.dirname(fileURLToPath(import.meta.url));
 const publicRoot=path.join(appRoot,'public');
@@ -106,6 +107,15 @@ export function createAppServer(config){
       if(pathname==='/api/health'&&method==='GET'){sendJson(res,200,{app:'board-room',version:VERSION,configPath:config.configPath,boardsRoot:config.boardsRoot,projectLabel:config.projectLabel,workspaceId:config.workspaceId,port:server.address().port,url:`http://127.0.0.1:${server.address().port}/`});return;}
       if(pathname==='/api/config'&&method==='GET'){sendJson(res,200,publicConfig(config));return;}
       if(pathname==='/api/workspace'&&method==='GET'){const workspace=await readWorkspace(config,{covers:url.searchParams.get('covers')!=='0'});sendJson(res,200,workspace?{...workspace,enabled:true}:{enabled:false,revision:0});return;}
+      if(pathname==='/api/imports'&&method==='POST'){
+        await checkWrite(req,server,config);
+        const controller=new AbortController();
+        const cancel=()=>{if(!res.writableEnded)controller.abort();};
+        req.once('aborted',cancel);res.once('close',cancel);
+        try{const {metadata,files}=await readImportRequest(req);sendJson(res,200,await applyFileImport(config,metadata,files,{signal:controller.signal}));}
+        finally{req.off('aborted',cancel);res.off('close',cancel);}
+        return;
+      }
       if(pathname==='/api/link-preview'&&method==='POST'){await checkWrite(req,server,config);const input=await requestJson(req);sendJson(res,200,await createLinkPreview(input?.url));return;}
       if(pathname==='/api/workspace/migrate'&&method==='POST'){await checkWrite(req,server,config);const input=await requestJson(req);if(!input||typeof input!=='object'||Array.isArray(input)||typeof input.dryRun!=='boolean')throw new HttpError(400,'Provide dryRun: true or false explicitly.');sendJson(res,200,await migrateLegacy(config,{dryRun:input.dryRun}));return;}
       if(pathname==='/api/operations'&&method==='POST'){await checkWrite(req,server,config);const operation=await requestJson(req);if(!operation||typeof operation!=='object'||Array.isArray(operation)||typeof operation.type!=='string')throw new HttpError(400,'Provide an operation object with type.');sendJson(res,200,await applyOperation(config,operation));return;}

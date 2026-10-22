@@ -186,7 +186,18 @@ with a readable card excerpt and its complete text in the reader. Newlines are
 preserved. Oversized pastes are rejected without truncating text. Paste selects the
 new cards and clears filters so they are visible; large layouts are revealed without
 changing card geometry. Each paste is one undo step. Editing fields and the reader
-keep their ordinary clipboard behavior. Copy/paste does not upload files or images.
+keep their ordinary clipboard behavior.
+
+Paste clipboard PNG, JPEG, GIF or WebP images directly onto a board, or drop image
+and PDF files onto it. Canvas imports begin at the logical cursor position; Grid
+arranges them automatically. Image panels show the complete uncropped image and
+open the original in the reader. PDF panels and collection covers show the first
+page using the browser PDF viewer when available, with a filename/open fallback
+when it is unsupported. Each batch accepts up to 20 files, at most 20 MiB each
+and 50 MiB total, and becomes one undo/redo step. Undo removes the placements,
+while original imported files stay available. Commit `design/boards/imports/`
+(or your configured boards root’s `imports/`) with the other durable board data;
+these files stay outside the replaceable app and workspace metadata.
 
 Agents use the same operations as the browser through HTTP or
 `workspace op --json JSON` / `workspace op --file PATH`. See the
