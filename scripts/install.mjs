@@ -2,7 +2,7 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { execFile } from 'node:child_process';
 import { inflateRawSync } from 'node:zlib';
-import { readFile, realpath, lstat, mkdir, rename, rm, writeFile } from 'node:fs/promises';
+import { readFile, realpath, lstat, mkdir, rename, rm, writeFile, readdir } from 'node:fs/promises';
 import path from 'node:path';
 import { promisify } from 'node:util';
 import { fileURLToPath } from 'node:url';
@@ -37,6 +37,73 @@ async function exists(candidate) {
   try { return await lstat(candidate); }
   catch (error) { if (error.code === 'ENOENT') return null; throw error; }
 }
+// Shared only by cooperating start/install commands for this app copy. No registry.
+function processAlive(pid) {
+  if (!Number.isSafeInteger(pid) || pid < 1) return false;
+  try { process.kill(pid, 0); return true; } catch (error) { return error.code !== 'ESRCH'; }
+}
+export function operationLockPath(app) { return path.join(path.dirname(app), `.${path.basename(app)}.operation-lock`); }
+export async function withAppLock(app, action, { token = process.env.TINKA_OPERATION_TOKEN, waitMs = 20000 } = {}) {
+  app = await canonicalFuturePath(app);
+  const lock = operationLockPath(app);
+  await mkdir(path.dirname(lock), { recursive: true });
+  const deadline = Date.now() + waitMs;
+  const identity = randomUUID();
+  for (;;) {
+    try { await mkdir(lock); break; }
+    catch (error) {
+      if (error.code !== 'EEXIST') throw error;
+      const owner = await readFile(path.join(lock, 'owner.json'), 'utf8').then(JSON.parse).catch(() => null);
+      if (owner && owner.token === token && processAlive(owner.pid)) return action(token);
+      if (owner && Number.isSafeInteger(owner.pid) && !processAlive(owner.pid)) {
+        // A recovery guard prevents two stale-owner cleaners deleting a successor.
+        const guard = `${lock}.recovery`;
+        try { await mkdir(guard); } catch (error) { throw new Error(`App operation recovery needs review: ${guard}`); }
+        try {
+          const current = JSON.parse(await readFile(path.join(lock, 'owner.json'), 'utf8'));
+          if (current.token === owner.token && !processAlive(current.pid)) await rm(lock, { recursive: true });
+        } finally { await rm(guard, { recursive: true, force: true }); }
+        continue;
+      }
+      if (Date.now() >= deadline) throw new Error(`Another app operation is active or needs recovery: ${lock}`);
+      await new Promise(resolve => setTimeout(resolve, 40));
+    }
+  }
+  try {
+    await writeFile(path.join(lock, 'owner.json'), JSON.stringify({ pid: process.pid, token: identity }), { flag: 'wx' });
+    return await action(identity);
+  } finally { await rm(lock, { recursive: true, force: true }); }
+}
+
+export async function installationPristine(app) {
+  const receipt = await readFile(path.join(app, 'INSTALLATION.json'), 'utf8').then(JSON.parse).catch(() => null);
+  if (!receipt?.files || typeof receipt.files !== 'object' || Array.isArray(receipt.files) || !Object.keys(receipt.files).length) return false;
+  const actual = {};
+  async function walk(directory, prefix = '') {
+    for (const entry of await readdir(directory, { withFileTypes: true })) {
+      const relative = prefix + entry.name;
+      if (relative === 'INSTALLATION.json') continue;
+      if (entry.isDirectory()) await walk(path.join(directory, entry.name), `${relative}/`);
+      else if (entry.isFile()) actual[relative] = createHash('sha256').update(await readFile(path.join(directory, entry.name))).digest('hex');
+      else throw new Error('Installed app contains a symlink or unsupported file.');
+    }
+  }
+  try { await walk(app); } catch { return false; }
+  return Object.keys(actual).length === Object.keys(receipt.files).length && Object.entries(actual).every(([file, digest]) => receipt.files[file] === digest);
+}
+
+// Deliberately narrow format. Version numbers alone never grant compatibility.
+export function compatibilityError(metadata, { fromVersion, toVersion, workspaceSchema = 1, nodeVersion = process.versions.node, platform = process.platform } = {}) {
+  const stable = /^\d+\.\d+\.\d+$/;
+  if (!stable.test(fromVersion || '') || !stable.test(toVersion || '')) return 'Prerelease or unknown version requires review.';
+  if (fromVersion.split('.')[0] !== toVersion.split('.')[0]) return 'App major changes require review.';
+  if (!metadata || metadata.schemaVersion !== 1 || metadata.version !== toVersion || !Array.isArray(metadata.fromVersions) || metadata.fromVersions.some(version=>typeof version!=='string'||!stable.test(version)) || !metadata.fromVersions.includes(fromVersion)) return 'Release has no explicit compatibility from this version.';
+  if (metadata.migration !== 'none' || !Array.isArray(metadata.schemas?.config) || !Array.isArray(metadata.schemas?.workspace) || metadata.schemas.config.some(value=>!Number.isInteger(value)) || metadata.schemas.workspace.some(value=>!Number.isInteger(value)) || !metadata.schemas.config.includes(1) || !metadata.schemas.workspace.includes(workspaceSchema)) return 'Schema compatibility or migration requires review.';
+  const minimum = typeof metadata.runtime?.node==='string' ? /^>=(\d+)$/.exec(metadata.runtime.node) : null;
+  if (!minimum || Number(minimum[1]) < 22 || Number(nodeVersion.split('.')[0]) < Number(minimum[1]) || !Array.isArray(metadata.runtime?.platforms) || metadata.runtime.platforms.some(value=>typeof value!=='string'||!['darwin','linux'].includes(value)) || !metadata.runtime.platforms.includes(platform)) return 'Runtime compatibility requires review.';
+  return null;
+}
+
 function parseArgs(args) {
   const options = {};
   for (let index = 0; index < args.length; index += 1) {
@@ -151,8 +218,8 @@ async function extract(entries, stage) {
   }
 }
 
-async function runCli(cli, command, config) {
-  try { await execFileAsync(process.execPath, [cli, command, '--config', config], { timeout: 12000 }); }
+async function runCli(cli, command, config, token) {
+  try { await execFileAsync(process.execPath, [cli, command, '--config', config], { timeout: 12000, env: {...process.env, TINKA_OPERATION_TOKEN: token, TINKA_SKIP_UPDATE: '1'} }); }
   catch (error) { throw new Error(`Managed ${command} failed: ${error.stderr?.trim() || error.message}`); }
 }
 
@@ -175,7 +242,11 @@ async function canonicalFuturePath(input){
   try{return await realpath(absolute);}catch(error){if(error.code!=='ENOENT')throw error;const parent=path.dirname(absolute);if(parent===absolute)throw error;return path.join(await canonicalFuturePath(parent),path.basename(absolute));}
 }
 
-export async function installArchive({ zipBytes, checksumText, zipName, installDir, configPath }) {
+export async function installArchive(options) {
+  if (!path.isAbsolute(options.installDir)) throw new Error('--install-dir must be absolute.');
+  return withAppLock(options.installDir, token => installArchiveLocked({...options, lockToken: token}), {token: options.lockToken});
+}
+async function installArchiveLocked({ zipBytes, checksumText, zipName, installDir, configPath, lockToken, compatibility, fromVersion, requirePristine = false, pinPath }) {
   if (!path.isAbsolute(installDir)) throw new Error('--install-dir must be absolute.');
   verifyChecksum(zipBytes, checksumText, zipName);
   const entries = readSafeZip(zipBytes);
@@ -196,44 +267,67 @@ export async function installArchive({ zipBytes, checksumText, zipName, installD
     catch { throw new Error('Destination is not a recognized Board Room installation.'); }
     if (installed.name !== 'board-room') throw new Error('Destination is not a recognized Board Room installation.');
   }
+  if (requirePristine && (!current || !await installationPristine(installDir))) throw new Error('Installed app is modified or lacks a file baseline; review before replacing it.');
+  const pinBefore = pinPath ? await readFile(pinPath, 'utf8') : null;
+  const configBefore = external ? await readFile(external.configPath, 'utf8') : null;
   const identity = randomUUID();
   const stage = path.join(canonicalParent, `.${path.basename(installDir)}.stage-${identity}`);
   const backup = current ? path.join(canonicalParent, `.${path.basename(installDir)}.backup-${new Date().toISOString().replaceAll(':', '-')}-${identity.slice(0, 8)}`) : null;
   let wasRunning = false;
   let movedOld = false;
   let movedNew = false;
+  let newRunning = false;
+  let pinChanged = false;
   try {
     await extract(entries, stage);
     const manifest = JSON.parse(await readFile(path.join(stage, 'package.json'), 'utf8'));
     if (manifest.name !== 'board-room' || !/^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/.test(manifest.version)) throw new Error('ZIP contains an invalid app package.');
-    await writeFile(path.join(stage, 'INSTALLATION.json'), `${JSON.stringify({version:manifest.version,archive:zipName,sha256:createHash('sha256').update(zipBytes).digest('hex'),installedAt:new Date().toISOString()},null,2)}\n`, {flag:'wx'});
+    if (compatibility) {
+      const embedded = JSON.parse(await readFile(path.join(stage, 'lib/update-compatibility.json'), 'utf8'));
+      if (JSON.stringify(embedded) !== JSON.stringify(compatibility)) throw new Error('Package compatibility does not match the checked release metadata.');
+      let workspaceSchema = 1;
+      if (external && await exists(path.join(external.workspaceRoot, 'workspace.json'))) workspaceSchema = JSON.parse(await readFile(path.join(external.workspaceRoot, 'workspace.json'), 'utf8')).schemaVersion;
+      const reason = compatibilityError(embedded, {fromVersion, toVersion: manifest.version, workspaceSchema});
+      if (reason) throw new Error(reason);
+      if (manifest.engines?.node !== embedded.runtime.node) throw new Error('Package runtime does not match compatibility metadata.');
+    }
+    const files = Object.fromEntries(entries.filter(entry => !entry.directory).map(entry => [entry.relative, createHash('sha256').update(entry.content).digest('hex')]));
+    await writeFile(path.join(stage, 'INSTALLATION.json'), `${JSON.stringify({version:manifest.version,archive:zipName,sha256:createHash('sha256').update(zipBytes).digest('hex'),installedAt:new Date().toISOString(),files},null,2)}\n`, {flag:'wx'});
     if (external) {
       const runtime = await exists(`${external.configPath}.pid.json`);
       if (runtime) {
         if (!current) throw new Error('A managed process exists, but this install directory has no old app to stop.');
-        await runCli(path.join(installDir, 'cli.mjs'), 'stop', external.configPath);
+        await runCli(path.join(installDir, 'cli.mjs'), 'stop', external.configPath, lockToken);
         wasRunning = true;
       }
     }
     if (current) { await rename(installDir, backup); movedOld = true; }
     await rename(stage, installDir); movedNew = true;
-    if (wasRunning) await runCli(path.join(installDir, 'cli.mjs'), 'start', external.configPath);
+    if (external) {
+      await runCli(path.join(installDir, 'cli.mjs'), 'start', external.configPath, lockToken);
+      newRunning = true;
+      await verifyInstalledHealth(installDir, external.configPath, manifest.version);
+      if (!wasRunning) { await runCli(path.join(installDir, 'cli.mjs'), 'stop', external.configPath, lockToken); newRunning = false; await atomicText(external.configPath, configBefore); }
+    }
+    if (pinPath) { await atomicText(pinPath, `${JSON.stringify({...JSON.parse(pinBefore), version: manifest.version}, null, 2)}\n`); pinChanged = true; }
     return { version: manifest.version, installDir, backup, restarted: wasRunning, configPath: external?.configPath || null };
   } catch (error) {
     const failures = [error.message];
+    if (pinChanged) { try { await atomicText(pinPath, pinBefore); } catch (pinError) { failures.push(`Pin restore failed: ${pinError.message}`); } }
     if (movedNew) {
-      if (wasRunning && await exists(`${external.configPath}.pid.json`)) {
-        try { await runCli(path.join(installDir, 'cli.mjs'), 'stop', external.configPath); }
+      if (external && (newRunning || await exists(`${external.configPath}.pid.json`))) {
+        try { await runCli(path.join(installDir, 'cli.mjs'), 'stop', external.configPath, lockToken); }
         catch (stopError) { throw new Error(`${failures[0]} New app may still be running; backup preserved at ${backup}. ${stopError.message}`); }
       }
       await rm(installDir, { recursive: true, force: true });
     }
+    if (external && movedNew) { try { await atomicText(external.configPath,configBefore); } catch(configError) { failures.push(`Config restore failed: ${configError.message}`); } }
     if (movedOld) {
       try { await rename(backup, installDir); }
       catch (restoreError) { failures.push(`Backup restore failed: ${restoreError.message}`); }
     }
     if (wasRunning && movedOld && await exists(installDir)) {
-      try { await runCli(path.join(installDir, 'cli.mjs'), 'start', external.configPath); }
+      try { await runCli(path.join(installDir, 'cli.mjs'), 'start', external.configPath, lockToken); }
       catch (restartError) { failures.push(`Old app restart failed: ${restartError.message}`); }
     }
     throw new Error(failures.join(' '));
@@ -242,8 +336,25 @@ export async function installArchive({ zipBytes, checksumText, zipName, installD
   }
 }
 
-async function fetchLimited(url, headers, limit) {
-  const response = await fetch(url, { headers });
+export async function atomicText(file, text) {
+  const temporary = `${file}.${randomUUID()}.tmp`;
+  try { await writeFile(temporary, text, {flag: 'wx'}); await rename(temporary, file); }
+  finally { await rm(temporary, {force: true}); }
+}
+export async function verifyInstalledHealth(app, configPath, version) {
+  const runtime = JSON.parse(await readFile(`${configPath}.pid.json`, 'utf8'));
+  const config = JSON.parse(await readFile(configPath, 'utf8'));
+  if (runtime.configPath !== configPath || runtime.appPath !== app || !Number.isInteger(runtime.port)) throw new Error('Health runtime identity mismatch.');
+  const health = await fetch(`http://127.0.0.1:${runtime.port}/api/health`, {signal: AbortSignal.timeout(1500)}).then(response => {if (!response.ok) throw new Error('Health request failed.'); return response.json();});
+  const boardsRoot=await realpath(config.boardsRoot);
+  const workspaceRoot=await canonicalFuturePath(config.workspaceRoot||path.join(boardsRoot,'.tinka'));
+  const defaultRoot=await canonicalFuturePath(path.join(boardsRoot,'.tinka'));
+  const workspaceId=createHash('sha256').update(`${configPath}\0${boardsRoot}${workspaceRoot===defaultRoot?'':`\0${workspaceRoot}`}`).digest('hex').slice(0,24);
+  if (health.app !== 'board-room' || health.version !== version || health.configPath !== configPath || health.boardsRoot !== boardsRoot || health.workspaceId!==workspaceId || health.port!==runtime.port || config.port!==runtime.port || health.projectLabel !== (config.projectLabel?.trim() || path.basename(path.dirname(configPath)))) throw new Error('Installed app health identity/version mismatch.');
+  return runtime;
+}
+export async function fetchLimited(url, headers, limit, timeoutMs = 4000) {
+  const response = await fetch(url, { headers, signal: AbortSignal.timeout(timeoutMs) });
   if (!response.ok) throw new Error(`Download failed (${response.status}) for ${new URL(url).hostname}.`);
   if (Number(response.headers.get('content-length')) > limit) throw new Error('Download exceeds the size limit.');
   let size=0;const chunks=[];
@@ -251,7 +362,7 @@ async function fetchLimited(url, headers, limit) {
   return Buffer.concat(chunks);
 }
 
-async function githubRelease(repo, requestedVersion) {
+export async function githubRelease(repo, requestedVersion) {
   if (!/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(repo) || repo.split('/').some(part => part === '.' || part === '..')) throw new Error('--repo must be OWNER/REPO.');
   const token = process.env.GITHUB_TOKEN;
   const headers = { 'Accept': 'application/vnd.github+json', 'User-Agent': 'tinka-installer' };
@@ -305,6 +416,16 @@ export async function main(args = process.argv.slice(2)) {
       const config=JSON.parse(await readFile(localConfig,'utf8'));
       if(config.boardsRoot!==await realpath(boardsPath)||config.projectLabel!==(options['--label']||settings?.projectLabel||path.basename(project)))throw new Error('Local config belongs to another location or project. Inspect tinka/local before restoring.');
       configPath=localConfig;
+    }else{
+      // Restore machine-local config before candidate acceptance, even when a
+      // checkout has no local/ directory. Never advance its existing pin first.
+      await mkdir(boardsPath,{recursive:true});
+      const canonicalBoards=await realpath(boardsPath);
+      if(!inside(project,canonicalBoards)||inside(directory,canonicalBoards))throw new Error('Project boards leave this checkout.');
+      await mkdir(local,{recursive:true});
+      if(await realpath(local)!==local)throw new Error('The local config folder must not be a symlink.');
+      await writeFile(localConfig,`${JSON.stringify({schemaVersion:1,port:43821,portMode:'auto',projectLabel:options['--label']||settings?.projectLabel||path.basename(project),boardsRoot:canonicalBoards,title:'Tinka'},null,2)}\n`,{flag:'wx'});
+      configPath=localConfig;
     }
     const installed=path.join(installDir,'package.json');
     if(settings&&!options['--zip']&&!options['--version']&&!options['--repo']&&await exists(installed)){
@@ -339,7 +460,7 @@ export async function main(args = process.argv.slice(2)) {
     if(requestedVersion&&version!==requestedVersion)throw new Error('Archive version does not match the project pin or requested version.');
     if(project&&!entries.some(entry=>entry.relative==='lib/project.mjs'))throw new Error('This release predates portable project setup. Use a current release, or --install-dir and --config for a manual layout.');
   }
-  const result = await installArchive({ ...source, installDir, configPath });
+  const result = await installArchive({ ...source, installDir, configPath, ...(project && settings && configPath ? {pinPath:path.join(project,'tinka/project.json')} : {}) });
   let prepared='';
   if(project){
     const arguments_=[path.join(result.installDir,'cli.mjs'),'project','init','--project',project];

@@ -251,22 +251,80 @@ projects. Legacy workspace pointers and external data layouts remain supported.
 
 Browser storage keys include an identity derived from this config's canonical path and boards root, adding a custom workspace metadata root when it differs from the default. A different project later using the same port cannot inherit its notes or view settings. Note writes also check the workspace identity, so stale tabs cannot write into a project that later takes their old port. Legacy server notes remain in each board's `.state/notes.json`; schema 2 review notes are canonical item metadata. Older unscoped browser caches are left untouched and are not automatically imported. Export any browser-only notes from the old app before upgrading.
 
-## Upgrade one project
+## Updates for one project
+
+Run the normal start command whenever returning to a project's boards, even if
+its server is already running:
+
+```sh
+node tinka/app/cli.mjs start --config tinka/local/config.json
+```
+
+Start verifies and returns the existing instance's URL, or starts it when stopped.
+Installed copies check the published latest release at most once per 24 hours per
+instance. Failed/offline checks are cached too and have a short bounded timeout.
+The default is **notify**: one concise agent-readable notice per new release,
+with commands for the following choices:
+
+```sh
+node tinka/app/cli.mjs update now --config tinka/local/config.json
+node tinka/app/cli.mjs update later --config tinka/local/config.json
+node tinka/app/cli.mjs update policy auto --config tinka/local/config.json
+node tinka/app/cli.mjs update policy notify --config tinka/local/config.json
+node tinka/app/cli.mjs update policy off --config tinka/local/config.json
+node tinka/app/cli.mjs update status --config tinka/local/config.json
+```
+
+`later` reminds again after 24 hours; it does not change the daily check interval.
+`auto` is this machine's explicit consent to install compatible updates before
+starting a stopped instance. A running board is left running, with the update
+deferred. Failed automatic installs are attempted once per release; `update now`
+explicitly retries. `off` disables automatic checks. `update check` explicitly
+refreshes release information without downloading or installing an app.
+
+Preferences/cache stay in ignored `tinka/local/updates.json`. Manual and dotfolder
+layouts retain their config locations and use `CONFIG_PATH.updates.json` beside
+each config, so different configs never silently share consent. No background
+service, scheduler, model or registry is involved. Source checkouts do not perform
+automatic release checks.
+
+Automatic eligibility requires explicit published compatibility from the installed
+version, stable releases within the same app major, supported Node/platform and
+workspace/config schemas, and no migration. Version numbers alone grant nothing,
+including within 0.x. The updater revalidates metadata against the checksum-verified
+package. Locally modified app files or an older installation receipt without file
+baselines require review. An ordinary app update never migrates workspace data.
+
+`update now` deliberately replaces this app (including reviewed local changes),
+and may restart its verified owned instance. It uses the standalone installer's
+checksum, staging and backup path. A temporary health probe verifies a stopped
+candidate before acceptance; its original config bytes are restored after the
+probe. Failure restores the prior app/config and attempts to recover its running
+service. The project pin changes only after successful health verification; review
+and commit `tinka/project.json` yourself. No Git commit is created automatically.
+
+Existing installations receive these commands through a deliberate upgrade:
 
 ```sh
 node tinka/setup.mjs --version X.Y.Z
 ```
 
-Review and commit the updated `tinka/project.json` version pin. With no version
-argument, a portable project's setup restores its existing pin. For a manual or
-legacy installation, use the app's installer instead:
+With no version argument, setup always restores its existing pin. Custom existing
+`setup.mjs` and `TINKA.md` are preserved. Older setup helpers can install the new
+feature but write receipts without file baselines. To enable future automatic
+replacement safely, review local app modifications, download the **current**
+`tinka-install.mjs` from the release page, and deliberately reinstall the current
+version with it:
 
 ```sh
-node /absolute/app/scripts/install.mjs \
-  --install-dir /absolute/app --config /absolute/config.json --version X.Y.Z
+node /absolute/tinka-install.mjs --install-dir /absolute/project/tinka/app \
+  --config /absolute/project/tinka/local/config.json --version X.Y.Z
 ```
 
-For a manual installation without a project pin, omit `--version` to choose the latest published release. The installer verifies SHA-256 and archive paths, stages a complete replacement, stops only the owned managed instance, keeps a backup, and restarts it if it was running. Failed replacement or restart restores the backup and attempts to restart the old app. Each installation records its version and archive checksum in `INSTALLATION.json`. Upgrades are explicit and affect only the supplied installation. Keep one installed app copy per project when projects need independent upgrades; do not point multiple configs at an app directory you intend to replace.
+This also works when already on the latest version and preserves custom project
+instructions and setup helpers. Default policy remains notify. Keep one installed
+app copy per project when projects need independent upgrades; never share an app
+copy among configs you intend to update independently.
 
 Config, boards, notes, logs, and PID state must stay outside the app directory. Existing version 0.1 configs remain fixed-port configurations; add `"projectLabel": "Your project"` and optionally `"portMode": "auto"`. The legacy `title` property remains accepted but project identity comes from `projectLabel`.
 

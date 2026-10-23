@@ -116,7 +116,10 @@ export async function buildRelease({ outDir }) {
   const appName = `tinka-v${manifest.version}.zip`;
   const skillName = 'tinka-skill.zip';
   const installerName = 'tinka-install.mjs';
-  const outputs = [appName, `${appName}.sha256`, skillName, `${skillName}.sha256`, installerName, `${installerName}.sha256`].map(name => path.join(outDir, name));
+  const compatibilityName = `tinka-v${manifest.version}.compatibility.json`;
+  const compatibility = JSON.parse(await readFile(path.join(sourceRoot, 'lib/update-compatibility.json'), 'utf8'));
+  if(compatibility.version!==manifest.version || compatibility.schemaVersion!==1 || compatibility.runtime?.node!==manifest.engines?.node || !Array.isArray(compatibility.fromVersions) || compatibility.fromVersions.some(version=>!/^\d+\.\d+\.\d+$/.test(version)))throw new Error('Compatibility metadata must explicitly match this package.');
+  const outputs = [appName, `${appName}.sha256`, skillName, `${skillName}.sha256`, installerName, `${installerName}.sha256`, compatibilityName, `${compatibilityName}.sha256`].map(name => path.join(outDir, name));
   await mkdir(outDir, { recursive: true });
   for (const output of outputs) {
     try { await stat(output); throw new Error(`Release output already exists: ${output}`); }
@@ -131,7 +134,10 @@ export async function buildRelease({ outDir }) {
   const installerBytes=await readFile(path.join(sourceRoot,'scripts/install.mjs'));
   await writeFile(outputs[4],installerBytes,{flag:'wx'});
   await writeFile(outputs[5],checksumSidecar(installerBytes,installerName),{flag:'wx'});
-  return { version: manifest.version, appZip: outputs[0], appChecksum: outputs[1], skillZip: outputs[2], skillChecksum: outputs[3], installer: outputs[4], installerChecksum: outputs[5], appFiles: appFiles.length, skillFiles: skillFiles.length };
+  const compatibilityBytes=Buffer.from(`${JSON.stringify({...compatibility,archiveSha256:createHash('sha256').update(appBytes).digest('hex')},null,2)}\n`);
+  await writeFile(outputs[6],compatibilityBytes,{flag:'wx'});
+  await writeFile(outputs[7],checksumSidecar(compatibilityBytes,compatibilityName),{flag:'wx'});
+  return { version: manifest.version, compatibility:outputs[6], compatibilityChecksum:outputs[7], appZip: outputs[0], appChecksum: outputs[1], skillZip: outputs[2], skillChecksum: outputs[3], installer: outputs[4], installerChecksum: outputs[5], appFiles: appFiles.length, skillFiles: skillFiles.length };
 }
 
 if (process.argv[1] && await realpath(path.resolve(process.argv[1])).catch(() => null) === fileURLToPath(import.meta.url)) {

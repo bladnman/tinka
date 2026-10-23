@@ -358,6 +358,20 @@ Each operation may include `expectedRevision` and a unique `operationId`. A stal
 
 The sections below describe schema 1 folders. They remain readable without migration. For schema 2 items and direct organization operations, see the workspace contract above.
 
+## Start and update this instance
+
+Run `node /absolute/app/cli.mjs start --config /absolute/config.json` whenever
+returning to boards. It verifies/reuses a healthy owned instance and checks latest
+release information at most once daily per installed instance. Default notify
+reminds once per new release. `update later` snoozes 24h; `update policy
+auto|notify|off` controls local consent and `update now` explicitly installs/retries.
+Use the same `--config` for every command. `update check` refreshes metadata only.
+Auto replacement requires explicit version-bound runtime/schema compatibility,
+no migration and unchanged app file baselines; it occurs only before a stopped
+start. Source checkouts skip automatic checks. The [README](../README.md#updates-for-one-project)
+describes local state, old-receipt bootstrap, checksums, health and recovery.
+Setup without version arguments remains a pinned restore.
+
 ## Start a board
 
 Create a board with `node cli.mjs board create SLUG --config /absolute/config.json --title "Title"`. Its immediate folder under `boardsRoot` contains `AGENTS.md`, `board.json`, `rounds.json`, `build-state.json`, and `.state/notes.json`. The portable guide stays with the board. Use `board guide SLUG --config PATH` to add it to an older board without overwriting an existing guide. No installed skill is required. The app never executes a manifest or an experiment start command. Keep source and evidence in that external board folder; keep the application installation replaceable.

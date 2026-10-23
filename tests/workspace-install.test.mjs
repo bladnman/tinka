@@ -1,3 +1,4 @@
+import './helpers/offline.mjs';
 import assert from 'node:assert/strict';
 import {test} from 'node:test';
 import {mkdtemp,mkdir,realpath,readFile,writeFile,rm,symlink} from 'node:fs/promises';

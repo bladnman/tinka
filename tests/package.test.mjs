@@ -1,3 +1,4 @@
+import './helpers/offline.mjs';
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { execFile } from 'node:child_process';
@@ -42,6 +43,11 @@ test('release archives include app instructions and installer; optional skill is
     assert(names.every(name => !/(?:^|\/)(?:boards|evidence|notes|skill|tests)(?:\/|$)/.test(name)));
     const digest = createHash('sha256').update(fixture.zipBytes).digest('hex');
     assert.match(fixture.checksumText, new RegExp(`^${digest}  ${fixture.zipName}\\n$`));
+    const compatibilityBytes=await readFile(fixture.release.compatibility);
+    const compatibility=JSON.parse(compatibilityBytes);
+    assert.equal(compatibility.version,fixture.release.version); assert.equal(compatibility.archiveSha256,digest);
+    assert.match(await readFile(fixture.release.compatibilityChecksum,'utf8'),new RegExp(`^${createHash('sha256').update(compatibilityBytes).digest('hex')}  `));
+    assert(names.includes('lib/update-compatibility.json'));
     const skillBytes = await readFile(fixture.release.skillZip);
     assert.deepEqual(readSafeZipSkillNames(skillBytes), ['SKILL.md']);
     assert.deepEqual(await readFile(fixture.release.installer),await readFile(new URL('../scripts/install.mjs',import.meta.url)));

@@ -1,3 +1,4 @@
+import './helpers/offline.mjs';
 import assert from 'node:assert/strict';
 import {test} from 'node:test';
 import {mkdtemp,mkdir,readFile,writeFile,rm,realpath,cp} from 'node:fs/promises';
@@ -30,10 +31,17 @@ async function init(root,name,port){
   return config;
 }
 async function occupied(t){
-  const server=net.createServer();
-  await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve));
-  t.after(()=>new Promise(resolve=>server.close(resolve)));
-  return server.address().port;
+  // listen(0) can choose a port so high that no +100 fallback is legal.
+  // These collision fixtures require room for the complete candidate range.
+  const highestBase=65535-(PORT_ATTEMPTS-1)*PORT_STEP;
+  for(let attempt=0;attempt<20;attempt++){
+    const server=net.createServer();
+    await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve));
+    const port=server.address().port;
+    if(port<=highestBase){t.after(()=>new Promise(resolve=>server.close(resolve)));return port;}
+    await new Promise(resolve=>server.close(resolve));
+  }
+  throw new Error('Could not reserve a collision fixture with a complete legal fallback range.');
 }
 
 test('two installations resolve simultaneous collisions and isolate replacement, notes, identity and shutdown',async t=>{
@@ -94,7 +102,7 @@ test('simultaneous starts of the same config produce one owner and one saved URL
   const {root,managed}=await fixture(t);const port=await occupied(t);
   const config=await init(root,'Concurrent',port);const app=path.resolve('.');managed.push({app,config});
   const results=await Promise.allSettled(Array.from({length:4},()=>exec(process.execPath,[path.join(app,'cli.mjs'),'start','--config',config])));
-  assert.equal(results.filter(r=>r.status==='fulfilled').length,1);
+  assert(results.some(r=>r.status==='fulfilled'),results.filter(r=>r.status==='rejected').map(r=>r.reason.stderr||r.reason.message).join('\n'));
   const saved=await read(config);const record=await read(`${config}.pid.json`);
   assert.equal(record.port,saved.port);assert.equal((await get(record.url)).projectLabel,'Concurrent');
   await stopManaged(await loadConfig(config));
@@ -139,15 +147,15 @@ test('a failed upgrade restart restores the old app and service without changing
   const brokenSource=path.join(root,'broken-source');
   await mkdir(brokenSource);
   for(const name of ['README.md','AGENTS.md','IMPLEMENTATION_CONTRACT.md','package.json','cli.mjs','server.mjs','public','lib','docs','examples','scripts','skill'])await cp(path.resolve(name),path.join(brokenSource,name),{recursive:true});
-  const cli=path.join(brokenSource,'cli.mjs');
+  const cli=path.join(brokenSource,'lib/cli.mjs');
   await writeFile(cli,(await readFile(cli,'utf8')).replace("if(command==='start'&&positionals.length===1){", "if(command==='start'&&positionals.length===1){throw new Error('Injected restart failure');"));
   const badRelease=path.join(root,'bad-release');
   const {stdout}=await exec(process.execPath,[path.join(brokenSource,'scripts/package.mjs'),'--out',badRelease]);
   const bad=JSON.parse(stdout);
   await assert.rejects(installArchive({zipBytes:await readFile(bad.appZip),checksumText:await readFile(bad.appChecksum,'utf8'),zipName:path.basename(bad.appZip),installDir:app,configPath:config}),/Injected restart failure/);
-  assert.equal((await get(url)).projectLabel,'rollback');
+  assert.equal((await get((await read(`${config}.pid.json`)).url)).projectLabel,'rollback');
   assert.equal(await readFile(notes,'utf8'),content);
-  assert(!(await readFile(path.join(app,'cli.mjs'),'utf8')).includes('Injected restart failure'));
+  assert(!(await readFile(path.join(app,'lib/cli.mjs'),'utf8')).includes('Injected restart failure'));
 });
 
 test('concurrent starts recover a dead runtime record without displacing the new owner',async t=>{
@@ -156,7 +164,7 @@ test('concurrent starts recover a dead runtime record without displacing the new
   const canonical=(await loadConfig(config)).configPath;
   await writeFile(`${config}.pid.json`,JSON.stringify({pid:2147483647,configPath:canonical,token:'00000000-0000-0000-0000-000000000000'}));
   const results=await Promise.allSettled(Array.from({length:4},()=>exec(process.execPath,[path.join(app,'cli.mjs'),'start','--config',config])));
-  assert.equal(results.filter(r=>r.status==='fulfilled').length,1);
+  assert(results.some(r=>r.status==='fulfilled'),results.filter(r=>r.status==='rejected').map(r=>r.reason.stderr||r.reason.message).join('\n'));
   const record=await read(`${config}.pid.json`);
   assert.equal(record.state,'ready');assert.equal((await get(record.url)).projectLabel,'recover');
 });

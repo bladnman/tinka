@@ -280,6 +280,8 @@ node cli.mjs workspace show --config PATH
 node cli.mjs workspace op --config PATH --json JSON|--file PATH
 node cli.mjs item show ITEM_ID --config PATH
 node cli.mjs serve|start|stop --config PATH
+node cli.mjs update now|check|later|status --config PATH
+node cli.mjs update policy notify|auto|off --config PATH
 node cli.mjs board create SLUG --config PATH --title TEXT [--description TEXT]
 node cli.mjs board guide SLUG --config PATH
 node cli.mjs status --config PATH --board SLUG ROUND/CONCEPT building|review|ready|reserved [MESSAGE]
@@ -301,3 +303,30 @@ One project owns its config, boards root, runtime record, log, saved port, and b
 The brand is Tinka; projectLabel is separate; board title is separate. Home shows Tinka / Project. Board views and browser titles include the project and board. The board header shows the Tinka mark with a visible Home link, an explicit ← Parent return when a containing board exists, one complete current board title, and Tools. Project identity remains in the Home tooltip and accessible name and browser title. A valid ?from entry context selects the return destination; a sole parent can be used without context, while multiple parents without context offer a chooser. Top-level boards show no parent return. Tools contains graph creation (+ Add), Grid/Canvas, search and review filters, board details, notes export and help. Long current titles wrap rather than forming a truncated breadcrumb chain. The board footer keeps live and notes status quiet on the left, with the zoom slider (synced with pinch and Control/⌘-scroll) and Fit on the right.
 
 The experiment viewer's header shows Home, an explicit ← Board return to the containing board, the current item title, its shortlist star and a Notes panel that uses the same notes as the board card. Its footer offers Back to board (Esc), previous/next controls and a dot track showing position in board manifest order across rounds, plus a View popover containing Type size, Fit, Light, window size (with Version when revisions exist), Open standalone and applicable graph item actions. Tools and View support keyboard focus, Escape dismissal and outside click. Navigation skips reserved/building slots, stops at either end, and preserves window size (including custom dimensions), light and type settings. Each destination opens its original version and updates the URL, title, hint and standalone link. Opening, stepping between or closing experiments and choosing a version each add one browser history entry; Back and Forward restore them, while view settings, notes and zoom do not add entries. Live status and manifest updates refresh the navigation without reloading the current preview. Arrow keys remain available to the experiment itself.
+
+## Project-local updates
+
+Installed normal start checks latest release at most once per 24h, including
+failed checks and an already-running instance. It reuses a live process only after
+ownership and health/config/version checks. Source checkouts skip automatic checks.
+Default notify reminds once per release; later snoozes 24h. Local auto consent
+allows replacement only before a stopped start, with no repeated failed automatic
+attempt for a release. Off disables automatic checks. No daemon/model/registry.
+State belongs to ignored tinka/local/updates.json only for the exact portable
+app/config pair; manual layouts use CONFIG_PATH.updates.json without relocation.
+
+lib/update-compatibility.json names the release, eligible starting versions,
+Node/platform requirements, config/workspace schemas and migration:none. Packaging
+also writes a version-bound compatibility asset containing the app ZIP SHA-256.
+The updater checks stable same-major versions, declared compatibility, package
+metadata equality/runtime, archive digest and per-file installation baselines.
+Old receipts without baselines and modified installs never auto replace; deliberate
+current-installer reinstallation establishes a baseline. No implicit data migration.
+
+A per-app cooperating lock covers dynamic CLI implementation imports, start,
+check and replacement. Installer child commands carry a validated lock token and
+skip recursive checks. Replacement re-executes the new CLI before normal start.
+Health verification precedes pin acceptance; failure restores app/config/pin and
+attempts old-service recovery. A stopped health probe restores exact config bytes.
+Retained backups and failed recovery details remain actionable. Existing custom
+project TINKA.md/setup helpers remain create-only; no automatic Git commits.

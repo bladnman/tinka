@@ -1,3 +1,4 @@
+import './helpers/offline.mjs';
 import assert from 'node:assert/strict';
 import {execFile} from 'node:child_process';
 import {mkdtemp,realpath,mkdir,readFile,writeFile,rm,symlink,copyFile} from 'node:fs/promises';
@@ -24,6 +25,7 @@ test('a Git checkout restores its pinned app and board notes at a different path
   try{
     await writeFile(path.join(project,'AGENTS.md'),'# Product rules\n\nKeep this existing guidance.\n');
     await exec(process.execPath,[release.installer,'--project',project,'--label','Portable project',...sourceArgs]);
+    assert((await readFile(path.join(project,'tinka/.gitignore'),'utf8')).includes('/.app.operation-lock/'));
     const firstGuide=await readFile(path.join(project,'AGENTS.md'),'utf8');
     assert(firstGuide.startsWith('# Product rules\n\nKeep this existing guidance.\n'));
     const board=path.join(project,'design/boards/style-guide');

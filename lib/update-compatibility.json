@@ -1,0 +1,8 @@
+{
+  "schemaVersion": 1,
+  "version": "0.5.16",
+  "fromVersions": ["0.5.15"],
+  "runtime": {"node": ">=22", "platforms": ["darwin", "linux"]},
+  "schemas": {"config": [1], "workspace": [1, 2]},
+  "migration": "none"
+}

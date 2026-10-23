@@ -25,6 +25,8 @@ README's installation procedure; do not require a skill. Ask for a location only
 when the project gives none. Recommend visible `tinka/` for tooling and
 `design/boards/` for durable content. Installation paths are configurable.
 
+When asked to open or return to boards, always run the normal `node /absolute/app/cli.mjs start --config /absolute/config.json`, even if the server is already healthy. This checks for updates once daily and returns the verified existing URL without restarting it. Relay an available update in one short sentence offering update now, later, or always install compatible updates; do not dump CLI lines or local paths into the user conversation. The CLI notice contains exact commands for the agent. Do not select auto policy without the user's explicit personal consent.
+
 Before claiming a running workspace, verify `/api/health` matches the selected
 canonical config path and project label. Report the actual URL printed by start.
 Do not kill, adopt or reconfigure another instance to resolve a collision.
@@ -81,7 +83,22 @@ The app includes `scripts/install.mjs`; releases also provide the same standalon
 `tinka-install.mjs`. It verifies SHA-256 and ZIP paths, stages replacements,
 stops only the verified owned process and retains a backup. The optional skill
 contains no installer or version-specific operations. Project setup updates its
-version pin only after a successful installation. Commit that deliberate change.
+version pin only after verified successful health. Review and commit that change;
+the updater never commits it. Run `update now`, `update later` (24h), or
+`update policy notify|auto|off` with the same explicit config. `update check`
+refreshes metadata without installing. Default notify announces each new release
+once; failures/offline checks are cached for 24h. Auto policy installs only an
+explicitly compatible stable release before starting a stopped instance and
+never interrupts an already-running board. A failed auto install is not retried
+until explicit `update now` or a different release.
+
+Compatibility metadata must name eligible starting versions, runtime and schemas,
+and declare no migration; major changes, missing/unknown compatibility and local
+app edits require review. Old installation receipts lack file baselines. Follow
+the root README's current standalone-installer reinstall command to establish a
+baseline even when already current; preserve custom setup.mjs/TINKA.md. App setup
+with no arguments remains a pinned restore. Preferences/cache stay local, and
+manual/dotfolder config paths stay in place.
 
 Keep boards, config, notes and runtime state outside the replaceable app. App
 replacement never includes user content. Before upgrading an old app, export
