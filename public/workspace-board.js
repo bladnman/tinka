@@ -1,3 +1,4 @@
+import {newestBoardsFirst} from "./board-order.js";
 import {reconcileChildren} from "./reconcile.js";
 import {coverMarkup, observeCovers} from "./board-covers.js";
 import {eventFiles,hasFileDrag,validateImportFiles,importLayout,pdfSupported,pdfPreviewURL} from "./file-import.js";
@@ -155,7 +156,7 @@ export class WorkspaceBoard {
       "Board canvas: scroll to pan, pinch or Control-scroll to zoom; drag a card to move it or drop it into a board",
     );
     $("help-panel").innerHTML =
-      "<strong>Make yourself at home.</strong> Scroll with your mouse or trackpad, or swipe the background on a touch screen, to move around Canvas; Shift-scroll moves sideways. Pinch, or hold Control or ⌘ while scrolling, to zoom. Drag a card’s body to move it; drop inside a highlighted board to move the item into it. Escape cancels a drag. Notes and buttons keep their usual behavior. A click opens a preview. Select an item and use arrow keys to move it, or drag its corner to resize. Move… in the selection toolbar also moves items into boards. Double-click text or a region label to edit it. Grid keeps comparison order. Open an item to try it, then step with Previous, Next or the dots. Escape returns here. Stars and notes follow the item across references.";
+      "<strong>Make yourself at home.</strong> Scroll with your mouse or trackpad, or swipe the background on a touch screen, to move around Canvas; Shift-scroll moves sideways. Pinch, or hold Control or ⌘ while scrolling, to zoom. Drag a card’s body to move it; drop inside a highlighted board to move the item into it. Escape cancels a drag. Notes and buttons keep their usual behavior. A click opens a preview. Select an item and use arrow keys to move it, or drag its corner to resize. Move… in the selection toolbar also moves items into boards. Double-click text or a region label to edit it. Grid shows newer boards first, keeping other items in comparison order. Open an item to try it, then step with Previous, Next or the dots. Escape returns here. Stars and notes follow the item across references.";
     const bar = document.createElement("section");
     $("help-panel").append(" Use ⌘/Ctrl-X to cut selected Tinkas, then paste on another board to move them together. Originals stay safe until paste succeeds. Escape or ⌘/Ctrl-Z cancels a pending cut; text fields keep their normal cut.");
     $("help-panel").append(" Copy selected Tinkas with ⌘/Ctrl-C, then paste here or in another board with ⌘/Ctrl-V. Copies retain their arrangement and use the same files. A pasted link gets a saved representation; pasted text becomes a document. Undo also reverses paste. Text fields keep their normal clipboard.");
@@ -981,7 +982,7 @@ export class WorkspaceBoard {
         const r = this.snapshot.rounds.find((r) => r.id === id) || {
           title: "On this board",
         };
-        return `<section class="workspace-grid-round" data-round="${esc(id)}"><header><p class="workspace-eyebrow">${r.number ? "ROUND " + esc(r.number) : "ITEMS"}${r.date ? " · " + esc(r.date) : ""}</p><h2>${esc(r.title || "Exploration")}</h2>${r.description ? `<p>${esc(r.description)}</p>` : ""}</header><div class="workspace-cards">${entries.map(renderCard).join("")}</div></section>`;
+        return `<section class="workspace-grid-round" data-round="${esc(id)}"><header><p class="workspace-eyebrow">${r.number ? "ROUND " + esc(r.number) : "ITEMS"}${r.date ? " · " + esc(r.date) : ""}</p><h2>${esc(r.title || "Exploration")}</h2>${r.description ? `<p>${esc(r.description)}</p>` : ""}</header><div class="workspace-cards">${newestBoardsFirst(entries, c => this.snapshot.childBoardCreatedAt?.[c.graphItem.childBoardId], c => !!c.graphItem.childBoardId).map(renderCard).join("")}</div></section>`;
       })
       .join("");
     this.reconcile(world, `${this.mode === "canvas" ? this.decorations() : ""}${this.mode === "grid" ? grid || '<p class="workspace-empty">Nothing here yet. Add an idea or clear a filter.</p>' : `<div class="workspace-cards">${cards || '<p class="workspace-empty">Nothing here yet. Add an idea or clear a filter.</p>'}</div>`}`);

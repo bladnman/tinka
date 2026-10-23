@@ -1,4 +1,5 @@
 import http from 'node:http';
+import {newestBoardsFirst} from './public/board-order.js';
 import {createReadStream} from 'node:fs';
 import {realpath,readFile} from 'node:fs/promises';
 import path from 'node:path';
@@ -63,7 +64,7 @@ async function boardCatalog(config){
     const placements=(board.placements||[]).filter(p=>!p.archivedAt&&!p.removedAt&&!p.deletedAt);
     return {id:board.id,schemaVersion:2,ownerItemId:board.ownerItemId,title:board.title,description:board.description,createdAt:board.createdAt,updatedAt:board.updatedAt,conceptCount:placements.length,roundCount:board.rounds?.length||0,revisionCount:placements.reduce((sum,p)=>sum+(items.get(p.itemId)?.revisions?.length||0),0),buildingCount:placements.filter(p=>items.get(p.itemId)?.build?.state==='building').length,...(board.cover?{cover:board.cover}:{}),...(items.get(board.ownerItemId)?.preview?{preview:items.get(board.ownerItemId).preview}:{})};
   });
-  return {...legacy,boards:[...legacy.boards.filter(board=>!migrated.has(board.id)),...boards],workspaceRevision:workspace.revision,revision:`${legacy.revision}:${workspace.revision}`};
+  return {...legacy,boards:newestBoardsFirst([...legacy.boards.filter(board=>!migrated.has(board.id)),...boards]),workspaceRevision:workspace.revision,revision:`${legacy.revision}:${workspace.revision}`};
 }
 async function sendFile(req,res,root,relative){
   const file=await existingInside(root,relative);

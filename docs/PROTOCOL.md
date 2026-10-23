@@ -447,3 +447,15 @@ Use `building` while implementation is active, `review` when the artifact is run
 Each experiment and board has a **Remove…** action that prepares a copyable agent prompt. In legacy boards, the browser does not delete or move files. The prompt identifies the project, workspace, config, board and, for an experiment, its round and stable ID. Verify that identity against `/api/health` before editing.
 
 When the owner supplies a removal prompt, remove exactly that target. For an experiment, save a recoverable manifest copy in the board's `.state` folder, then remove its concept and revision entries from `rounds.json`. Keep its files, shared dependencies, notes and build history; leave other IDs, numbering and rounds intact. For a board, move its complete folder to a recoverable archive outside `boardsRoot`, preserving all contents. Report the archive or snapshot location and verify that the target has disappeared from the review surface. Do not recreate removed reference material. An already absent target is a completed removal, not permission to choose a substitute.
+
+Boards on Home appear newest-created first, including graph and legacy boards
+together. Nested board cards in Grid use the child board’s creation date within
+each retained round, sorting only among board-card slots. Other items, Canvas
+geometry, saved review order and reader comparison order stay intact. Renames,
+notes and edits do not change this display order. Equal dates retain source order;
+boards with missing or invalid dates follow dated boards in source order.
+
+Graph board responses include a derived `childBoardCreatedAt` map from each
+placed child board ID to that board’s creation date. This response-only field
+distinguishes a newly created child board from its potentially older owner item;
+it is not written into items or board metadata.

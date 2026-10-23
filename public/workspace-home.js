@@ -1,3 +1,4 @@
+import {newestBoardsFirst} from "./board-order.js";
 import {reconcileChildren} from "./reconcile.js";
 import {coverMarkup,observeCovers} from "./board-covers.js";
 import {
@@ -113,18 +114,13 @@ export class WorkspaceHome {
       boards.length + legacy.length,
     );
     const markup =
-      boards
+      newestBoardsFirst([...boards, ...legacy])
         .map((b) => {
+          if (b.schemaVersion !== 2) return this.legacyCard(b);
           const i = items.get(b.ownerItemId),
             image = resourceURL(i.preview?.resource);
           return `<article data-home-board="${esc(b.id)}" class="board-card ${this.selected.has(i.id) ? "workspace-home-selected" : ""}"><button type="button" class="workspace-home-select" data-home-select="${esc(i.id)}" aria-label="Select ${esc(b.title)}" aria-pressed="${this.selected.has(i.id)}">${this.selected.has(i.id) ? "✓" : "□"}</button><a class="board-link" href="/boards/${encodeURIComponent(b.id)}/"><div class="board-art" aria-hidden="true">${image ? `<img src="${esc(image)}" alt="">` : coverMarkup(ws.boardCovers?.[b.id],b.id)}<span class="art-label">${b.placements.filter((p) => !p.removedAt && !p.archivedAt).length} ITEMS</span></div><div class="board-info"><h3>${esc(b.title)}</h3><p>${esc(b.description || i.description || "A place to gather what you make.")}</p><div class="card-bottom"><span>${b.rounds.length} prior ${b.rounds.length === 1 ? "round" : "rounds"} retained</span><span class="arrow">↗</span></div></div></a></article>`;
         })
-        .join("") +
-      legacy
-        .map(
-          (b) =>
-            `<article class="board-card"><a class="board-link" href="/boards/${encodeURIComponent(b.id)}/"><div class="board-art" aria-hidden="true"><div class="sheet"></div><div class="sheet second"><b>Room for an idea.</b></div><span class="art-label">LEGACY BOARD · COMPARE AS BEFORE</span></div><div class="board-info"><h3>${esc(b.title)}</h3><p>${esc(b.description || "Existing rounds, revisions and feedback remain available.")}</p><div class="card-bottom"><span>Open to compare · enable organization deliberately</span><span class="arrow">↗</span></div></div></a><div class="board-actions"><button type="button" data-convert-legacy>Convert to organize…</button></div></article>`,
-        )
         .join("") +
       '<button class="new-board empty-card" type="button"><span class="plus" aria-hidden="true">+</span><strong>A fresh starting point.</strong><small>Create a board for the next idea.</small></button>';
     const grid = document.getElementById("board-grid"), template = document.createElement("template");
@@ -154,6 +150,9 @@ export class WorkspaceHome {
     s.querySelectorAll("[data-home-action]").forEach(
       (b) => (b.onclick = () => this.bulk(b.dataset.homeAction)),
     );
+  }
+  legacyCard(b) {
+    return `<article data-home-board="${esc(b.id)}" class="board-card"><a class="board-link" href="/boards/${encodeURIComponent(b.id)}/"><div class="board-art" aria-hidden="true"><div class="sheet"></div><div class="sheet second"><b>Room for an idea.</b></div><span class="art-label">LEGACY BOARD · COMPARE AS BEFORE</span></div><div class="board-info"><h3>${esc(b.title)}</h3><p>${esc(b.description || "Existing rounds, revisions and feedback remain available.")}</p><div class="card-bottom"><span>Open to compare · enable organization deliberately</span><span class="arrow">↗</span></div></div></a><div class="board-actions"><button type="button" data-convert-legacy>Convert to organize…</button></div></article>`;
   }
   create() {
     makeDialog(

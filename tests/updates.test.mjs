@@ -45,7 +45,7 @@ async function fixture(t, portable = true) {
   });
   return {project, app, config, context};
 }
-const latest = () => ({version: '0.5.16', compatibility: {...embedded, archiveSha256: createHash('sha256').update(archive.zipBytes).digest('hex')}});
+const latest = () => ({version: '0.5.17', compatibility: {...embedded, archiveSha256: createHash('sha256').update(archive.zipBytes).digest('hex')}});
 const source = async () => ({...archive, compatibility: embedded});
 async function policy(f, value) { await updateCommand(f.config, 'policy', value, {context: f.context}); }
 
@@ -78,7 +78,7 @@ test('forced check never downloads, attempts installation, or suppresses a later
 });
 
 test('compatibility requires explicit starting version, stable same major, runtime, schema and no migration', () => {
-  const options = {fromVersion: '0.5.15', toVersion: '0.5.16', nodeVersion: '22.0.0', platform: 'linux'};
+  const options = {fromVersion: '0.5.15', toVersion: '0.5.17', nodeVersion: '22.0.0', platform: 'linux'};
   assert.equal(compatibilityError(embedded, options), null);
   for (const [metadata, override] of [
     [null, {}], [{...embedded, fromVersions: []}, {}], [{...embedded, migration: 'apply'}, {}],
@@ -99,8 +99,8 @@ test('healthy automatic replacement verifies app, updates only pin after health 
   await policy(f, 'auto');
   const result = await withAppLock(f.app, lockToken => checkForUpdates(f.config, {context: f.context, fetchLatest: async () => latest(), downloadRelease: source, lockToken}));
   assert(result.replaced); assert.match(result.message, /Review and commit/);
-  assert.equal((await json(f.context.pinPath)).version, '0.5.16');
-  assert.equal((await json(path.join(f.app, 'package.json'))).version, '0.5.16');
+  assert.equal((await json(f.context.pinPath)).version, '0.5.17');
+  assert.equal((await json(path.join(f.app, 'package.json'))).version, '0.5.17');
   assert(await installationPristine(f.app)); assert.deepEqual(await readFile(f.config.configPath), configBefore);
   assert.equal(await readFile(notes, 'utf8'), 'Keep IDs and notes');
   assert.equal(await readFile(guide, 'utf8'), 'Custom project instructions\n'); assert.equal(await readFile(setup, 'utf8'), '// Custom setup\n');
@@ -115,9 +115,9 @@ test('modified or legacy-receipt apps never auto replace; explicit bootstrap not
   await rm(path.join(f.app, 'custom.txt'));
   const receipt = path.join(f.app, 'INSTALLATION.json'); await writeFile(receipt, JSON.stringify({version: '0.5.15', sha256: 'old-receipt'}));
   assert.equal(await installationPristine(f.app), false);
-  f.config.version = '0.5.16';
+  f.config.version = '0.5.17';
   result = await checkForUpdates(f.config, {context: f.context, fetchLatest: async () => latest(), downloadRelease: async () => {downloads++; return source();}});
-  assert.match(result.message, /--version '0.5.16'/); assert.equal(downloads, 0);
+  assert.match(result.message, /--version '0.5.17'/); assert.equal(downloads, 0);
   await assert.rejects(installArchive({...archive, installDir: f.app, configPath: f.config.configPath, requirePristine: true}), /modified or lacks/);
 });
 
@@ -150,7 +150,7 @@ test('automatic install honors an explicit snooze; update now overrides it', asy
   const f=await fixture(t); await policy(f,'auto');
   await updateCommand(f.config,'later',null,{context:f.context});
   let downloads=0;
-  const options={context:f.context,fetchLatest:async()=>latest(),downloadRelease:async()=>{downloads++;return source();},install:async()=>({version:'0.5.16'})};
+  const options={context:f.context,fetchLatest:async()=>latest(),downloadRelease:async()=>{downloads++;return source();},install:async()=>({version:'0.5.17'})};
   await checkForUpdates(f.config,options); assert.equal(downloads,0);
   await checkForUpdates(f.config,{...options,explicit:true}); assert.equal(downloads,1);
 });
@@ -218,24 +218,24 @@ test('package metadata mismatch rejects before touching app or pin', async t => 
 test('published metadata is data-only, current version uses one request, archive binding is enforced',async t=>{
   const f=await fixture(t); const originalFetch=globalThis.fetch; const calls=[]; let badDigest=true;
   const asset=id=>`https://api.github.com/repos/bladnman/tinka/releases/assets/${id}`;
-  const assets=[{name:archive.zipName,url:asset(1)},{name:`${archive.zipName}.sha256`,url:asset(2)},{name:'tinka-v0.5.16.compatibility.json',url:asset(3)}];
+  const assets=[{name:archive.zipName,url:asset(1)},{name:`${archive.zipName}.sha256`,url:asset(2)},{name:'tinka-v0.5.17.compatibility.json',url:asset(3)}];
   globalThis.fetch=async(input,options)=>{
     const url=String(input); if(!url.startsWith('https://api.github.com/'))return originalFetch(input,options);
     calls.push(url);
-    if(url.endsWith('/latest'))return new Response(JSON.stringify({tag_name:'v0.5.16',assets,body:'Untrusted prose is ignored.'}));
+    if(url.endsWith('/latest'))return new Response(JSON.stringify({tag_name:'v0.5.17',assets,body:'Untrusted prose is ignored.'}));
     if(url===asset(1))return new Response(archive.zipBytes);
     if(url===asset(2))return new Response(archive.checksumText);
     if(url===asset(3))return new Response(JSON.stringify({...embedded,archiveSha256:badDigest?'0'.repeat(64):createHash('sha256').update(archive.zipBytes).digest('hex')}));
     throw new Error('Unexpected test URL');
   };
   try{
-    assert.deepEqual(await publishedLatest('bladnman/tinka','0.5.16'),{version:'0.5.16'}); assert.equal(calls.length,1);
+    assert.deepEqual(await publishedLatest('bladnman/tinka','0.5.17'),{version:'0.5.17'}); assert.equal(calls.length,1);
     const failed=await withAppLock(f.app,lockToken=>checkForUpdates(f.config,{context:f.context,explicit:true,lockToken}));
     assert.match(failed.message,/does not match the downloaded package/);
     assert.equal((await json(path.join(f.app,'package.json'))).version,'0.5.15');
     badDigest=false;
     const result=await withAppLock(f.app,lockToken=>checkForUpdates(f.config,{context:f.context,explicit:true,lockToken}));
-    assert(result.replaced); assert.equal((await json(f.context.pinPath)).version,'0.5.16');
+    assert(result.replaced); assert.equal((await json(f.context.pinPath)).version,'0.5.17');
   }finally{globalThis.fetch=originalFetch;}
 });
 
@@ -267,7 +267,7 @@ test('failed candidate health rolls back app, exact config and pin; a prior owne
   // A checked-out portable project can lack local config entirely. Its pin
   // still must survive a broken candidate's failed health verification.
   await rm(path.join(f.project,'tinka/local'),{recursive:true});
-  await assert.rejects(installMain(['--project',f.project,'--version','0.5.16','--zip',bad.appZip,'--checksum',bad.appChecksum]),/health identity/);
+  await assert.rejects(installMain(['--project',f.project,'--version','0.5.17','--zip',bad.appZip,'--checksum',bad.appChecksum]),/health identity/);
   assert.deepEqual(await readFile(f.context.pinPath),pinBefore);
   assert.equal((await json(path.join(f.app,'package.json'))).version,'0.5.15');
   const cli = path.join(f.app, 'cli.mjs');

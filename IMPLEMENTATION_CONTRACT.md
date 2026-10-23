@@ -330,3 +330,10 @@ Health verification precedes pin acceptance; failure restores app/config/pin and
 attempts old-service recovery. A stopped health probe restores exact config bytes.
 Retained backups and failed recovery details remain actionable. Existing custom
 project TINKA.md/setup helpers remain create-only; no automatic Git commits.
+
+Boards on Home appear newest-created first, including graph and legacy boards
+together. Nested board cards in Grid use the child board’s creation date within
+each retained round, sorting only among board-card slots. Other items, Canvas
+geometry, saved review order and reader comparison order stay intact. Renames,
+notes and edits do not change this display order. Equal dates retain source order;
+boards with missing or invalid dates follow dated boards in source order.

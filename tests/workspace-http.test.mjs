@@ -211,3 +211,27 @@ test('migrated revision dependencies outside the entry folder keep live refresh 
   assert.equal(after.manifestRevision,before.manifestRevision);
   assert.equal(after.shellRevision,before.shellRevision);
 });
+
+test('Home merges graph and legacy boards by creation, while child snapshots expose actual board birth without writes',async t=>{
+  const f=await fixture(t);
+  for(const [id,createdAt] of [['alpha','2020-01-01'],['zulu','2024-01-01'],['undated','invalid']]){
+    await main(['board','create',id,'--config',f.configPath,'--title',id]);
+    const file=path.join(f.boards,id,'board.json'),b=JSON.parse(await readFile(file));
+    await writeFile(file,JSON.stringify({...b,createdAt}));
+  }
+  assert.deepEqual((await f.get('/api/boards')).boards.map(b=>b.id),['zulu','alpha','undated']);
+  await f.op({type:'createBoard',id:'middle',title:'Middle'});
+  const file=path.join(f.config.workspaceRoot,'boards/middle.json'),b=JSON.parse(await readFile(file));
+  await writeFile(file,JSON.stringify({...b,createdAt:'2022-01-01'}));
+  assert.deepEqual((await f.get('/api/boards')).boards.map(b=>b.id),['zulu','middle','alpha','undated']);
+  await f.op({type:'updateBoard',boardId:'middle',patch:{title:'AAA renamed'}});
+  const oldItem=(await f.op({type:'createItem',boardId:'middle',item:{title:'Old note',createdAt:'2001-01-01'}})).result;
+  const child=(await f.op({type:'createBoard',id:'child',itemId:oldItem.itemId,title:'New child'})).result;
+  const saved=await readFile(file),snap=await f.get('/api/boards/middle');
+  assert.equal(snap.items[oldItem.itemId].createdAt,'2001-01-01');
+  assert.equal(snap.childBoardCreatedAt.child,(await f.get('/api/boards/child')).createdAt);
+  assert.notEqual(snap.childBoardCreatedAt.child,snap.items[oldItem.itemId].createdAt);
+  assert.deepEqual(await readFile(file),saved,'derived display data is never persisted');
+  assert.equal(JSON.parse(saved).childBoardCreatedAt,undefined);
+  assert.deepEqual((await f.get('/api/boards')).boards.filter(b=>b.id!==child.boardId).map(b=>b.id),['zulu','middle','alpha','undated']);
+});
