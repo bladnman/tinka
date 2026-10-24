@@ -110,7 +110,7 @@ a{color:inherit}
 .notes-toggle[aria-expanded="true"]{background:var(--soft);color:var(--ink)}
 .note-dot{display:inline-block;width:6px;height:6px;border-radius:50%;background:#657b4e;margin-left:6px;vertical-align:2px}
 #reader-update{position:relative;min-height:34px;margin-left:6px;padding:4px 10px;border-color:#a9bd93;background:#e4ecd8;color:#465c32;font-size:10px;font-weight:700;white-space:nowrap}
-.reader-area{flex:1;min-height:0;display:flex}
+.reader-area{flex:1;min-height:0;display:flex;position:relative}
 .reader-stage{flex:1;min-width:0;min-height:0;position:relative;display:flex;align-items:center;justify-content:center;padding:22px 24px;overflow:auto;background-image:radial-gradient(#c2c9b9 .8px,transparent .8px);background-size:20px 20px}
 #reader-window{width:100%;height:100%;resize:both;overflow:hidden;min-width:min(320px,100%);min-height:280px;max-width:100%;max-height:100%;border:1px solid #bac6ad;box-shadow:0 12px 28px #37452b12;border-radius:10px;padding:0 0 12px;background:#c9d2bd}
 #reader-window[data-size="compact"]{width:440px;height:620px}
@@ -127,6 +127,15 @@ a{color:inherit}
 .notes-label{display:flex;flex-direction:column;flex:1;min-height:0;font-size:10px;letter-spacing:.1em;color:var(--muted)}
 #reader-note{flex:1;min-height:120px;margin-top:8px;resize:none;background:#f0f2e8;border:1px solid #c7cebd;border-radius:6px;padding:11px 12px;font:13px/1.55 -apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;letter-spacing:0;color:var(--ink)}
 .reader-save-status{margin:0;font-size:10.5px;color:var(--muted)}
+.reader-area>.feedback-panel[data-mode="reader"]{position:relative;inset:auto;flex:none;width:320px;max-width:40vw;height:100%;max-height:100%;z-index:5;border-radius:0;box-shadow:none;border:0;border-left:1px solid var(--line)}
+@media(min-width:701px){
+  .reader-area>.feedback-panel[data-mode="reader"][data-short="true"]{height:auto;align-self:flex-start;margin-top:var(--feedback-reader-offset,0px);margin-right:12px;max-height:calc(100% - var(--feedback-reader-offset,0px));border:1px solid var(--line);border-radius:8px;box-shadow:0 4px 16px #23301d12}
+}
+@media(max-width:700px){
+  .reader-area>.feedback-panel[data-mode="reader"]{position:absolute;inset:auto 10px 10px;width:auto;max-width:none;height:min(calc(100% - 16px),max(190px,40%));max-height:calc(100% - 16px);border:1px solid var(--line);border-radius:9px;box-shadow:0 5px 20px #23301d26;z-index:8}
+  .reader-area>.feedback-panel[data-mode="reader"][data-edge="top"]{top:10px;bottom:auto}
+  .reader-stage #reader-window{min-height:0}
+}
 
 /* Reader footer: always one row of back, navigation and view tools. canvas.js measures the space and sets
    --strip-dots, data-back and data-tools; nothing here depends on a fixed breakpoint. */

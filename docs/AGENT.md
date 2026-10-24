@@ -207,3 +207,21 @@ Keep boards, config, notes and runtime state outside the replaceable app. App
 replacement never includes user content. Before upgrading an old app, export
 any browser-only notes; legacy disk notes remain with each board and schema 2 notes remain in canonical metadata. Installation does
 not publish a release or authorize changes to the project's designs.
+
+Persistent text marks use `highlight.add`, `highlight.list` and `highlight.remove`;
+inspect their bounded schemas with `tools describe`. Add needs the actual actor,
+canonical item and current text anchor. A unique quote/context can resolve once,
+while supplied stale SHA/offset facts reject. These marks have no comment body and
+do not change source files. Read current `anchorStatus` before treating a saved
+quote as current; changed source revisions are never silently highlighted. Remove
+only the requested highlight ID. References share marks; duplicates snapshot
+independent review. Compact discovery does not export marks; use targeted reads.
+Older apps may reject the new review field, so retained metadata is not proof of
+rollback usability. Preserve complete data and use a compatible app.
+
+Current Markdown selection facts include `textModel:'markdown-v2'`, which identifies
+rendered UTF-16 extraction separately from raw source SHA. Simple pipe tables are
+supported within 16 columns/200 rows. Do not reuse legacy offsets against the new
+table extraction: read status, retain history and select current facts. Missing
+model remains compatible for unchanged extraction; changed table extraction is
+uncertain/stale, and unknown saved models are unverified. Source bytes are unchanged.

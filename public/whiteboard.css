@@ -1,27 +1,82 @@
-.whiteboard-shape { background: transparent !important; border: 0 !important; border-radius: 0 !important; box-shadow: none !important; z-index: 1 !important; }
-.whiteboard-silhouette { position:absolute; inset:0; width:100%; height:100%; fill:var(--decoration-color); stroke:color-mix(in srgb,var(--decoration-color),#56604a 18%); stroke-width:1; overflow:visible; pointer-events:none; filter:drop-shadow(0 3px 3px #35402a14); }
-.whiteboard-shape .workspace-decoration-label { position:relative; display:flex; align-items:center; justify-content:center; width:100%; height:100%; box-sizing:border-box; text-align:center; white-space:pre-wrap; color:#35412d; padding:18px; font-size:20px; line-height:1.4; }
+/* Whiteboard objects inherit Tinka's paper canvas and authored Georgia text. */
+.whiteboard-shape { background:transparent !important; border:0 !important; border-radius:0 !important; box-shadow:none !important; z-index:1 !important; }
+.whiteboard-silhouette { position:absolute; inset:0; width:100%; height:100%; fill:var(--decoration-color); stroke:color-mix(in srgb,var(--decoration-color),var(--ink) 18%); stroke-width:1; overflow:visible; pointer-events:none; filter:drop-shadow(0 3px 3px #35402a14); }
+.whiteboard-shape .workspace-decoration-label { position:relative; display:flex; align-items:center; justify-content:center; width:100%; height:100%; box-sizing:border-box; text-align:center; white-space:pre-wrap; color:var(--ink); padding:16px; font:400 20px/1.4 Georgia,serif; }
+.shape-rectangle .workspace-decoration-label { align-items:flex-start; justify-content:flex-start; text-align:left; padding:20px; }
 .shape-diamond .workspace-decoration-label { padding:20% 24%; }
 .shape-ellipse .workspace-decoration-label { padding:15% 20%; }
-.workspace-decoration.decoration-line { pointer-events:none; outline:none; }
-.workspace-decoration.decoration-line.selected { outline:none; }
+.workspace-decoration.decoration-line { background:transparent; pointer-events:none; outline:none; z-index:2; }
+.workspace-decoration.decoration-line.selected { outline:none; z-index:10000; }
 .workspace-decoration-line .whiteboard-line-hit { stroke:transparent; stroke-width:16; vector-effect:non-scaling-stroke; pointer-events:stroke; cursor:move; }
-.workspace-decoration .whiteboard-line-label { width:max-content; max-width:260px; bottom:auto; min-height:0; padding:3px 8px; transform:translate(-50%,-50%); background:#f4f6eff5; border-radius:5px; color:#48513e; font-size:15px; line-height:1.35; pointer-events:auto; white-space:pre-wrap; box-shadow:0 0 0 3px #f4f6efb0; }
+.workspace-decoration .whiteboard-line-label { width:max-content; max-width:260px; bottom:auto; min-height:0; padding:3px 8px; transform:translate(-50%,-50%); background:var(--paper); border-radius:5px; color:var(--ink); font:400 15px/1.4 Georgia,serif; pointer-events:auto; white-space:pre-wrap; box-shadow:0 0 0 3px #f6f7f1bb; }
 .workspace-decoration .whiteboard-line-label:empty { display:none; }
-.workspace-decoration-actions,.workspace-endpoint,.workspace-decoration-resize { pointer-events:auto; }
+.workspace-decoration .workspace-endpoint { pointer-events:auto; }
+.workspace-decoration .endpoint-head { background:var(--green); border-color:var(--paper); }
 .whiteboard-detached { position:absolute; right:0; top:12px; white-space:nowrap; padding:2px 5px; background:#fff4d9; color:#755c28; border-radius:4px; font:11px system-ui; pointer-events:none; }
-.whiteboard-ports { position:absolute; inset:0; pointer-events:none; z-index:100001; }
-.whiteboard-port { position:absolute; transform:translate(-50%,-50%); width:18px; height:18px; min-width:18px; min-height:18px; border-radius:50%; border:2px solid #779260; background:#f9fbf4; box-shadow:0 1px 4px #26321d30; pointer-events:auto; cursor:crosshair; padding:0; }
-.whiteboard-port:hover,.whiteboard-port:focus-visible { background:#a8c28e; outline:3px solid #d8e8c5; }
-.whiteboard-connect-hint { position:fixed; bottom:52px; left:50%; transform:translateX(-50%); padding:9px 14px; background:#33442e; color:#f7faef; border-radius:20px; font:13px system-ui; z-index:100005; pointer-events:none; max-width:calc(100vw - 32px); }
-.whiteboard-fields { display:grid; grid-template-columns:1fr 1fr; gap:8px 14px; }
+.whiteboard-ports { position:absolute; inset:0; pointer-events:none; z-index:10001; }
+.whiteboard-port { position:absolute; transform:translate(-50%,-50%); width:20px; height:20px; min-width:20px; min-height:20px; border-radius:50%; border:2px solid var(--green); background:var(--paper); box-shadow:0 1px 4px #26321d30; pointer-events:auto; cursor:crosshair; padding:0; }
+.whiteboard-port:hover,.whiteboard-port:focus-visible { background:var(--soft); outline:3px solid var(--line); }
+.whiteboard-toolbar,.whiteboard-menu { position:fixed; z-index:100020; font:13px/1.4 -apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif; color:var(--ink); background:var(--paper); border:1px solid var(--line); border-radius:8px; box-shadow:0 6px 18px #25301820; }
+.whiteboard-toolbar { display:flex; align-items:center; gap:4px; max-width:calc(100vw - 16px); padding:4px; }
+.whiteboard-toolbar button { white-space:nowrap; min-height:36px; padding:6px 10px; border-color:transparent; font-size:13px; }
+.whiteboard-toolbar button:hover,.whiteboard-toolbar button[aria-pressed=true] { background:var(--soft); }
+.whiteboard-toolbar span { padding:0 8px; font-size:12px; color:var(--muted); }
+.whiteboard-menu { width:234px; padding:6px; max-height:calc(100dvh - 24px); overflow:auto; }
+.whiteboard-menu button { display:block; text-align:left; width:100%; min-height:36px; padding:8px 10px; border:0; font-size:13px; }
+.whiteboard-menu button:hover { background:var(--soft); }
+.whiteboard-menu hr { border:0; border-top:1px solid var(--line); margin:5px 6px; }
+.whiteboard-color { display:flex; align-items:center; justify-content:space-between; gap:12px; padding:4px 10px; }
+.whiteboard-color input { width:36px; height:32px; border:1px solid var(--line); border-radius:5px; background:transparent; padding:3px; }
+.whiteboard-editor { position:absolute; inset:0; z-index:3; margin:0; pointer-events:auto; }
+.whiteboard-editor textarea { display:block; width:100%; height:100%; resize:none; border:1px solid var(--green); border-radius:3px; background:color-mix(in srgb,var(--decoration-color),var(--paper) 18%); color:var(--ink); padding:20px; font:400 20px/1.4 Georgia,serif; white-space:pre-wrap; outline:2px solid var(--paper); outline-offset:1px; }
+.decoration-text .whiteboard-editor textarea { background:var(--paper); padding:10px 12px; }
+.decoration-line .whiteboard-editor { width:260px; height:100px; left:50%; top:50%; transform:translate(-50%,-50%); }
+.decoration-line .whiteboard-editor textarea { background:var(--paper); font:400 16px/1.4 Georgia,serif; padding:12px; }
+.whiteboard-editing > .workspace-decoration-resize,.whiteboard-editing > .workspace-endpoint { display:none !important; }
+.whiteboard-draft-state { position:absolute; left:0; top:calc(100% + 6px); display:flex; gap:8px; align-items:center; padding:4px 6px; background:var(--paper); border:1px solid var(--line); border-radius:6px; white-space:nowrap; font:12px/1.4 system-ui; pointer-events:auto; z-index:5; }
+.whiteboard-draft-state button { min-height:32px; font-size:12px; padding:4px 8px; }
+.whiteboard-connect-hint { position:fixed; bottom:52px; left:50%; transform:translateX(-50%); padding:8px 14px; background:var(--night); color:var(--paper); border-radius:8px; font:13px/1.4 system-ui; z-index:100021; pointer-events:none; max-width:calc(100vw - 32px); }
+.whiteboard-fields { display:grid; grid-template-columns:minmax(0,1fr) minmax(0,1fr); gap:8px 12px; }
 .whiteboard-fields label { min-width:0; }
 .whiteboard-fields input { width:100%; }
-.whiteboard-endpoint-form { margin:12px 0; padding:12px; border:1px solid #d6dfca; border-radius:8px; }
-.whiteboard-endpoint-form legend { padding:0 5px; font-size:12px; }
-.whiteboard-inspector-help { font-size:12px; color:#69735d; }
+.whiteboard-endpoint-form { margin:12px 0; padding:12px; border:1px solid var(--line); border-radius:8px; }
+.whiteboard-endpoint-form legend { padding:0 5px; font-size:13px; }
+.whiteboard-endpoint-form details { margin-top:10px; }
+.whiteboard-endpoint-form summary { font-size:12px; color:var(--muted); cursor:pointer; }
+.whiteboard-inspector-help,.whiteboard-endpoint-summary { font-size:12px; color:var(--muted); line-height:1.5; }
 .workspace-add-menu { max-height:calc(100vh - 20px); overflow-y:auto; }
-@media(max-width:600px){ .whiteboard-port { width:23px; height:23px; } .whiteboard-endpoint-form { padding:8px; } }
-.workspace-decoration.selected { z-index:10000 !important; }
-.workspace-decoration.decoration-line { z-index:2; }
-.workspace-decoration.selected:not(.decoration-line) { z-index:1 !important; }
+@media(max-width:600px) { .whiteboard-toolbar { flex-wrap:wrap; } .whiteboard-toolbar button,.whiteboard-menu button { min-height:44px; } .whiteboard-edit-hint { flex-basis:100%; } .whiteboard-endpoint-form { padding:8px; } }
+/* Precision is secondary: a compact native form, with independent body scrolling. */
+dialog.whiteboard-arrow-settings { width:min(700px,calc(100vw - 24px)); max-height:calc(100dvh - 24px); padding:16px; overflow:hidden; }
+.whiteboard-arrow-settings form { display:grid; grid-template-rows:auto minmax(0,1fr) auto; gap:12px; max-height:calc(100dvh - 58px); }
+.whiteboard-arrow-settings h2 { margin:0; padding:3px 36px 0 0; font:600 16px/1.4 -apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif; }
+.whiteboard-arrow-settings .workspace-close { position:absolute; top:9px; right:9px; float:none; margin:0; min-width:32px; width:32px; min-height:32px; height:32px; font-size:20px; }
+.whiteboard-settings-body { min-height:0; overflow:auto; overscroll-behavior:contain; padding:1px; }
+.whiteboard-endpoint-columns { display:grid; grid-template-columns:minmax(0,1fr) minmax(0,1fr); gap:12px; margin-top:12px; }
+.whiteboard-arrow-settings label { font-size:12px; margin:0; color:var(--muted); }
+.whiteboard-arrow-settings input:not([type=checkbox]),.whiteboard-arrow-settings select,.whiteboard-arrow-settings textarea { min-height:36px; padding:6px 8px; margin-top:4px; font-size:13px; line-height:1.4; }
+.whiteboard-arrow-settings textarea { height:48px; min-height:48px; max-height:100px; }
+.whiteboard-arrow-settings .whiteboard-endpoint-form { margin:0; min-width:0; padding:8px 10px; }
+.whiteboard-arrow-settings .whiteboard-endpoint-form legend { font-size:12px; font-weight:600; }
+.whiteboard-arrow-settings [data-attached-fields] { margin-top:8px; }
+.whiteboard-arrow-settings details { margin:8px 0 0; padding:0; border:0; }
+.whiteboard-arrow-settings summary { min-height:28px; padding:4px 0; font-size:12px; }
+.whiteboard-arrow-settings .whiteboard-endpoint-summary { margin:6px 0 0; font-size:11px; line-height:1.4; }
+.whiteboard-arrow-settings .whiteboard-inspector-help { margin:10px 0 0; font-size:11px; line-height:1.4; }
+.whiteboard-settings-actions { display:flex; align-items:center; flex-wrap:wrap; gap:8px; padding-top:12px; border-top:1px solid var(--line); background:var(--paper); }
+.whiteboard-settings-actions .workspace-primary { margin:0; min-height:36px; padding:7px 12px; font-size:13px; }
+.whiteboard-settings-actions .workspace-submit-hint { font-size:11px; color:var(--muted); }
+.whiteboard-settings-actions .workspace-form-status { flex-basis:100%; margin:0; }
+.whiteboard-settings-actions .workspace-form-status:empty { display:none; }
+@media(max-width:560px) {
+  .whiteboard-endpoint-columns { grid-template-columns:minmax(0,1fr); gap:10px; }
+  .whiteboard-arrow-settings input:not([type=checkbox]),.whiteboard-arrow-settings select { min-height:40px; }
+  .whiteboard-settings-actions .workspace-primary { min-height:44px; }
+}
+.whiteboard-arrow-settings form { overflow:hidden; }
+.whiteboard-settings-heading { display:flex; align-items:center; justify-content:space-between; gap:12px; min-height:32px; position:sticky; top:0; z-index:2; background:var(--paper); }
+.whiteboard-settings-heading h2 { flex:1; padding:0; }
+.whiteboard-settings-heading .workspace-close { position:static; flex:none; }
+.whiteboard-arrow-settings .whiteboard-settings-body { position:relative; contain:paint; }
+.whiteboard-arrow-settings .whiteboard-settings-actions { position:sticky; bottom:0; z-index:2; }
+.whiteboard-arrow-settings .whiteboard-settings-body { clip-path:inset(0); }

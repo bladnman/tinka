@@ -10,3 +10,10 @@ Read `README.md`, `docs/PROTOCOL.md`, `docs/RELEASE.md`, and `IMPLEMENTATION_CON
 - Validate with `npm test`. This covers backend boundaries, collision/concurrent startup, independent instances, isolated notes, and replacement installs. Run `node tests/browser.mjs` when UI changes (install Playwright separately or set `PLAYWRIGHT_MODULE` to its absolute entry point; `CHROMIUM_EXECUTABLE` can select an existing headless Chromium). Browser fixtures and screenshots are external temporary files.
 - Package with `node scripts/package.mjs --out /absolute/external/release-dir`. Inspect its contents; test the packaged install before publishing. The app and skill ZIPs are separate artifacts. Release source is https://github.com/bladnman/tinka.
 - See `docs/RELEASE.md` for publish and rollback checks. Public visibility is intentional; no license grant has been chosen. Do not add a license without the owner's direction.
+
+For experience changes, review a realistic mixed board at its saved geometry and
+complete the actual editing/review loop before release: enter, edit, commit or
+cancel, recover a failed save, and return to the same material. Inspect rendered
+controls and readable content at a narrow viewport as well as normal size. Source
+checks and a design-plan approval do not establish rendered acceptance; bring the
+repaired candidate and observed interactions to the owner before publication.

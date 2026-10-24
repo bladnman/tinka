@@ -31,19 +31,34 @@ function theme(theme, scale) {
   }
 }
 theme(q.get("theme"), q.get("scale"));
+function selectionContext(data){
+  if(!data||typeof data!=='object'||Array.isArray(data))return null;
+  const context={};
+  if(data.selectionId!==undefined){if(typeof data.selectionId!=='string'||!/^[a-zA-Z0-9_-]{1,80}$/.test(data.selectionId))return null;context.selectionId=data.selectionId;}
+  if(data.selectionRect!==undefined){
+    const rect=data.selectionRect;if(!rect||typeof rect!=='object'||Array.isArray(rect)||Object.keys(rect).length!==4||!['top','bottom','left','right'].every(key=>Number.isFinite(rect[key])&&Math.abs(rect[key])<=100000)||rect.bottom<rect.top||rect.right<rect.left)return null;
+    const frameRect=markdownFrame.getBoundingClientRect();context.selectionRect={top:rect.top+frameRect.top,bottom:rect.bottom+frameRect.top,left:rect.left+frameRect.left,right:rect.right+frameRect.left};
+  }
+  return context;
+}
 window.addEventListener("message", (e) => {
   if (e.origin !== location.origin) return;
   if (e.source === parent && e.data?.type === "reader-preferences")
     theme(e.data.theme, e.data.scale);
-  if(e.source===parent&&e.data?.type==='tinka-feedback-refresh'&&markdownFrame)
-    markdownFrame.contentWindow?.postMessage({type:'tinka-feedback-refresh'},location.origin);
+  if(e.source===parent&&['tinka-feedback-refresh','tinka-annotations-refresh','tinka-reader-focus','tinka-annotation-result'].includes(e.data?.type)&&markdownFrame)
+    markdownFrame.contentWindow?.postMessage(e.data,location.origin);
   let currentMarkdown=false;
   try{currentMarkdown=markdownFrame&&markdownFrame.contentWindow.location.href===markdownFrame.src;}catch{}
   if(e.source===markdownFrame?.contentWindow&&currentMarkdown&&parent!==window&&!q.get('variant')&&item?.content?.kind==='markdown'&&item.content.resource&&!item.content.url){
-    if(e.data?.type==='tinka-comment-selection'&&validTextAnchor(e.data.anchor)&&/^sha256:[a-f0-9]{64}$/.test(e.data.anchor.sourceRevision||''))
-      parent.postMessage({type:'tinka-comment-selection',itemId:item.id,anchor:e.data.anchor},location.origin);
+    const context=selectionContext(e.data);if(!context)return;
+    if(['tinka-comment-selection','tinka-highlight-selection'].includes(e.data?.type)&&validTextAnchor(e.data.anchor)&&/^sha256:[a-f0-9]{64}$/.test(e.data.anchor.sourceRevision||''))
+      parent.postMessage({type:e.data.type,itemId:item.id,anchor:e.data.anchor,...context},location.origin);
     if(e.data?.type==='tinka-open-comment'&&typeof e.data.threadId==='string'&&/^[a-zA-Z0-9][a-zA-Z0-9_-]{0,127}$/.test(e.data.threadId))
-      parent.postMessage({type:'tinka-open-comment',itemId:item.id,threadId:e.data.threadId},location.origin);
+      parent.postMessage({type:'tinka-open-comment',itemId:item.id,threadId:e.data.threadId,...context},location.origin);
+    if(e.data?.type==='tinka-selection-context'&&context.selectionId&&context.selectionRect)
+      parent.postMessage({type:'tinka-selection-context',itemId:item.id,...context},location.origin);
+    if(e.data?.type==='tinka-remove-highlight'&&typeof e.data.highlightId==='string'&&/^[a-zA-Z0-9][a-zA-Z0-9_-]{0,127}$/.test(e.data.highlightId))
+      parent.postMessage({type:'tinka-remove-highlight',itemId:item.id,highlightId:e.data.highlightId},location.origin);
   }
   if (
     e.source !== parent &&
@@ -55,7 +70,7 @@ window.addEventListener("message", (e) => {
     parent.postMessage({ type: "reader-close" }, location.origin);
 });
 window.addEventListener("keydown", (e) => {
-  if (e.key === "Escape" && !e.defaultPrevented)
+  if (e.key === "Escape" && !e.defaultPrevented && !e.isComposing && e.keyCode!==229 && !e.repeat)
     parent.postMessage({ type: "reader-close" }, location.origin);
 });
 function frame(source) {
@@ -75,7 +90,7 @@ function frame(source) {
     theme(preferences.theme, preferences.scale);
     try {
       iframe.contentWindow.addEventListener("keydown", (e) => {
-        if (e.key === "Escape" && !e.defaultPrevented) {
+        if (e.key === "Escape" && !e.defaultPrevented && !e.isComposing && e.keyCode!==229 && !e.repeat) {
           e.preventDefault();
           parent.postMessage({ type: "reader-close" }, location.origin);
         }

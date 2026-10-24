@@ -238,21 +238,27 @@ and Start / end (ellipse) alongside text, colored regions and arrows. Select an 
 edit its text. Drag between the connection ports on cards and shapes to attach
 an arrow; its endpoints follow the targets during movement and resizing. Drag an
 endpoint to reconnect it or leave a free point. The exact-geometry control uses
-logical board units and shows free, attached or detached endpoints. Moving the
-whole arrow makes both ends free. Arrow text appears at its midpoint. Escape
+logical board units and shows free, attached or detached endpoints. Dragging an attached arrow’s body keeps its attachments. Use endpoint handles
+to reconnect, or More → Detach start/end/both to make resolved endpoints free.
+Reverse swaps the complete endpoints while keeping the arrow identity. Arrow text appears at its midpoint. Escape
 cancels a gesture. Focus a decoration and press Enter for exact geometry or F2
 to edit its text. Decoration edits do not join card movement Undo/Redo.
+Sticky and label text use plain Enter for a newline and Cmd/Ctrl+Enter to finish.
+Notes and conversation composers use the same scoped shortcut, with a platform
+hint. Failed saves preserve drafts; click-away never posts a comment. Small saved
+cards keep their size and expose hidden actions through More and selection controls.
 
 A linked local Markdown item uses its actual named-root file in both its full
 preview panel and reader. The reader offers Contents, the root-relative source
 link and Reload source. Select text in the current document to comment on that
-passage; comments and replies appear in the same Comments & votes panel as board
-and point discussions. Raw HTML is displayed as text. Documents are limited to
-2 MiB. Source edits retain comment history and report uncertain or unlocated
+passage or save a persistent Highlight without a comment. Comments and replies
+open in a compact conversation inside the existing reader, keeping the passage
+visible. Highlights retain source-match status after edits. Raw HTML is displayed as text. Documents are limited to
+2 MiB. Simple pipe tables support up to 16 columns and 200 rows. Source edits retain comment history and report uncertain or unlocated
 quotes instead of silently moving a highlight. Historical document versions
 remain readable; open the current version to comment.
 
-Open Comments & votes for a board-wide note or use an item's comment button for
+Open Comments for a board-wide note or use an item's comment button for
 its discussion. Add point can attach a note within a card or shape so it follows
 that target; old fixed points keep their original position. A missing target
 retains an explicitly detached original point. Show/hide pins, unresolved-only

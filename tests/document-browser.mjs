@@ -55,33 +55,58 @@ try{
   await page.evaluate(({itemId})=>{window.postMessage({type:'tinka-comment-selection',itemId,anchor:{kind:'text',quote:'forged',start:0,end:6,sourceRevision:'sha256:'+'0'.repeat(64)}},location.origin);},{itemId:item.itemId});
   await page.evaluate(({itemId})=>{const frame=document.getElementById('active-reader');frame.contentWindow.postMessage({type:'tinka-comment-selection',itemId,anchor:{kind:'text',quote:'forged',start:0,end:6,sourceRevision:'sha256:'+'0'.repeat(64)}},location.origin);window.dispatchEvent(new MessageEvent('message',{origin:'https://invalid.example',source:frame.contentWindow,data:{type:'tinka-comment-selection',itemId,anchor:{kind:'text',quote:'forged',start:0,end:6,sourceRevision:'sha256:'+'0'.repeat(64)}}}));},{itemId:item.itemId});
   assert.equal(await page.locator('dialog.workspace-dialog').count(),0);
+  await media.locator('.markdown').evaluate(()=>parent.postMessage(null,location.origin));
   // Use a real mouse text selection through both nested frames.
   const coordinates=await media.locator('.markdown p').first().evaluate(paragraph=>{
     const node=paragraph.firstChild,text=node.textContent,start=text.indexOf('selected passage'),range=document.createRange();range.setStart(node,start);range.setEnd(node,start+'selected passage'.length);const rect=range.getBoundingClientRect();return {x:rect.x,y:rect.y,width:rect.width,height:rect.height};
   });
   const mediaElement=page.frameLocator('#active-reader').locator('.item-full-frame'),box=await mediaElement.boundingBox();
   await page.mouse.move(box.x+coordinates.x+1,box.y+coordinates.y+coordinates.height/2);await page.mouse.down();await page.mouse.move(box.x+coordinates.x+coordinates.width-1,box.y+coordinates.y+coordinates.height/2,{steps:15});await page.mouse.up();
-  await media.locator('.document-selection-action').waitFor({state:'visible'});await media.locator('.document-selection-action').click();
-  await page.locator('dialog.workspace-dialog textarea').fill('Tighten this selected passage.');
+  await media.locator('[data-document-comment]').waitFor({state:'visible'});
+  const sourceState=await media.locator('.markdown').evaluate(article=>{window.__sourceArticle=article;window.__sourceFirst=article.firstChild;return{scroll:document.getElementById('media-content').scrollTop,text:getSelection().toString()};});
+  const readerFrame=await page.locator('#active-reader').elementHandle(),readerURL=page.url();
+  await media.locator('[data-document-comment]').click();
+  await page.locator('.feedback-panel[data-mode=reader]').waitFor({state:'visible'});
+  assert.equal(await page.locator('#reader-dialog').evaluate(node=>node.open),true);assert.equal(await page.locator('dialog.workspace-dialog').count(),0);
+  const composer=page.locator('.feedback-composer textarea');await composer.fill('Tighten this selected passage.');await composer.press('Enter');await composer.type('Keep the intent.');
+  await page.screenshot({path:path.join(evidence,'document-composer-wide.png')});
   const savedComment=page.waitForResponse(response=>response.url().endsWith('/api/operations')&&response.request().method()==='POST');
-  await page.locator('dialog.workspace-dialog button[type=submit]').click();assert.equal((await savedComment).ok(),true,'quote comment received a successful server response');await page.locator('dialog.workspace-dialog').waitFor({state:'detached'});
-  await page.locator('.feedback-thread').waitFor();await page.locator('[data-feedback-reply]').click();await page.locator('dialog.workspace-dialog textarea').fill('I will keep the intent and simplify the words.');await page.locator('dialog.workspace-dialog button[type=submit]').click();await page.locator('.feedback-reply').waitFor();
-  let feedback=await listFeedback(config,{itemId:item.itemId,includeBodies:true});assert.equal(feedback.threads.length,1);assert.equal(feedback.threads[0].anchor.quote,'selected passage');assert.equal(feedback.threads[0].anchorStatus,'matched');assert.equal(feedback.threads[0].replies.length,1);
+  await composer.press('Control+Enter');assert.equal((await savedComment).ok(),true,'quote comment received a successful server response');
+  await page.locator('.feedback-thread').waitFor();assert.equal(await readerFrame.evaluate(node=>node.isConnected),true);assert.equal(page.url(),readerURL);
+  assert.deepEqual(await media.locator('.markdown').evaluate(article=>({same:article===window.__sourceArticle,first:article.firstChild===window.__sourceFirst,scroll:document.getElementById('media-content').scrollTop})),{same:true,first:true,scroll:sourceState.scroll});
+  await page.locator('[data-feedback-reply]').click();await composer.fill('I will simplify the words.');await composer.press('Meta+Enter');await page.locator('.feedback-reply').waitFor();
+  let feedback=await listFeedback(config,{itemId:item.itemId,includeBodies:true});assert.equal(feedback.threads.length,1);assert.equal(feedback.threads[0].anchor.quote,'selected passage');assert.equal(feedback.threads[0].anchorStatus,'matched');assert.equal(feedback.threads[0].replies.length,1);assert.match(feedback.threads[0].body,/\nKeep the intent/);
   const cli=JSON.parse(await main(['tools','call','feedback.list','--config',configFile,'--json',JSON.stringify({itemId:item.itemId,includeBodies:true})]));assert.deepEqual(cli,feedback);
-  await page.locator('[data-feedback-close]').click();media=await openReader();await media.locator('mark[data-document-thread]').first().waitFor();await page.screenshot({path:path.join(evidence,'document-wide.png')});
+  await page.locator('[data-feedback-close]').click();
+  await media.locator('.markdown').evaluate(()=>{const selected=getSelection();if(!selected.rangeCount)throw Error('Source selection lost');});
+  // Persistent highlights are bodyless, independently readable and removable.
+  await media.locator('[data-document-highlight]').waitFor({state:'visible'});const addedHighlight=page.waitForResponse(response=>response.url().endsWith('/api/operations')&&response.request().postDataJSON()?.type==='addHighlight');await media.locator('[data-document-highlight]').click();assert.equal((await addedHighlight).ok(),true);
+  let marks=JSON.parse(await main(['tools','call','highlight.list','--config',configFile,'--json',JSON.stringify({itemId:item.itemId})]));assert.equal(marks.highlights.length,1);assert.equal(marks.highlights[0].body,undefined);assert.equal(marks.highlights[0].anchor.quote,'selected passage');
+  assert.equal(await page.locator('.feedback-panel').isVisible(),false);assert.equal(await page.locator('#reader-dialog').evaluate(node=>node.open),true);
+  await media.locator('[data-document-annotations]').click();const removedHighlight=page.waitForResponse(response=>response.url().endsWith('/api/operations')&&response.request().postDataJSON()?.type==='removeHighlight');await media.locator('.document-annotations button').filter({hasText:'Remove highlight'}).click();assert.equal((await removedHighlight).ok(),true);
+  marks=JSON.parse(await main(['tools','call','highlight.list','--config',configFile,'--json',JSON.stringify({itemId:item.itemId})]));assert.equal(marks.highlights.length,0);await media.locator('.document-annotations header button').click();
+  await page.setViewportSize({width:390,height:844});
+  await media.locator('.markdown').evaluate(()=>new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve))));
+  await media.locator('.markdown p').first().evaluate(paragraph=>{const range=document.createRange();range.selectNodeContents(paragraph);getSelection().removeAllRanges();getSelection().addRange(range);});await media.locator('[data-document-comment]').click();await composer.fill('A draft remains beside its source.');
+  await page.setViewportSize({width:390,height:540});await page.screenshot({path:path.join(evidence,'document-composer-constrained.png')});
+  const postBounds=await page.locator('[data-feedback-post]').boundingBox(),railBounds=await page.locator('.feedback-panel').boundingBox();assert.ok(postBounds.y>=railBounds.y&&postBounds.y+postBounds.height<=railBounds.y+railBounds.height,'Post remains fully visible inside the constrained review rail');
+  assert.equal(await page.locator('#reader-dialog').evaluate(node=>node.open),true);
+  await composer.press('Escape');assert.equal(await page.locator('.feedback-panel').isVisible(),false);assert.equal(await page.locator('#reader-dialog').evaluate(node=>node.open),true);
+  await media.locator('[data-document-comment]').click();assert.equal(await composer.inputValue(),'A draft remains beside its source.');await page.locator('[data-feedback-close]').click();
+  await page.setViewportSize({width:1440,height:960});
   // Changing raw bytes alone changes revision even when visible quote/offset/context survive.
-  await writeFile(sourceFile,original+'\n');await media.locator('[data-document-reload]').click();await media.locator('.document-status').filter({hasText:'need source review'}).waitFor();assert.equal(await media.locator('mark').count(),0);
+  await writeFile(sourceFile,original+'\n');await media.locator('[data-document-reload]').click();await media.locator('.document-status').filter({hasText:'source review'}).waitFor();assert.equal(await media.locator('.markdown').evaluate(()=>CSS.highlights.get('tinka-document-comments')?.size||0),0);
   feedback=await listFeedback(config,{itemId:item.itemId});assert.equal(feedback.threads[0].anchorStatus,'uncertain');
   await writeFile(sourceFile,original.replace('selected passage','replacement paragraph'));await media.locator('[data-document-reload]').click();await media.locator('.markdown p').first().filter({hasText:'replacement paragraph'}).waitFor();feedback=await listFeedback(config,{itemId:item.itemId});assert.equal(feedback.threads[0].anchorStatus,'stale');
   await page.setViewportSize({width:390,height:844});await page.screenshot({path:path.join(evidence,'document-narrow.png')});
   const toolBounds=await media.locator('.document-tools').boundingBox();assert.ok(toolBounds.width<=390);assert.equal(await media.locator('body').evaluate(node=>node.scrollWidth<=innerWidth),true);
   // Historical variants have visible read-only explanation and ignore relay messages.
   await page.locator('#close-reader').click();
-  const history=await browser.newPage();await history.goto(`${base}/app/item.html?item=${item.itemId}&variant=history&commentBoard=${board.boardId}`);const historical=history.frameLocator('.item-full-frame');await historical.locator('.document-status').filter({hasText:'historical versions'}).waitFor();assert.equal(await historical.locator('.document-selection-action').isVisible(),false);await history.close();
+  const history=await browser.newPage();await history.goto(`${base}/app/item.html?item=${item.itemId}&variant=history&commentBoard=${board.boardId}`);const historical=history.frameLocator('.item-full-frame');await historical.locator('.document-status').filter({hasText:'Historical version'}).waitFor();assert.equal(await historical.locator('.document-selection-tools').isVisible(),false);await history.close();
   // Source push reload retains Markdown panel mode, not the full item adapter.
   await page.setViewportSize({width:1440,height:960});
   await page.waitForFunction(({id})=>{const frame=document.querySelector(`[data-placement="${id}"] .workspace-live-preview iframe`);try{return frame?.contentDocument?.querySelector('.markdown')?.textContent.includes('replacement paragraph');}catch{return false;}},{id:item.placementId},{timeout:10000});
   assert.match(await card.locator('.workspace-live-preview iframe').getAttribute('src'),/mode=panel/);
-  assert.deepEqual(errors,[]);console.log(JSON.stringify({passed:true,evidence,checks:'actual linked panel/reader; DOM/parser parity; Contents/source; mouse quote/comment/reply/CLI; matched/uncertain/stale; historic read-only; narrow layout; source update/panel identity'}));
+  assert.deepEqual(errors,[]);console.log(JSON.stringify({passed:true,evidence,checks:'actual linked panel/reader; DOM/parser parity; Contents/source; reader context preserved; multiline/ControlEnter/MetaEnter; independent highlight add/remove/CLI; draftEscape/reopen; constrained390; matched/uncertain/stale; historic read-only; narrow layout; source update/panel identity'}));
 }catch(error){if(page){await page.screenshot({path:path.join(evidence,'document-failure.png')});console.error(JSON.stringify({evidence,dialogs:await page.locator('dialog.workspace-dialog').allTextContents(),feedback:await page.locator('.feedback-panel').allTextContents()}));}throw error;}
 finally{await browser?.close();if(server)await closeAppServer(server);await rm(fixture,{recursive:true,force:true});}

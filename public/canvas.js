@@ -4,6 +4,7 @@ import { openRemovalPrompt } from './agent-prompt.js';
 import { WorkspaceBoard } from './workspace-board.js';
 import { contentURL, enableOrganization } from './workspace.js';
 import { validTextAnchor } from './markdown-document.js';
+import {bindCommitShortcut,commitShortcutLabel} from './interaction.js';
 
 const $ = id => document.getElementById(id);
 const viewport = $('viewport');
@@ -120,7 +121,7 @@ async function fetchBoard() {
   if (!response.ok) throw new Error(`Board metadata unavailable (${response.status})`);
   const data = await response.json();
   if (data.schemaVersion === 2) {
-    if (!graph) graph = new WorkspaceBoard(appConfig, data, { concepts:()=>all, active:()=>active, zoom:()=>zoom, shiftOrigin:(dx,dy)=>{if(dx||dy){view.x-=dx*zoom;view.y-=dy*zoom;resting=false;}}, shiftViewport:(dx,dy)=>{if(dx||dy)moveView(view.x+dx,view.y+dy);}, revealPlacements:revealPlacements, preview:c=>previewHref(c), layout:()=>{ if(resting)rest();else applyView(); }, mode:mode=>{ if(mode==='canvas'){zoom=1;settleCushion();}else{viewport.scrollLeft=0;viewport.scrollTop=0;} }, reloadReader:()=>loadRevision(), saveStatus:setSaveStatus, openOwner:()=>{const c=graph.ownerConcept();if(c)openReader(c.key);}, closeReader:()=>closeReader(), liveReady:()=>{void drainLiveUpdates().catch(()=>{});}, data:acceptGraphData });
+    if (!graph) graph = new WorkspaceBoard(appConfig, data, { concepts:()=>all, active:()=>active, zoom:()=>zoom, shiftOrigin:(dx,dy)=>{if(dx||dy){view.x-=dx*zoom;view.y-=dy*zoom;resting=false;}}, shiftViewport:(dx,dy)=>{if(dx||dy)moveView(view.x+dx,view.y+dy);}, revealPlacements:revealPlacements, preview:c=>previewHref(c), layout:()=>{ if(resting)rest();else applyView(); }, mode:mode=>{ if(mode==='canvas'){zoom=1;settleCushion();}else{viewport.scrollLeft=0;viewport.scrollTop=0;} }, reloadReader:()=>loadRevision(), saveStatus:setSaveStatus, openOwner:()=>{const c=graph.ownerConcept();if(c)openReader(c.key);}, closeReader:()=>closeReader(), flushNotes:flushNoteEdits, liveReady:()=>{void drainLiveUpdates().catch(()=>{});}, data:acceptGraphData });
     return graph.adapt(data);
   }
   if (!Array.isArray(data.rounds)) throw new Error('The board manifest is invalid.');
@@ -158,7 +159,7 @@ function updateMetadata() {
 }
 
 function buildCanvas() {
-  if (graph) { graph.build(all); updateMetadata(); renderNav(); applyNotes(); return; }
+  if (graph) { graph.build(all); wireReaderReview(); updateMetadata(); renderNav(); applyNotes(); return; }
   const retainedLegacy=new Map([...world.querySelectorAll(".concept-card")].map(card=>[card.dataset.key,card.querySelector("iframe")]));
   const cards = round => all.filter(concept => concept.round === round.id).map(concept => {
     const versions = revisions[concept.key] || [];
@@ -167,7 +168,7 @@ function buildCanvas() {
     const previewSource=previewHref(concept,null,concept.tone==='night'?'night':'paper');
     const retained=retainedLegacy.get(concept.key);
     const preview=retained?.dataset.previewSource===previewSource?retained.src:previewSource;
-    return `<article class="concept-card" data-key="${esc(concept.key)}" data-placement="${esc(concept.key)}"><header class="card-label"><div class="card-title"><span class="card-number">${esc(concept.number || String(concept.col + 1).padStart(2, '0'))}</span><h3>${esc(concept.name)}</h3><span class="card-category">${esc(concept.category || '')}</span></div><div class="card-actions">${revisionButtons}<button type="button" data-open="${esc(concept.key)}">Open experiment ↗</button>${handoff ? `<a class="handoff-link" href="${esc(handoff)}" target="_blank" rel="noopener">Handoff ↗</a>` : ''}<button class="remove-action" type="button" data-remove-experiment="${esc(concept.key)}" aria-label="Remove ${esc(concept.name)} from board" title="Get a removal prompt">Remove…</button></div></header><div class="preview"><iframe src="${esc(preview)}" data-preview-source="${esc(previewSource)}" title="${esc(concept.name)} preview" tabindex="-1" loading="eager" inert></iframe><button class="preview-launch" type="button" data-open="${esc(concept.key)}" aria-label="Explore ${esc(concept.name)}"><span>Open ${esc(concept.name)} ↗</span></button></div><div class="card-copy"><div><p>${esc(concept.description || '')}</p><p class="question">${esc(concept.question || '')}</p></div><div class="note-box"><button class="shortlist" type="button" data-star="${esc(concept.key)}" aria-label="Shortlist ${esc(concept.name)}" aria-pressed="false">☆</button><label>THOUGHTS TO RETURN TO<textarea data-note="${esc(concept.key)}" placeholder="What feels right? What gets in the way?" aria-label="Notes on ${esc(concept.name)}"></textarea></label></div></div></article>`;
+    return `<article class="concept-card" data-key="${esc(concept.key)}" data-placement="${esc(concept.key)}"><header class="card-label"><div class="card-title"><span class="card-number">${esc(concept.number || String(concept.col + 1).padStart(2, '0'))}</span><h3>${esc(concept.name)}</h3><span class="card-category">${esc(concept.category || '')}</span></div><div class="card-actions">${revisionButtons}<button type="button" data-open="${esc(concept.key)}">Open experiment ↗</button>${handoff ? `<a class="handoff-link" href="${esc(handoff)}" target="_blank" rel="noopener">Handoff ↗</a>` : ''}<button class="remove-action" type="button" data-remove-experiment="${esc(concept.key)}" aria-label="Remove ${esc(concept.name)} from board" title="Get a removal prompt">Remove…</button></div></header><div class="preview"><iframe src="${esc(preview)}" data-preview-source="${esc(previewSource)}" title="${esc(concept.name)} preview" tabindex="-1" loading="eager" inert></iframe><button class="preview-launch" type="button" data-open="${esc(concept.key)}" aria-label="Explore ${esc(concept.name)}"><span>Open ${esc(concept.name)} ↗</span></button></div><div class="card-copy"><div><p>${esc(concept.description || '')}</p><p class="question">${esc(concept.question || '')}</p></div><div class="note-box"><button class="shortlist" type="button" data-star="${esc(concept.key)}" aria-label="Shortlist ${esc(concept.name)}" aria-pressed="false">☆</button><label>Thoughts to return to · ${esc(commitShortcutLabel())} to save<textarea aria-keyshortcuts="Meta+Enter Control+Enter" data-note="${esc(concept.key)}" placeholder="What feels right? What gets in the way?" aria-label="Notes on ${esc(concept.name)}"></textarea></label></div></div></article>`;
   }).join('');
   const freshLegacy=document.createElement("template");
   freshLegacy.innerHTML = rounds.map(round => `<section class="round" data-round="${esc(round.id)}" aria-labelledby="round-heading-${esc(round.id)}"><header class="round-header"><span class="round-label">ROUND ${esc(round.number || '')} · ${esc(round.date || '')}</span><h2 id="round-heading-${esc(round.id)}">${esc(round.title || 'Exploration')}</h2><p>${esc(round.description || '')}</p></header><div class="concepts">${cards(round)}</div></section>`).join('') + '<section class="future-row"><span>CONTINUE EXPLORING</span><h2>Room for what comes next.</h2><p>New explorations can join this board without replacing earlier work.</p></section>';
@@ -707,6 +708,8 @@ function closeReader({ history: mode = 'push' } = {}) {
   if (!active && !dialog.open) return;
   // Returning focus to the board must not move it: the board comes back exactly as it was left.
   const left = { ...view };
+  if (graph?.feedback?.mode === 'reader') graph.feedback.close({restoreFocus:false});
+  graph?.feedback?.closeVote?.({restoreFocus:false});
   closeSizeMenu(false);
   setViewOpen(false, { focus: false });
   hideTooltip();
@@ -724,11 +727,14 @@ function closeReader({ history: mode = 'push' } = {}) {
 }
 
 // Escape closes the size panel first, then the notes panel while typing in it, otherwise returns to the board.
-function handleEscape() {
-  if (!sizeMenu.hidden) { closeSizeMenu(true); return; }
-  if (viewControls.classList.contains('open')) { setViewOpen(false); return; }
-  if (notesOpen && $('notes-panel').contains(document.activeElement)) { setNotesOpen(false); return; }
+function handleEscape(event) {
+  const keyEvent=event||{key:'Escape',defaultPrevented:false,isComposing:false,preventDefault(){},stopImmediatePropagation(){}};
+  if(graph?.feedback?.consumeEscape(keyEvent))return true;
+  if (!sizeMenu.hidden) { closeSizeMenu(true); return true; }
+  if (viewControls.classList.contains('open')) { setViewOpen(false); return true; }
+  if (notesOpen && $('notes-panel').contains(document.activeElement)) { setNotesOpen(false); return true; }
   closeReader();
+  return true;
 }
 
 // ---- Dot track tooltip and scrubbing ----
@@ -775,7 +781,7 @@ function endScrub(commit) {
 // ---- Notes ----
 function applyNotes() {
   document.querySelectorAll('[data-note]').forEach(element => { const value = notes[element.dataset.note]?.note || ''; if (element.value !== value) element.value = value; });
-  document.querySelectorAll('[data-star]').forEach(element => { const starred = Boolean(notes[element.dataset.star]?.star); element.setAttribute('aria-pressed', String(starred)); element.textContent = starred ? '★' : '☆'; });
+  document.querySelectorAll('[data-star]').forEach(element => { const starred = Boolean(notes[element.dataset.star]?.star); element.setAttribute('aria-pressed', String(starred)); if(!element.querySelector('svg'))element.textContent = starred ? '★' : '☆'; });
   syncReaderNotes();
 }
 
@@ -801,6 +807,17 @@ function mergeNotes(base, incoming) {
   return changed;
 }
 
+async function flushNoteEdits(){
+  clearTimeout(saveTimer);
+  if(graph){if(await graph.saveReview(active&&!all.includes(active)?[...all,active]:all,notes)===false)throw Error('Notes remain in this browser. Try again.');return;}
+  await persistLegacyNotes(saveSequence,JSON.stringify(notes));
+}
+function persistLegacyNotes(revision,body){
+  const attempt=saveQueue.catch(()=>{}).then(async()=>{
+    try{const response=await fetch(`${boardApi}/notes`,{method:'PUT',headers:{'Content-Type':'application/json','X-Tinka-Workspace':workspaceId},body});if(!response.ok)throw new Error('Notes not saved. Retry when the service is ready.');if(revision===saveSequence)setSaveStatus('Notes saved on this Mac','saved');}
+    catch(error){if(revision===saveSequence)setSaveStatus('Saved in this browser · retry or export notes','local');throw error;}
+  });saveQueue=attempt.catch(()=>{});return attempt;
+}
 function storeNotes() {
   if (graph) { graph.captureReview(active&&!all.includes(active)?[...all,active]:all,notes); clearTimeout(saveTimer); setSaveStatus('Saving item notes…','saving'); saveTimer=setTimeout(()=>graph.saveReview(active&&!all.includes(active)?[...all,active]:all,notes),350); return; }
   const revision = ++saveSequence;
@@ -808,14 +825,7 @@ function storeNotes() {
   setSaveStatus('Saving notes…', 'saving');
   clearTimeout(saveTimer);
   saveTimer = setTimeout(() => {
-    const body = JSON.stringify(notes);
-    saveQueue = saveQueue.catch(() => {}).then(async () => {
-      try {
-        const response = await fetch(`${boardApi}/notes`, { method: 'PUT', headers: { 'Content-Type': 'application/json', 'X-Tinka-Workspace': workspaceId }, body });
-        if (!response.ok) throw new Error('Save failed');
-        if (revision === saveSequence) setSaveStatus('Notes saved on this Mac', 'saved');
-      } catch { if (revision === saveSequence) setSaveStatus('Saved in this browser · export notes for a backup', 'local'); }
-    });
+    void persistLegacyNotes(revision,JSON.stringify(notes)).catch(()=>{});
   }, 350);
 }
 
@@ -862,7 +872,7 @@ function applyBoardSnapshotNow(snapshot) {
         const frame = card?.querySelector('.workspace-live-preview iframe');
         if (frame) {
           const source=new URL(frame.src,location.href);
-          if(source.pathname==='/app/media.html'&&source.searchParams.get('mode')==='panel'&&source.searchParams.get('kind')==='markdown'){source.searchParams.set('v',revision);replaceFrame(frame,source.href);}
+          if(source.pathname==='/app/media.html'&&['panel','card'].includes(source.searchParams.get('mode'))&&source.searchParams.get('kind')==='markdown'){source.searchParams.set('v',revision);replaceFrame(frame,source.href);}
           else replaceFrame(frame, previewHref(concept, null, 'paper', 100, revision));
         }
         const pdf = card?.querySelector('.workspace-pdf-preview');
@@ -926,7 +936,7 @@ function applyBoardSnapshotNow(snapshot) {
 
 function acceptGraphData(fresh) {
   const activeKey=active?.key; board=fresh;rounds=fresh.rounds;revisions=fresh.revisions||{};notes=fresh.graphNotes||{};readRound();currentRound=Math.min(currentRound,Math.max(0,rounds.length-1));buildCanvas();
-  if(activeKey){active=all.find(c=>c.key===activeKey)||active;renderRevisionOptions();renderReaderHeader();updateReaderNavigation();}
+  if(activeKey){active=all.find(c=>c.key===activeKey)||active;renderRevisionOptions();renderReaderHeader();updateReaderNavigation();refreshReaderAnnotations({itemId:active.graphItem?.id});}
 }
 
 let pendingLiveSnapshot=null,liveManifestPending=false,liveDraining=false;
@@ -1050,9 +1060,13 @@ document.addEventListener('input', event => {
   syncReaderNotes();
   storeNotes();
 });
+bindCommitShortcut(world,{accept:event=>event.target.matches('textarea[data-note]'),commit:flushNoteEdits,onError:error=>setSaveStatus(error.message,'local')});
+bindCommitShortcut($('reader-note'),{commit:flushNoteEdits,onError:error=>setSaveStatus(error.message,'local')});
+$('reader-note').setAttribute('aria-keyshortcuts','Meta+Enter Control+Enter');
+const readerNoteHint=document.createElement('small');readerNoteHint.className='workspace-submit-hint';readerNoteHint.textContent=`${commitShortcutLabel()} to save`; $('reader-note').after(readerNoteHint);
 document.addEventListener('keydown', event => {
-  if (event.key !== 'Escape' || event.defaultPrevented || document.querySelector('dialog.workspace-dialog[open]')) return;
-  if (dialog.open) { event.preventDefault(); handleEscape(); return; }
+  if (event.key !== 'Escape' || event.defaultPrevented || event.isComposing || event.keyCode===229 || event.repeat || document.querySelector('dialog.workspace-dialog[open]')) return;
+  if (dialog.open) { handleEscape(event); event.preventDefault(); return; }
   if (!$('board-info').hidden) { event.preventDefault(); setInfoOpen(false, { focus: true }); }
 }, true);
 
@@ -1096,19 +1110,47 @@ $('active-reader').addEventListener('load', () => {
   // Key events inside a frame do not reach the surrounding dialog.
   try {
     $('active-reader').contentWindow.addEventListener('keydown', event => {
-      if (event.key === 'Escape' && !event.defaultPrevented) { event.preventDefault(); handleEscape(); }
+      if (event.key === 'Escape' && !event.defaultPrevented && !event.isComposing && event.keyCode!==229 && !event.repeat) { if(handleEscape(event))event.preventDefault(); }
     });
   } catch {} // Independent cross-origin previews own their keyboard handling.
 });
+const readerActions=new Set();
+function readerContext(data,itemId){
+  const frame=$('active-reader'),source=frame.contentWindow;
+  const selectionId=typeof data.selectionId==='string'&&data.selectionId.length<=80?data.selectionId:undefined;
+  const options={host:dialog.querySelector('.reader-area'),mode:'reader',selectionId,returnFocus:()=>{
+    if(dialog.open&&active?.graphItem?.id===itemId&&activeVariantId==='original'&&frame.contentWindow===source)
+      source.postMessage({type:'tinka-reader-focus',selectionId},location.origin);
+  }};
+  const r=data.selectionRect;
+  if(r&&typeof r==='object'&&!Array.isArray(r)&&Object.keys(r).length===4&&['top','bottom','left','right'].every(key=>Number.isFinite(r[key])&&Math.abs(r[key])<=100000)&&r.bottom>=r.top&&r.right>=r.left){
+    const box=frame.getBoundingClientRect();options.selectionRect={top:Math.max(box.top,Math.min(box.bottom,box.top+r.top)),bottom:Math.max(box.top,Math.min(box.bottom,box.top+r.bottom)),left:Math.max(box.left,Math.min(box.right,box.left+r.left)),right:Math.max(box.left,Math.min(box.right,box.left+r.right))};
+  }
+  return options;
+}
+function refreshReaderAnnotations(detail={}){
+  if(dialog.open&&activeVariantId==='original'&&active?.graphItem?.id===detail.itemId)
+    $('active-reader').contentWindow?.postMessage({type:'tinka-annotations-refresh'},location.origin);
+}
+function wireReaderReview(){
+  if(graph?.feedback&&!graph.feedback.canvasReviewBound){graph.feedback.canvasReviewBound=true;graph.feedback.onCommitted=refreshReaderAnnotations;}
+}
 window.addEventListener('message', event => {
   if(event.origin!==location.origin||event.source!==$('active-reader').contentWindow)return;
   if(event.data?.type==='reader-close'){handleEscape();return;}
-  const item=active?.graphItem;
-  if(!dialog.open||!graph||!item||activeVariantId!=='original'||event.data?.itemId!==item.id||item.content?.kind!=='markdown'||!item.content.resource||item.content.url)return;
-  if(event.data.type==='tinka-comment-selection'&&validTextAnchor(event.data.anchor)&&/^sha256:[a-f0-9]{64}$/.test(event.data.anchor.sourceRevision||'')){
-    closeReader();graph.feedback.commentOnText(item.id,event.data.anchor);
-  }else if(event.data.type==='tinka-open-comment'&&typeof event.data.threadId==='string'&&/^[a-zA-Z0-9][a-zA-Z0-9_-]{0,127}$/.test(event.data.threadId)){
-    closeReader();graph.feedback.open({itemId:item.id,threadId:event.data.threadId});
+  const item=active?.graphItem,data=event.data;
+  if(!dialog.open||!graph||!item||activeVariantId!=='original'||data?.itemId!==item.id||item.content?.kind!=='markdown'||!item.content.resource||item.content.url)return;
+  wireReaderReview();const options=readerContext(data,item.id);
+  if(data.type==='tinka-selection-context'){graph.feedback.updateReaderContext({selectionId:options.selectionId,selectionRect:options.selectionRect});return;}
+  if(data.type==='tinka-comment-selection'&&validTextAnchor(data.anchor)&&/^sha256:[a-f0-9]{64}$/.test(data.anchor.sourceRevision||'')){
+    graph.feedback.commentOnText(item.id,data.anchor,options);
+  }else if(data.type==='tinka-open-comment'&&typeof data.threadId==='string'&&/^[a-zA-Z0-9][a-zA-Z0-9_-]{0,127}$/.test(data.threadId)){
+    graph.feedback.open({...options,itemId:item.id,threadId:data.threadId});
+  }else if((data.type==='tinka-highlight-selection'&&validTextAnchor(data.anchor)&&/^sha256:[a-f0-9]{64}$/.test(data.anchor.sourceRevision||''))||(data.type==='tinka-remove-highlight'&&typeof data.highlightId==='string'&&/^[a-zA-Z0-9][a-zA-Z0-9_-]{0,127}$/.test(data.highlightId))){
+    const frame=event.source,key=JSON.stringify([item.id,data.type,data.selectionId||data.highlightId||data.anchor]);if(readerActions.has(key))return;readerActions.add(key);
+    const result=(ok,error)=>{if(dialog.open&&active?.graphItem?.id===item.id&&$('active-reader').contentWindow===frame)frame.postMessage({type:'tinka-annotation-result',selectionId:data.selectionId,ok,...(error?{message:error.message}: {})},location.origin);};
+    const action=data.type==='tinka-highlight-selection'?graph.feedback.highlightOnText(item.id,data.anchor):graph.feedback.removeHighlight(item.id,data.highlightId);
+    Promise.resolve(action).then(()=>result(true),error=>result(false,error)).finally(()=>readerActions.delete(key));
   }
 });
 $('export').onclick = () => {

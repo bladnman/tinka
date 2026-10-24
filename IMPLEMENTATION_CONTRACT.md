@@ -67,7 +67,7 @@ byte ranges; ordinary relative HTML assets resolve in the same namespace.
 
 Operations: createItem, updateItem, createBoard, updateBoard, updatePlacement, translatePlacements,
 move, pastePlacements, restoreMovement, reference, duplicate, archive, archiveItem, remove, deleteItem, review,
-updateWorkspace. CLI workspace show/op and item show use these same transactions.
+updateWorkspace, addHighlight, removeHighlight. CLI workspace show/op and item show use these same transactions.
 Graph-aware board create/status preserve existing command usage. See
 [PROTOCOL.md](docs/PROTOCOL.md#schema-2-workspace) for exact payloads and examples.
 
@@ -345,8 +345,8 @@ resolver: rectangle/rounded/diamond/ellipse regions, sticky preset, four target
 ports, paired attached/free endpoints and midpoint text labels. Exact inspector
 values are board units and expose attached/free/detached state. Temporary card
 and decoration geometry drives connectors and relative feedback pins through the
-same pure helpers without remounting card media. Whole-line movement deliberately
-makes both ends free. Scoped decoration mutations preserve peers; card movement
+same pure helpers without remounting card media. Attached whole-line movement preserves its endpoint objects; explicit Detach
+captures resolved free points. Scoped decoration mutations preserve peers; card movement
 Undo/Redo does not cover decoration edits.
 
 Point feedback optionally adds normalized relative:{x,y} within one placement or
@@ -388,3 +388,45 @@ retained bytes alone do not establish usability after app rollback. Back up the
 complete authoritative data/resources/config/pin and app before replacement, and
 restore with a compatible app. Source/pin/package/installed/live identity, rendered
 behavior, human acceptance and publication are separate evidence gates.
+
+## Focused editing and persistent marks
+
+The shared interaction module provides scoped, pending-guarded form and autosave
+flush mechanics: Cmd/Ctrl+Enter commits, plain Enter remains multiline, IME/held
+keys cannot post, and validation belongs to each editor. Empty note/sticky/label
+clears are valid. Failed saves preserve drafts and click-away focus. Native sticky
+text sessions survive keyed reconciliation; placement selection clears decoration
+connection state. Attached line body drag preserves endpoints; Reverse swaps full
+endpoint objects and Detach captures the current resolved point.
+
+Small saved cards retain their geometry and expose overflow actions through More
+and viewport selection controls. Compact Markdown is a readable excerpt. Comments
+and ballots use compact controls, with ordinary item voting retained. Document
+comments mount inside the reader, preserving source/frame/variant and selected
+passage through narrow reflow. The innermost active editor handles Escape first.
+
+Optional canonical review.highlights stores bounded bodyless marks, independent
+of thread files, using the existing author/text-anchor model. Fixed yellow, max 200
+and 256 KiB per item. Add/list/remove tools and addHighlight/removeHighlight operations
+use scoped transactions and compact ID receipts. Current source facts are checked
+at creation; list reports existing source matcher status without returning source
+bodies. Changed SHA never silently paints. Remove is metadata-only/idempotent;
+references share marks and item duplicates snapshot independent maps. Existing
+note/star/vote fields survive all highlight mutations and vice versa. Compact
+Home/graph/discovery remain review-free; targeted board snapshots keep full review
+for synchronous copy parity and therefore have bounded per-item fan-out cost.
+No schema migration is performed; older app usability is not guaranteed.
+
+Bounded simple pipe tables share DOM/backend extraction (16 columns/200 rows).
+New Markdown anchors identify markdown-v2 independently of raw-byte SHA. Existing
+missing-model anchors retain matched status where extraction agrees; changed
+table extraction is conservatively uncertain/stale without anchor rewrite/paint.
+Unknown stored models are unverified. Current highlight creation enriches model
+facts once and rejects legacy exact facts against changed table extraction.
+
+Only append comment/reply/highlight browser writes may retry one machine-identified
+scoped global-revision rejection. Semantic payload and operationId stay fixed;
+expectedRevision alone refreshes from the locked response. Actual source/target
+conflicts retain the originating draft/error and are not automatically retried.
+Unknown write acknowledgments preserve the attempt identity for deliberate replay.
+Existing text/geometry/review replacement conflicts remain protected.

@@ -1,5 +1,6 @@
 // One deliberately small Markdown model shared by the browser and source checks.
 export const DOCUMENT_BYTE_LIMIT = 2 * 1024 * 1024;
+export const MARKDOWN_TEXT_MODEL = 'markdown-v2';
 export function normalizeDocumentText(value) {
   return String(value).replace(/\r\n?/g, '\n').replace(/\s+/gu, ' ').trim();
 }
@@ -25,7 +26,32 @@ export function inlineRuns(text) {
   return runs;
 }
 const runText = runs => runs.filter(run=>run.type!=='image').map(run=>run.text).join('');
-export function parseMarkdown(source) {
+function pipeCells(line){
+  const value=line.trim(),cells=[];let cell='',separators=0;
+  for(let i=0;i<value.length;i++){
+    if(value[i]==='\\'){
+      let end=i;while(value[end]==='\\')end++;const count=end-i;
+      if(value[end]==='|'&&count%2){cell+='\\'.repeat(count-1)+'|';i=end;continue;}
+      cell+='\\'.repeat(count);i=end-1;continue;
+    }
+    if(value[i]==='|'){cells.push(cell.trim());cell='';separators++;}else cell+=value[i];
+  }
+  cells.push(cell.trim());if(value.startsWith('|'))cells.shift();if(cells.at(-1)===''&&value.endsWith('|'))cells.pop();
+  return separators?cells:null;
+}
+function tableHeader(lines,index){
+  const header=pipeCells(lines[index]||''),separator=pipeCells(lines[index+1]||'');
+  if(!header||header.length<2||header.length>16||!separator||separator.length!==header.length||!separator.every(cell=>/^:?-{3,}:?$/.test(cell)))return null;
+  return {header,align:separator.map(cell=>cell.startsWith(':')&&cell.endsWith(':')?'center':cell.endsWith(':')?'right':'left')};
+}
+function pipeTable(lines,index){
+  const header=tableHeader(lines,index);if(!header)return null;
+  const rows=[];let end=index+2;
+  while(end<lines.length){const cells=pipeCells(lines[end]);if(!cells||cells.length!==header.header.length)break;if(rows.length>=200)return null;rows.push(cells.map(inlineRuns));end++;}
+  return {block:{type:'table',header:header.header.map(inlineRuns),align:header.align,rows},end};
+}
+const blockText=block=>block.type==='table'?[block.header,...block.rows].map(row=>row.map(runText).join('\t')).join('\n'):block.items?block.items.map(runText).join('\n'):block.runs?runText(block.runs):block.text||'';
+export function parseMarkdown(source,{tables=true}={}) {
   const lines=String(source).replace(/\r\n?/g,'\n').split('\n'),blocks=[],headings=[],slugs=new Map();
   let index=0;
   while(index<lines.length){
@@ -34,6 +60,7 @@ export function parseMarkdown(source) {
       const code=[];index++;while(index<lines.length&&!/^\s*```/.test(lines[index]))code.push(lines[index++]);if(index<lines.length)index++;
       blocks.push({type:'pre',text:code.join('\n')});continue;
     }
+    const table=tables&&pipeTable(lines,index);if(table){blocks.push(table.block);index=table.end;continue;}
     const heading=line.match(/^(#{1,4})\s+(.+)$/);
     if(heading){
       const runs=inlineRuns(heading[2]),label=runText(runs),slug=normalizeDocumentText(label).toLowerCase().replace(/[^\p{L}\p{N}]+/gu,'-').replace(/^-|-$/g,'')||'section',count=(slugs.get(slug)||0)+1;slugs.set(slug,count);
@@ -46,11 +73,11 @@ export function parseMarkdown(source) {
       const ordered=Boolean(list[2]),items=[];while(index<lines.length){const item=lines[index].match(/^\s*(?:([-*+])|(\d+)\.)\s+(.+)$/);if(!item||Boolean(item[2])!==ordered)break;items.push(inlineRuns(item[3]));index++;}
       blocks.push({type:ordered?'ol':'ul',items});continue;
     }
-    const paragraph=[];while(index<lines.length&&lines[index].trim()&&!/^(#{1,4}\s|\s*```|\s*>|\s*[-*+]\s|\s*\d+\.\s)/.test(lines[index]))paragraph.push(lines[index++].trim());
+    const paragraph=[];while(index<lines.length&&lines[index].trim()&&!/^(#{1,4}\s|\s*```|\s*>|\s*[-*+]\s|\s*\d+\.\s)/.test(lines[index])&&!(tables&&tableHeader(lines,index)))paragraph.push(lines[index++].trim());
     if(!paragraph.length)paragraph.push(lines[index++].trim());blocks.push({type:'p',runs:inlineRuns(paragraph.join(' '))});
   }
-  const rawText=blocks.map(block=>block.items?block.items.map(runText).join('\n'):block.runs?runText(block.runs):block.text||'').join('\n');
-  return {blocks,headings,rawText,text:normalizeDocumentText(rawText)};
+  const rawText=blocks.map(blockText).join('\n');
+  return {blocks,headings,rawText,text:normalizeDocumentText(rawText),textModel:MARKDOWN_TEXT_MODEL,hasTables:blocks.some(block=>block.type==='table')};
 }
 export function markdownAssetUrl(value,{baseUrl,origin,resourcePrefix}){
   try{
@@ -81,6 +108,12 @@ export function renderMarkdownDocument(document,model,assetOptions){
   }}
   model.blocks.forEach((block,index)=>{
     if(index)article.append(document.createTextNode('\n'));
+    if(block.type==='table'){
+      const region=document.createElement('div');region.className='markdown-table';region.tabIndex=0;region.setAttribute('role','region');region.setAttribute('aria-label','Scrollable table');
+      const table=document.createElement('table'),head=document.createElement('thead'),body=document.createElement('tbody');
+      function row(cells,header){const tr=document.createElement('tr');cells.forEach((runs,i)=>{if(i)tr.append(document.createTextNode('\t'));const cell=document.createElement(header?'th':'td');if(header)cell.scope='col';cell.style.textAlign=block.align[i];appendRuns(cell,runs);tr.append(cell);});return tr;}
+      head.append(row(block.header,true));table.append(head);if(block.rows.length){table.append(document.createTextNode('\n'));block.rows.forEach((cells,i)=>{if(i)body.append(document.createTextNode('\n'));body.append(row(cells,false));});table.append(body);}region.append(table);article.append(region);return;
+    }
     const element=document.createElement(block.type);if(block.id)element.id=block.id;
     if(block.items)block.items.forEach((runs,i)=>{if(i)element.append(document.createTextNode('\n'));const li=document.createElement('li');appendRuns(li,runs);element.append(li);});
     else if(block.runs)appendRuns(element,block.runs);
@@ -90,15 +123,17 @@ export function renderMarkdownDocument(document,model,assetOptions){
   return article;
 }
 export function validTextAnchor(anchor){
-  if(!anchor||typeof anchor!=='object'||Array.isArray(anchor)||Object.keys(anchor).some(key=>!['kind','quote','prefix','suffix','start','end','sourceRevision'].includes(key)))return false;
+  if(!anchor||typeof anchor!=='object'||Array.isArray(anchor)||Object.keys(anchor).some(key=>!['kind','quote','prefix','suffix','start','end','sourceRevision','textModel'].includes(key)))return false;
   if(anchor.kind!=='text'||typeof anchor.quote!=='string'||!anchor.quote.trim()||anchor.quote.length>20000||anchor.quote.includes('\0'))return false;
   for(const key of ['prefix','suffix'])if(anchor[key]!==undefined&&(typeof anchor[key]!=='string'||anchor[key].length>2000||anchor[key].includes('\0')))return false;
   if((anchor.start===undefined)!==(anchor.end===undefined))return false;
   if(anchor.start!==undefined&&(!Number.isSafeInteger(anchor.start)||!Number.isSafeInteger(anchor.end)||anchor.start<0||anchor.end<=anchor.start||anchor.end>2000000))return false;
+  if(anchor.textModel!==undefined&&(typeof anchor.textModel!=='string'||!anchor.textModel.trim()||anchor.textModel.length>80||anchor.textModel.includes('\0')))return false;
   return anchor.sourceRevision===undefined||(typeof anchor.sourceRevision==='string'&&anchor.sourceRevision.length>0&&anchor.sourceRevision.length<=256&&!anchor.sourceRevision.includes('\0'));
 }
-export function locateTextAnchor(source,anchor,revision){
+export function locateTextAnchor(source,anchor,revision,textModel){
   if(!validTextAnchor(anchor))return {status:'stale'};
+  if(anchor.textModel!==undefined&&anchor.textModel!==textModel)return {status:'unverified'};
   const quote=anchor.quote,contextAt=start=>(anchor.prefix===undefined||source.slice(Math.max(0,start-anchor.prefix.length),start)===anchor.prefix)&&(anchor.suffix===undefined||source.slice(start+quote.length,start+quote.length+anchor.suffix.length)===anchor.suffix);
   const saved=anchor.start!==undefined&&anchor.end===anchor.start+quote.length&&source.slice(anchor.start,anchor.end)===quote;
   const sameRevision=anchor.sourceRevision!==undefined&&anchor.sourceRevision===revision;
@@ -121,6 +156,6 @@ export function selectionTextAnchor(article,selection,sourceRevision){
   const {text,starts,ends}=documentTextMap(raw),start=starts.findIndex(offset=>offset>=rawStart);
   if(start<0)return null;let end=start;while(end<ends.length&&ends[end]<=rawEnd)end++;
   const quote=text.slice(start,end);if(!quote||quote!==normalizeDocumentText(raw.slice(rawStart,rawEnd)))return null;
-  const anchor={kind:'text',quote,prefix:text.slice(Math.max(0,start-96),start),suffix:text.slice(end,end+96),start,end,sourceRevision};
+  const anchor={kind:'text',quote,prefix:text.slice(Math.max(0,start-96),start),suffix:text.slice(end,end+96),start,end,sourceRevision,textModel:MARKDOWN_TEXT_MODEL};
   return validTextAnchor(anchor)?anchor:null;
 }

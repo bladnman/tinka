@@ -13,6 +13,7 @@ import {readWorkspace,workspaceHeader,workspaceView,getBoardSnapshot,getItemSnap
 import {listTools,callTool,toolDefinition} from './lib/tools.mjs';
 import {discoveryCatalog,searchWorkspace} from './lib/discovery.mjs';
 import {listFeedback} from './lib/feedback.mjs';
+import {listHighlights} from './lib/highlights.mjs';
 import {migrateLegacy} from './lib/migrate.mjs';
 import {resolveResource,resourceUrl} from './lib/resources.mjs';
 import {withStore} from './lib/store.mjs';
@@ -30,7 +31,7 @@ export function closeAppServer(server){
 }
 function sendJson(res,status,value){res.writeHead(status,{'Content-Type':'application/json; charset=utf-8',...noStore});res.end(JSON.stringify(value));}
 function decodeSegment(value){try{return decodeURIComponent(value);}catch{throw new HttpError(400,'Invalid URL encoding.');}}
-function sendError(res,error){if(res.headersSent){res.destroy();return;}const status=Number.isInteger(error.status)&&error.status>=400&&error.status<=599?error.status:500;sendJson(res,status,{error:status===500?'Request failed.':error.message,...(error.revision!==undefined?{revision:error.revision}:{})});}
+function sendError(res,error){if(res.headersSent){res.destroy();return;}const status=Number.isInteger(error.status)&&error.status>=400&&error.status<=599?error.status:500;sendJson(res,status,{error:status===500?'Request failed.':error.message,...(error.revision!==undefined?{revision:error.revision}:{}),...(error.code==='WORKSPACE_REVISION_CHANGED'?{code:error.code}:{})});}
 async function requestJson(req){
   if(!/^application\/json(?:\s*;|$)/i.test(req.headers['content-type']||''))throw new HttpError(415,'Content-Type must be application/json.');
   let total=0;const chunks=[];
@@ -128,6 +129,7 @@ export function createAppServer(config){
         if(!input||typeof input!=='object'||Array.isArray(input)||typeof input.name!=='string'||Object.keys(input).some(key=>!['name','arguments'].includes(key)))throw new HttpError(400,'Provide {name,arguments}.');
         sendJson(res,200,await callTool(config,input.name,input.arguments??{},{transport:'http'}));return;
       }
+      if(pathname==='/api/highlights'&&method==='GET'){const input=Object.fromEntries(url.searchParams);if(input.limit!==undefined)input.limit=Number(input.limit);sendJson(res,200,await listHighlights(config,input));return;}
       if(pathname==='/api/feedback'&&method==='GET'){
         const input=Object.fromEntries(url.searchParams);
         for(const key of ['resolved','includeBodies'])if(input[key]!==undefined){if(!['true','false'].includes(input[key]))throw new HttpError(400,`${key} must be true or false.`);input[key]=input[key]==='true';}

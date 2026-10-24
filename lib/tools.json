@@ -3018,6 +3018,9 @@
                   "sourceRevision": {
                     "type": "string",
                     "maxLength": 256
+                  },
+                  "textModel": {
+                    "const": "markdown-v2"
                   }
                 }
               }
@@ -3224,6 +3227,171 @@
           "itemId",
           "actor",
           "value"
+        ]
+      }
+    },
+    {
+      "name": "highlight.add",
+      "mutating": true,
+      "description": "Save a bodyless text highlight on a canonical item. Current local Markdown/inline text only; exact source facts or a unique quote/context are resolved once. Fixed yellow, max200/256KiB per item. No comment or source edit.",
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "expectedRevision": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "operationId": {
+            "type": "string",
+            "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_-]{0,127}$",
+            "maxLength": 128
+          },
+          "itemId": {
+            "type": "string",
+            "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_-]{0,127}$",
+            "maxLength": 128
+          },
+          "id": {
+            "type": "string",
+            "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_-]{0,127}$",
+            "maxLength": 128
+          },
+          "author": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "id",
+              "label",
+              "kind"
+            ],
+            "properties": {
+              "id": {
+                "type": "string",
+                "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_-]{0,127}$",
+                "maxLength": 128
+              },
+              "label": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 120
+              },
+              "kind": {
+                "enum": [
+                  "human",
+                  "agent"
+                ]
+              }
+            }
+          },
+          "anchor": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "kind",
+              "quote"
+            ],
+            "properties": {
+              "kind": {
+                "const": "text"
+              },
+              "quote": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 20000
+              },
+              "prefix": {
+                "type": "string",
+                "maxLength": 2000
+              },
+              "suffix": {
+                "type": "string",
+                "maxLength": 2000
+              },
+              "start": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 2000000
+              },
+              "end": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 2000000
+              },
+              "sourceRevision": {
+                "type": "string",
+                "maxLength": 256
+              },
+              "textModel": {
+                "const": "markdown-v2"
+              }
+            }
+          }
+        },
+        "required": [
+          "itemId",
+          "author",
+          "anchor"
+        ]
+      }
+    },
+    {
+      "name": "highlight.list",
+      "description": "Read bounded persistent highlights and current source-match status for one item; no source body. Cursor binds item and workspace revision.",
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "itemId": {
+            "type": "string",
+            "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_-]{0,127}$",
+            "maxLength": 128
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 100
+          },
+          "cursor": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "itemId"
+        ]
+      }
+    },
+    {
+      "name": "highlight.remove",
+      "mutating": true,
+      "description": "Remove only the specified highlight metadata ID. Missing mark is an idempotent removed:false result; source files and discussion remain unchanged.",
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "expectedRevision": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "operationId": {
+            "type": "string",
+            "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_-]{0,127}$",
+            "maxLength": 128
+          },
+          "itemId": {
+            "type": "string",
+            "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_-]{0,127}$",
+            "maxLength": 128
+          },
+          "highlightId": {
+            "type": "string",
+            "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_-]{0,127}$",
+            "maxLength": 128
+          }
+        },
+        "required": [
+          "itemId",
+          "highlightId"
         ]
       }
     }

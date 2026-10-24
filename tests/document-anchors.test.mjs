@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import {mkdtemp,mkdir,writeFile,rm,symlink} from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import {parseMarkdown,normalizeDocumentText,documentTextMap,locateTextAnchor,markdownAssetUrl,validTextAnchor,DOCUMENT_BYTE_LIMIT} from '../public/markdown-document.js';
+import {parseMarkdown,normalizeDocumentText,documentTextMap,locateTextAnchor,markdownAssetUrl,validTextAnchor,DOCUMENT_BYTE_LIMIT,MARKDOWN_TEXT_MODEL} from '../public/markdown-document.js';
 import {readDocumentSource,documentRevision} from '../lib/document-anchors.mjs';
 import {applyOperation} from '../lib/workspace.mjs';
 import {applyFeedbackOperation,listFeedback} from '../lib/feedback.mjs';
@@ -42,6 +42,25 @@ test('Markdown URL policy keeps resource confinement and raw HTML inert in the t
   for(const value of ['javascript:alert(1)','data:text/html,hi','https://user:secret@example.com/','../../../api/config','../.secret','../%2eprivate/file','../%252eprivate/file','../a%5cb'])assert.equal(markdownAssetUrl(value,options),null,value);
   assert.equal(markdownAssetUrl('https://example.com/read',options),'https://example.com/read');
   assert.equal(parseMarkdown('<script>window.bad=true</script>').text,'<script>window.bad=true</script>');
+});
+test('bounded pipe tables extract visible cells without pipe syntax and leave unsupported rows literal',()=>{
+  const source='| Name | State |\n| :--- | ---: |\n| Alpha \\| Beta | **Ready** |\n| Other | Waiting |\n\nVerification follows.';
+  const model=parseMarkdown(source);assert.equal(model.hasTables,true);assert.equal(model.blocks[0].rows.length,2);assert.deepEqual(model.blocks[0].align,['left','right']);assert.equal(model.rawText,'Name\tState\nAlpha | Beta\tReady\nOther\tWaiting\nVerification follows.');assert.equal(model.textModel,MARKDOWN_TEXT_MODEL);
+  assert.equal(parseMarkdown('Name | State\n--- | :---:\nA | B').blocks[0].align[1],'center');
+  assert.ok(parseMarkdown('| A | B |\n| --- | --- |\n| Wrong | width | extra |').text.includes('| Wrong | width | extra |'));
+  for(const body of [Array.from({length:201},()=> '| A | B |').join('\n'),null]){
+    const text=body===null?Array.from({length:17},(_,i)=>'H'+i).join('|')+'\n'+Array(17).fill('---').join('|'):'| A | B |\n| --- | --- |\n'+body;
+    assert.equal(parseMarkdown(text).hasTables,false);assert.equal(parseMarkdown(text).text,parseMarkdown(text,{tables:false}).text);
+  }
+});
+test('table extraction versions prevent unchanged raw SHA from silently locating legacy offsets',async t=>{
+  const {config,board,item,file,roots,resource}=await fixture(t),raw='| Requirement | State |\n| --- | --- |\n| R1 | Ready |\n\n## Verification\n\nAll checks retain history.';await writeFile(file,raw);
+  const legacy=parseMarkdown(raw,{tables:false}),source=await readDocumentSource(config,resource,roots),quote='Verification',start=legacy.text.indexOf(quote),saved={kind:'text',quote,start,end:start+quote.length,prefix:legacy.text.slice(Math.max(0,start-96),start),suffix:legacy.text.slice(start+quote.length,start+quote.length+96),sourceRevision:source.revision};
+  assert.ok(source.legacyText);await applyFeedbackOperation(config,{type:'addComment',id:'legacy-table-quote',boardId:board.boardId,itemId:item.itemId,author:actor,body:'Legacy review.',anchor:saved});
+  const historical=(await listFeedback(config,{threadId:'legacy-table-quote'})).threads[0];assert.equal(historical.anchorStatus,'uncertain');assert.deepEqual(historical.anchor,saved);
+  const cell='Ready',cellStart=source.text.indexOf(cell),current={kind:'text',quote:cell,start:cellStart,end:cellStart+cell.length,sourceRevision:source.revision,textModel:MARKDOWN_TEXT_MODEL};
+  await applyFeedbackOperation(config,{type:'addComment',id:'current-table-cell',boardId:board.boardId,itemId:item.itemId,author:actor,body:'Current cell review.',anchor:current});assert.equal((await listFeedback(config,{threadId:'current-table-cell'})).threads[0].anchorStatus,'matched');
+  assert.equal(locateTextAnchor(source.text,{...current,textModel:'future-model'},source.revision,MARKDOWN_TEXT_MODEL).status,'unverified');
 });
 test('locked feedback reads actual linked bytes without nested locks and reports changed/removed source', {timeout:5000},async t=>{
   const {config,board,item,resource,roots,file}=await fixture(t),source=await readDocumentSource(config,resource,roots),quote='selected words',start=source.text.indexOf(quote);

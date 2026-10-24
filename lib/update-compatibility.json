@@ -1,9 +1,8 @@
 {
   "schemaVersion": 1,
-  "version": "0.6.0",
+  "version": "0.6.1",
   "fromVersions": [
-    "0.5.17",
-    "0.5.18"
+    "0.6.0"
   ],
   "runtime": {
     "node": ">=22",

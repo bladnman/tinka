@@ -1,3 +1,4 @@
+import {bindCommitShortcut,commitShortcutLabel} from './interaction.js';
 import {Whiteboard,decorationMarkup,lineBox} from "./whiteboard.js";
 import {decorationBounds,resolveLine} from "./whiteboard-geometry.js";
 import {FeedbackController} from "./feedback.js";
@@ -250,13 +251,16 @@ export class WorkspaceBoard {
         child = e.target.closest("[data-child-board]");
       if (select) {
         const id = select.dataset.placementSelect;
+        this.whiteboard?.clearSelection({finishEdit:true,focus:false});
         this.selection.has(id)
           ? this.selection.delete(id)
           : this.selection.add(id);
         this.build(this.hooks.concepts());
       }
       const feedback = e.target.closest("[data-item-feedback]");
-      if (feedback) this.feedback.open({itemId:feedback.dataset.itemFeedback});
+      if (feedback) this.feedback.open({itemId:feedback.dataset.itemFeedback,returnFocus:feedback});
+      const vote = e.target.closest("[data-item-vote]");
+      if (vote) this.feedback.openVote({itemId:vote.dataset.itemVote,anchor:vote,returnFocus:vote});
       if (context) this.itemControls(context.dataset.itemControls, context.dataset.controlsFocus);
       if (edit)
         itemForm(this.client, {
@@ -417,12 +421,12 @@ export class WorkspaceBoard {
   }
   async refresh({ saveReview = true } = {}) {
     // A live refresh must not reset an in-progress pointer gesture.
-    if (this.pointerGesture || this.decorationGesture || this.moveCommitting) { this.pointerRefreshPending = true; return; }
+    if (this.pointerGesture || this.decorationGesture || this.moveCommitting || this.whiteboard?.editing) { this.pointerRefreshPending = true; return; }
     if (saveReview && this.pendingReview.size && !this.saving) await this.saveReview([], {});
     const snapshot = await this.client.get(
       `/api/boards/${encodeURIComponent(this.snapshot.id)}`,
     );
-    if (this.pointerGesture || this.decorationGesture || this.moveCommitting) { this.pointerRefreshPending = true; return; }
+    if (this.pointerGesture || this.decorationGesture || this.moveCommitting || this.whiteboard?.editing) { this.pointerRefreshPending = true; return; }
     // A read started before a completed operation must not roll its UI back.
     if (snapshot.revision < Math.max(this.snapshot.revision, this.client.revision)) return;
     this.pointerRefreshPending = false;
@@ -432,7 +436,7 @@ export class WorkspaceBoard {
   }
   liveBlocked() {
     return !!(this.pointerGesture || this.decorationGesture || this.decorationCommitting || this.moveCommitting || this.movePending ||
-      this.client.pendingWrites || this.historyBusy || this.history?.busy || this.pasteBusy || this.saving ||
+      this.whiteboard?.editing || this.whiteboard?.finishing || this.client.pendingWrites || this.historyBusy || this.history?.busy || this.pasteBusy || this.saving ||
       document.activeElement?.closest("input,textarea,select,[contenteditable]") || document.querySelector("dialog.workspace-dialog[open]"));
   }
   syncGeometry(overrides) {
@@ -484,6 +488,7 @@ export class WorkspaceBoard {
       let action;
       if (command && !event.shiftKey && key === "a")
         action = () => {
+          this.whiteboard?.clearSelection({finishEdit:true,focus:false});
           this.selection = new Set(this.renderedPlacements().map(p => p.id));
           this.syncSelection();
           this.selectionMenu();
@@ -924,6 +929,7 @@ export class WorkspaceBoard {
   }
   setMode(mode, rebuild = true) {
     this.mode = mode;
+    this.whiteboard?.reconcileSelection();
     try {
       localStorage.setItem(
         `tinka/${this.config.workspaceId}/${this.snapshot.id}/layout`,
@@ -938,6 +944,7 @@ export class WorkspaceBoard {
     if (rebuild) this.rebuild();
   }
   build(concepts) {
+    this.whiteboard?.reconcileSelection();
     const world = $("world");
     if (this.mode === "canvas") {
       const entries = [
@@ -970,15 +977,17 @@ export class WorkspaceBoard {
       const panel = p.presentation?.mode === "panel",
         icon = p.presentation?.mode === "icon",
         viewport = p.presentation?.viewport || { width: 1000, height: 720 };
+      const documentContent = item.content?.kind === "markdown" && item.content?.resource && !item.content?.url;
       const selected = this.selection.has(p.id),
         unavailable = ["reserved", "building"].includes(item.build?.state),
-        live = !icon && (this.mode === "grid" || panel) && !unavailable && !img &&
-          ["html","markdown"].includes(item.content?.kind) && item.content?.resource && !item.content?.url;
+        live = !icon && !unavailable && !img && (documentContent ||
+          (this.mode === "grid" || panel) && item.content?.kind === "html" && item.content?.resource && !item.content?.url);
+      const excerpt = !!documentContent && !panel;
       const review = { ...item.review, ...this.pendingReview.get(item.id) };
       const handoff = resourceURL(item.resources?.find(r => r.role === "handoff")?.resource);
-      const previewSource = JSON.stringify([item.id, item.content || null]), previous = previews.get(p.id);
-      let documentPreview = item.content?.kind === "markdown" && item.content?.resource
-        ? `/app/media.html?${new URLSearchParams({kind:"markdown",root:item.content.resource.rootId,path:item.content.resource.path,name:item.title,chrome:"none",mode:"panel"})}` : null;
+      const previewSource = JSON.stringify([item.id, item.content || null, documentContent ? (panel ? "document-panel" : "document-card") : null]), previous = previews.get(p.id);
+      let documentPreview = documentContent
+        ? `/app/media.html?${new URLSearchParams({kind:"markdown",root:item.content.resource.rootId,path:item.content.resource.path,name:item.title,chrome:"none",mode:panel?"panel":"card"})}` : null;
       if (documentPreview) { const stamp=new URL(this.hooks.preview(c),location.href).searchParams.get("v"); if(stamp) documentPreview += `&v=${encodeURIComponent(stamp)}`; }
       const preview = previous?.frame?.dataset.previewSource === previewSource
         ? previous.frame.getAttribute("src") : documentPreview || this.hooks.preview(c);
@@ -988,10 +997,12 @@ export class WorkspaceBoard {
       const pdf = !img && item.content?.kind === "pdf" ? resourceURL(item.content.resource) : null;
       const pdfSource = JSON.stringify([item.id,pdf]);
       const pdfURL = previous?.pdf?.dataset.previewSource === pdfSource ? previous.pdf.getAttribute("src") : pdf && pdfPreviewURL(pdf);
-      const footer = `<footer class="workspace-item-footer workspace-panel-caption"><button type="button" data-placement-select="${esc(p.id)}" aria-pressed="${selected}" aria-label="${selected ? "Deselect" : "Select"} ${esc(item.title)}">${selected ? "✓" : "□"}</button>${panel ? `<button type="button" class="workspace-panel-title" ${unavailable ? "disabled" : ""} data-open="${esc(c.key)}">${esc(item.title)}</button>` : '<span class="workspace-item-spacer" aria-hidden="true"></span>'}<button type="button" data-item-feedback="${esc(item.id)}" aria-label="Comments and vote on ${esc(item.title)}" title="Comments and vote"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="M5 4h14a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H9l-5 3v-3a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2Z"/><path d="M7 9h10M7 13h7"/></svg></button><button type="button" class="shortlist" data-star="${esc(c.key)}" aria-label="Favorite ${esc(item.title)}" aria-pressed="${!!review.star}">${review.star ? "★" : "☆"}</button><button type="button" data-item-controls="${esc(p.id)}" data-controls-focus="notes" aria-label="Details for ${esc(item.title)}" aria-haspopup="dialog" aria-expanded="${this.contextPlacement === p.id}">⋯${review.note ? '<span class="workspace-note-dot" aria-hidden="true"></span>' : ""}</button></footer>`;
+      const voteState = this.feedback?.voteState?.(item.id) || {mine:null};
+      const choice = voteState.mine ? voteState.mine[0].toUpperCase() + voteState.mine.slice(1) : "Vote";
+      const footer = `<footer class="workspace-item-footer workspace-panel-caption"><button type="button" data-placement-select="${esc(p.id)}" aria-pressed="${selected}" aria-label="${selected ? "Deselect" : "Select"} ${esc(item.title)}" title="${selected ? "Deselect" : "Select"}">${selected ? "✓" : "□"}</button>${panel ? `<button type="button" class="workspace-panel-title" ${unavailable ? "disabled" : ""} data-open="${esc(c.key)}" title="${esc(item.title)}">${esc(item.title)}</button>` : '<span class="workspace-item-spacer" aria-hidden="true"></span>'}<button type="button" data-item-feedback="${esc(item.id)}" aria-label="Comments on ${esc(item.title)}" title="Comments"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 4h14a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H9l-5 3v-3a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2Z"/><path d="M7 9h10M7 13h7"/></svg></button><button type="button" class="workspace-vote-trigger" data-item-vote="${esc(item.id)}" data-vote-value="${esc(voteState.mine || "")}" aria-haspopup="dialog" aria-pressed="${!!voteState.mine}" aria-label="Vote on ${esc(item.title)}${voteState.mine ? `. Your vote: ${esc(choice)}` : ""}" title="${voteState.mine ? `Your vote: ${esc(choice)}` : "Vote"}"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 10H3v10h18V10h-2M3 14h18M8 3h8v9H8z"/><path d="m10 7 2 2 3-3"/></svg><span data-vote-summary>${esc(choice)}</span></button><button type="button" class="shortlist" data-star="${esc(c.key)}" aria-label="Favorite ${esc(item.title)}" aria-pressed="${!!review.star}" title="Favorite"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m12 3 2.8 5.7 6.3.9-4.6 4.4 1.1 6.3-5.6-3-5.6 3 1.1-6.3L3 9.6l6.2-.9Z"/></svg></button><button type="button" data-item-controls="${esc(p.id)}" data-controls-focus="actions" aria-label="More actions for ${esc(item.title)}" aria-haspopup="dialog" aria-expanded="${this.contextPlacement === p.id}" title="More actions">⋯${review.note ? '<span class="workspace-note-dot" aria-hidden="true"></span>' : ""}</button>${this.mode === "canvas" ? `<button type="button" class="workspace-resize" data-resize="${esc(p.id)}" aria-label="Resize ${esc(item.title)}" title="Resize">◢</button>` : ""}</footer>`;
       const visual = unavailable
         ? `<div class="workspace-build-placeholder"><strong>${item.build.state === "building" ? "Taking shape." : "A place for a new idea."}</strong><span>${esc(item.build.message || "This slot will open when it is ready for review.")}</span></div>`
-        : live ? `<iframe src="${esc(preview)}" data-preview-source="${esc(previewSource)}" title="${esc(item.title)} ${panel ? "design" : "live"} preview" tabindex="-1" loading="lazy" inert></iframe>`
+        : live ? `<iframe ${excerpt ? 'class="workspace-document-excerpt"' : ""} src="${esc(preview)}" data-preview-source="${esc(previewSource)}" title="${esc(item.title)} ${panel ? "design" : "live"} preview" tabindex="-1" loading="lazy" inert></iframe>`
         : img || (url && item.content.kind === "image") ? `<img src="${esc(image)}" data-preview-source="${esc(imageSource)}" referrerpolicy="no-referrer" alt="${esc(item.title)} preview">`
         : pdf ? `<div class="workspace-pdf-fallback"><strong>${esc(item.title)}</strong><span>PDF · ${pdfSupported() ? "Page 1 preview" : "Preview unavailable in this browser"}</span><small>Open to read all pages or download the original.</small></div>${pdfSupported() ? `<iframe class="workspace-pdf-preview" src="${esc(pdfURL)}" data-preview-source="${esc(pdfSource)}" title="${esc(item.title)} first page" loading="lazy" tabindex="-1" inert></iframe>` : ""}`
         : item.childBoardId && !item.content ? coverMarkup(this.snapshot.boardCovers?.[item.childBoardId],item.childBoardId)
@@ -1001,7 +1012,7 @@ export class WorkspaceBoard {
       const dimensions = this.mode === "canvas"
         ? `left:${p.x + this.origin.x}px;top:${p.y + this.origin.y}px;width:${p.width}px;height:${p.height}px;z-index:${p.z};`
         : panel || icon ? `width:${p.width}px;height:${p.height}px;` : "";
-      return `<article tabindex="-1" class="workspace-card ${panel ? "workspace-panel" : icon ? "workspace-icon" : "workspace-compact"} ${selected ? "selected" : ""}" data-key="${esc(c.key)}" data-placement="${esc(p.id)}" data-build-state="${esc(item.build?.state || "ready")}" style="${dimensions}--item-paper:${paper};--panel-viewport-width:${viewport.width}px;--panel-viewport-height:${viewport.height}px;">${icon ? `<button type="button" class="workspace-icon-entry" ${unavailable ? "disabled" : ""} data-open="${esc(c.key)}" aria-label="Open ${esc(item.title)}"><span aria-hidden="true">${item.childBoardId ? "▱" : item.content?.kind === "image" ? "▧" : item.content?.kind === "html" ? "▤" : "◇"}</span><strong>${esc(item.title)}</strong></button>` : `<div class="workspace-card-preview ${panel ? "workspace-panel-preview" : ""} ${live ? "workspace-live-preview" : ""}" ${panel ? `data-preview-width="${viewport.width}" data-preview-height="${viewport.height}"` : ""}>${visual}<button type="button" class="workspace-preview-launch" ${unavailable ? "disabled" : ""} data-open="${esc(c.key)}" aria-label="Open ${esc(item.title)}"><span>Open ${esc(item.title)} ↗</span></button></div>${!panel ? `<div class="workspace-card-copy"><div class="workspace-compact-meta"><span class="workspace-concept-number">${esc(c.number)}</span><span>${esc(item.category || item.content?.kind || (item.childBoardId ? "Board" : "Idea"))}</span></div><h3><button type="button" ${unavailable ? "disabled" : ""} data-open="${esc(c.key)}">${esc(item.title)}</button></h3>${item.description ? `<p>${esc(item.description)}</p>` : ""}${item.question ? `<p class="workspace-question">${esc(item.question)}</p>` : ""}${handoff ? `<a class="workspace-handoff" href="${esc(handoff)}" target="_blank" rel="noopener noreferrer">Handoff ↗</a>` : ""}${item.childBoardId && item.content ? `<button type="button" class="workspace-child" data-child-board="${esc(item.childBoardId)}">Open board ↗</button>` : ""}</div>` : ""}`}${footer}${this.mode === "canvas" ? `<button type="button" class="workspace-resize" data-resize="${esc(p.id)}" aria-label="Resize ${esc(item.title)}">◢</button>` : ""}</article>`;
+      return `<article tabindex="-1" class="workspace-card ${panel ? "workspace-panel" : icon ? "workspace-icon" : "workspace-compact"} ${selected ? "selected" : ""}" data-key="${esc(c.key)}" data-placement="${esc(p.id)}" data-build-state="${esc(item.build?.state || "ready")}" style="${dimensions}--item-paper:${paper};--panel-viewport-width:${viewport.width}px;--panel-viewport-height:${viewport.height}px;"><div class="workspace-card-body">${icon ? `<button type="button" class="workspace-icon-entry" ${unavailable ? "disabled" : ""} data-open="${esc(c.key)}" aria-label="Open ${esc(item.title)}"><span aria-hidden="true">${item.childBoardId ? "▱" : item.content?.kind === "image" ? "▧" : item.content?.kind === "html" ? "▤" : "◇"}</span><strong>${esc(item.title)}</strong></button>` : `<div class="workspace-card-preview ${panel ? "workspace-panel-preview" : ""} ${live ? "workspace-live-preview" : ""} ${excerpt ? "workspace-document-excerpt-preview" : ""}" ${panel ? `data-preview-width="${viewport.width}" data-preview-height="${viewport.height}"` : ""}>${visual}<button type="button" class="workspace-preview-launch" ${unavailable ? "disabled" : ""} data-open="${esc(c.key)}" aria-label="Open ${esc(item.title)}"><span>Open ${esc(item.title)} ↗</span></button></div>${!panel ? `<div class="workspace-card-copy"><div class="workspace-compact-meta"><span class="workspace-concept-number">${esc(c.number)}</span><span>${esc(item.category || item.content?.kind || (item.childBoardId ? "Board" : "Idea"))}</span></div><h3><button type="button" ${unavailable ? "disabled" : ""} data-open="${esc(c.key)}">${esc(item.title)}</button></h3>${item.description ? `<p>${esc(item.description)}</p>` : ""}${item.question ? `<p class="workspace-question">${esc(item.question)}</p>` : ""}${handoff ? `<a class="workspace-handoff" href="${esc(handoff)}" target="_blank" rel="noopener noreferrer">Handoff ↗</a>` : ""}${item.childBoardId && item.content ? `<button type="button" class="workspace-child" data-child-board="${esc(item.childBoardId)}">Open board ↗</button>` : ""}</div>` : ""}`}</div>${footer}</article>`;
     };
     const cards = concepts.map(renderCard).join("");
     const groups = new Map();
@@ -1096,6 +1107,11 @@ export class WorkspaceBoard {
     el.querySelectorAll("[data-bulk]").forEach(
       (b) => (b.onclick = () => this.bulk(b.dataset.bulk)),
     );
+    if (this.selection.size === 1) {
+      const id = [...this.selection][0];
+      const controls = document.createElement('button'); controls.type='button'; controls.textContent='Item actions…';
+      controls.onclick=()=>this.itemControls(id,'actions'); el.insertBefore(controls,el.querySelector('[data-bulk]'));
+    }
     this.updateHistoryControls();
   }
   syncSelection() {
@@ -1291,12 +1307,32 @@ export class WorkspaceBoard {
         await this.refresh();
       } catch (error) { showFailure(error); }
     });
+    const actions=document.createElement('div'); actions.className='workspace-context-row workspace-context-actions';
+    actions.innerHTML=`<button type="button" data-context-select>${this.selection.has(id)?'Deselect':'Select'}</button><button type="button" data-context-star aria-pressed="${!!item.review?.star}">${item.review?.star?'Unfavorite':'Favorite'}</button><button type="button" data-context-comments>Comments</button><button type="button" data-context-vote>Vote</button>${this.mode==='canvas'?'<button type="button" data-context-connect>Connect</button><button type="button" data-context-geometry>Move / resize…</button>':''}`;
+    popover.querySelector('header').after(actions);
+    actions.querySelector('[data-context-select]').onclick=()=>{this.whiteboard?.clearSelection({finishEdit:true,focus:false});this.selection.has(id)?this.selection.delete(id):this.selection.add(id);this.closeContext();this.build(this.hooks.concepts());};
+    actions.querySelector('[data-context-star]').onclick=()=>{const button=document.querySelector(`[data-placement="${CSS.escape(id)}"] [data-star]`);button?.click();actions.querySelector('[data-context-star]').textContent=button?.getAttribute('aria-pressed')==='true'?'Unfavorite':'Favorite';};
+    actions.querySelector('[data-context-comments]').onclick=()=>{this.closeContext();this.feedback.open({itemId:item.id,returnFocus:()=>document.querySelector(`[data-item-controls="${CSS.escape(id)}"]`)?.focus({preventScroll:true})});};
+    actions.querySelector('[data-context-vote]').onclick=event=>{this.closeContext();const trigger=document.querySelector(`[data-item-controls="${CSS.escape(id)}"]`)||event.currentTarget;this.feedback.openVote({itemId:item.id,anchor:trigger,returnFocus:trigger});};
+    actions.querySelector('[data-context-connect]')?.addEventListener('click',event=>{const invoker=document.querySelector(`[data-item-controls="${CSS.escape(id)}"]`);this.closeContext();this.whiteboard?.connectPlacement(id,invoker);this.selectionMenu();});
+    actions.querySelector('[data-context-geometry]')?.addEventListener('click',()=>{this.closeContext();document.querySelector(`[data-item-controls="${CSS.escape(id)}"]`)?.focus({preventScroll:true});this.placementGeometry(id);});
+    const noteField=popover.querySelector('textarea');noteField.setAttribute('aria-keyshortcuts','Meta+Enter Control+Enter');
+    const hint=document.createElement('small');hint.textContent=`${commitShortcutLabel()} to save`;noteField.after(hint);
+    this.contextCommit=bindCommitShortcut(noteField,{commit:async()=>{await this.hooks.flushNotes();},onError:error=>toast(error.message)});
     this.positionContext();
     document.querySelectorAll(`[data-item-controls="${CSS.escape(id)}"]`).forEach(b => b.setAttribute("aria-expanded", "true"));
     if (focus === "notes") popover.querySelector("textarea").focus({ preventScroll: true });
+    else if(focus==="actions") actions.querySelector("button").focus({preventScroll:true});
     else popover.querySelector("[data-presentation]").focus({ preventScroll: true });
     const follow = () => { if (!this.context) return; this.positionContext(); this.contextFrame = requestAnimationFrame(follow); };
     this.contextFrame = requestAnimationFrame(follow);
+  }
+  placementGeometry(id) {
+    const p=this.snapshot.placements.find(p=>p.id===id);if(!p)return;
+    makeDialog('Move / resize item',`<p>Position and size in board units.</p>${['x','y','width','height'].map(key=>`<label>${key==='x'?'Left':key==='y'?'Top':key==='width'?'Width':'Height'}<input name="${key}" type="number" step="any" required min="${key==='width'||key==='height'?40:-10000000}" max="${key==='width'||key==='height'?100000:10000000}" value="${p[key]}"></label>`).join('')}<button type="submit" class="workspace-primary">Save geometry</button>`,async form=>{
+      const patch=Object.fromEntries(['x','y','width','height'].map(key=>[key,Number(form.get(key))]));
+      await this.client.write('updatePlacement',{boardId:this.snapshot.id,placementId:id,patch});await this.refresh({saveReview:false});
+    });
   }
   positionContext() {
     if (!this.context) return;
@@ -1315,6 +1351,7 @@ export class WorkspaceBoard {
   closeContext(focus = false) {
     if (!this.context) return;
     const id = this.contextPlacement;
+    this.contextCommit?.destroy(); this.contextCommit=null;
     this.context.remove(); this.context = null; this.contextPlacement = null;
     cancelAnimationFrame(this.contextFrame);
     const buttons = document.querySelectorAll(`[data-item-controls="${CSS.escape(id)}"]`);
@@ -1443,6 +1480,7 @@ export class WorkspaceBoard {
     };
     const setSelection = selected => {
       if (selected.size === this.selection.size && [...selected].every(id => this.selection.has(id))) return;
+      this.whiteboard?.clearSelection({finishEdit:true,focus:false});
       this.selection = selected;
       this.syncSelection();
     };
@@ -1951,6 +1989,7 @@ export class WorkspaceBoard {
   }
   decorationMarkup(d) { return this.whiteboard?.markup(d) || decorationMarkup(d,this.snapshot,this.origin,this.activeDecoration === d.id); }
   updateDecorationElement(d) {
+    if (this.whiteboard) { this.whiteboard.patch(d); return; }
     const old = document.querySelector(`[data-decoration="${CSS.escape(d.id)}"]`);
     if (old && !old.querySelector("[contenteditable]")) old.outerHTML = this.decorationMarkup(d);
   }
@@ -2039,15 +2078,18 @@ export class WorkspaceBoard {
     });
     viewport.addEventListener("click", e => {
       if (!e.target.closest(".workspace-card,.workspace-decoration,.whiteboard-ports")) {
-        if (this.activeDecoration) { const old=this.snapshot.decorations.find(d=>d.id===this.activeDecoration);this.activeDecoration=null;if(old)this.updateDecorationElement(old); }
+        this.whiteboard?.clearSelection({finishEdit:true,focus:false});
       }
     });
     document.addEventListener("keydown", async e => {
       if (document.querySelector("#reader-dialog[open],dialog.workspace-dialog[open]")) return;
+      if (e.isComposing || e.keyCode === 229 || e.repeat || e.defaultPrevented) return;
+      if (this.feedback?.consumeEscape(e)) return;
+      if (this.whiteboard?.handleEscape(e)) return;
       if (e.key === "Escape") {
         if (this.context) { this.closeContext(true); e.preventDefault(); e.stopImmediatePropagation(); return; }
         if (this.addPopup) { this.closeAddMenu(); $("workspace-add").focus(); e.preventDefault(); e.stopImmediatePropagation(); return; }
-        if (this.activeDecoration) { const old = this.snapshot.decorations.find(d => d.id === this.activeDecoration); this.activeDecoration = null; if (old) this.updateDecorationElement(old); e.preventDefault(); return; }
+        if (this.activeDecoration) { this.whiteboard?.clearSelection({finishEdit:true,focus:false}); e.preventDefault(); return; }
         if (this.selection.size) { this.selection.clear(); this.build(this.hooks.concepts()); e.preventDefault(); return; }
       }
       if (e.target.closest("input,textarea,select,[contenteditable],[role=textbox],[role=dialog]")) return;
@@ -2200,7 +2242,8 @@ export class WorkspaceBoard {
             this.pendingReview.delete(id);
           this.persistDrafts();
         }
-        this.hooks.saveStatus("Item notes saved on this Mac", "saved");
+        this.hooks.saveStatus("Item notes saved", "saved");
+        return true;
       } catch (e) {
         this.inFlightReview.clear();
         this.persistDrafts();
@@ -2208,7 +2251,8 @@ export class WorkspaceBoard {
           "Feedback saved in this browser · retry unsaved feedback",
           "local",
         );
-        showFailure(e);
+        toast(`Notes remain in this browser. ${e.message}`);
+        return false;
       } finally {
         this.saving = false;
         this.savePromise = null;

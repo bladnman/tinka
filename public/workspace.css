@@ -1242,3 +1242,80 @@ html[data-theme="night"] .item-representation p {
 
 .workspace-board .workspace-card.workspace-cut-pending { outline: 2px dashed #8a9273; outline-offset: 4px; }
 .workspace-cut-pending .workspace-item-footer { background: #e8ebdd; }
+
+
+/* Card chrome has its own space. Saved geometry, media and content never push
+   actions or the resize lane past the item's visible boundary. */
+.workspace-board .workspace-card { container-type: inline-size; container-name: tinka-card; }
+.workspace-card-body { display:flex; flex-direction:column; flex:1 1 auto; min-width:0; min-height:0; overflow:hidden; }
+.workspace-board[data-board-layout="canvas"] .workspace-card.workspace-compact,
+.workspace-board[data-board-layout="canvas"] .workspace-card.workspace-icon,
+.workspace-board[data-board-layout="canvas"] .workspace-card.workspace-panel,
+.workspace-board .workspace-card.workspace-icon { min-width:0; min-height:0; }
+.workspace-board .workspace-compact .workspace-card-preview { flex:1 1 auto; min-height:0; height:auto; aspect-ratio:auto; }
+.workspace-board .workspace-compact .workspace-card-copy { flex:0 0 auto; min-height:0; max-height:55%; overflow:hidden; padding:7px 12px; }
+.workspace-board .workspace-compact .workspace-card-copy h3 { display:-webkit-box; -webkit-box-orient:vertical; -webkit-line-clamp:2; overflow:hidden; margin-bottom:0; }
+.workspace-board .workspace-compact .workspace-card-copy h3 button { width:100%; display:-webkit-box; -webkit-box-orient:vertical; -webkit-line-clamp:2; overflow:hidden; }
+.workspace-board .workspace-compact .workspace-compact-meta { margin-bottom:4px; font-size:9px; line-height:14px; }
+.workspace-board .workspace-compact .workspace-compact-meta .workspace-concept-number { font-size:12px; line-height:14px; }
+.workspace-board .workspace-compact .workspace-card-copy > p { display:-webkit-box; -webkit-box-orient:vertical; -webkit-line-clamp:2; overflow:hidden; }
+.workspace-card-body .workspace-icon-entry { min-height:0; overflow:hidden; }
+.workspace-item-footer.workspace-panel-caption { flex:0 0 40px; height:40px; min-height:40px; max-height:40px; min-width:0; display:flex; flex-wrap:nowrap; align-items:center; gap:0; padding:0 0 0 3px; background:var(--item-paper,var(--paper)); border-top:1px solid var(--line); }
+.workspace-item-footer.workspace-panel-caption > button { flex:0 0 32px; display:inline-flex; align-items:center; justify-content:center; width:32px; height:38px; min-height:0; min-width:0; padding:0; border:0; border-radius:4px; background:transparent; color:var(--ink); line-height:1; }
+.workspace-item-footer.workspace-panel-caption > button:hover { background:var(--hover); }
+.workspace-item-footer.workspace-panel-caption > button:focus-visible { outline:2px solid var(--green); outline-offset:-3px; }
+.workspace-item-footer.workspace-panel-caption [data-placement-select] { flex:0 0 28px; width:28px; }
+.workspace-item-footer svg { width:18px; height:18px; flex:none; fill:none; stroke:currentColor; stroke-width:1.6; stroke-linecap:round; stroke-linejoin:round; }
+.workspace-item-footer.workspace-panel-caption .workspace-panel-title { flex:1 1 0; width:auto; justify-content:flex-start; min-width:0; padding:0; text-align:left; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; display:block; }
+.workspace-item-footer.workspace-panel-caption .workspace-vote-trigger { flex-basis:auto; width:auto; min-width:32px; padding:0 5px; gap:4px; font-size:11px; }
+.workspace-item-footer .workspace-vote-trigger[aria-pressed="true"] { color:var(--green); background:var(--soft); }
+.workspace-item-footer .workspace-vote-trigger [data-vote-summary] { max-width:48px; overflow:hidden; text-overflow:ellipsis; }
+.workspace-board .workspace-card .workspace-item-footer .workspace-resize { position:static; flex:0 0 28px; width:28px; height:39px; min-height:0; min-width:0; margin-left:3px; border-left:1px solid var(--line); border-radius:0; background:transparent; color:var(--muted); font-size:14px; cursor:nwse-resize; }
+.workspace-card-preview.workspace-document-excerpt-preview { position:relative; background:var(--paper); }
+.workspace-document-excerpt-preview iframe.workspace-document-excerpt { position:absolute; inset:0; width:100%; height:100%; transform:none; background:var(--paper); }
+.workspace-board[data-board-layout="grid"] .workspace-compact .workspace-card-body { flex:none; }
+.workspace-board[data-board-layout="grid"] .workspace-compact .workspace-card-preview { flex:none; height:190px; }
+.workspace-board[data-board-layout="grid"] .workspace-compact .workspace-card-copy { max-height:none; }
+@container tinka-card (max-width:239px) {
+  .workspace-item-footer.workspace-panel-caption > .shortlist { display:none; }
+  .workspace-item-footer [data-vote-summary] { display:none; }
+  .workspace-item-footer.workspace-panel-caption .workspace-vote-trigger { flex:0 0 32px; width:32px; padding:0; }
+}
+@container tinka-card (max-width:159px) {
+  .workspace-item-footer.workspace-panel-caption [data-placement-select] { display:none; }
+  .workspace-item-footer.workspace-panel-caption > button { flex-basis:28px; width:28px; }
+  .workspace-item-footer.workspace-panel-caption .workspace-vote-trigger { flex-basis:28px; width:28px; min-width:0; }
+  .workspace-item-footer.workspace-panel-caption .workspace-panel-title { display:none; }
+}
+@container tinka-card (max-width:119px) {
+  .workspace-item-footer.workspace-panel-caption [data-item-feedback],.workspace-item-footer.workspace-panel-caption [data-item-vote] { display:none; }
+}
+@container tinka-card (max-width:63px) {
+  .workspace-board .workspace-card .workspace-item-footer .workspace-resize { display:none; }
+}
+/* Canvas dimensions are explicit, so height can disclose summary content without
+   changing saved geometry. Native Grid keeps content-driven height. */
+.workspace-board[data-board-layout="canvas"] .workspace-card { container-type:size; }
+@container tinka-card (max-height:240px) {
+  .workspace-board .workspace-compact .workspace-card-copy > p,
+  .workspace-board .workspace-compact .workspace-card-copy > .workspace-handoff { display:none; }
+}
+@container tinka-card (max-height:179px) {
+  .workspace-board .workspace-compact .workspace-compact-meta { display:none; }
+  .workspace-board .workspace-compact .workspace-card-copy h3 { -webkit-line-clamp:1; font-size:16px; }
+  .workspace-board .workspace-compact .workspace-card-copy h3 button { -webkit-line-clamp:1; }
+}
+@container tinka-card (max-height:119px) {
+  .workspace-board .workspace-compact .workspace-card-copy { display:none; }
+}
+/* A star has denser junctions than the conversation/ballot outline: tune the
+   visible glyph, while every command keeps the same centered hit rectangle. */
+.workspace-item-footer.workspace-panel-caption > .shortlist { font-size:17px; font-weight:400; }
+.workspace-item-footer.workspace-panel-caption > .shortlist svg { width:17px; height:17px; stroke-width:1.45; }
+.workspace-item-footer.workspace-panel-caption > .shortlist[aria-pressed="true"] svg { fill:currentColor; stroke-width:1.1; }
+/* The same card commands remain reachable when a small card discloses them
+   through More. Wrap the command group inside its viewport-sized surface. */
+.workspace-item-controls { max-height:calc(100dvh - 24px); overflow-y:auto; overscroll-behavior:contain; }
+.workspace-context-actions { display:flex; flex-wrap:wrap; align-items:center; gap:6px; }
+.workspace-context-actions > span { flex:0 0 100%; min-width:0; margin-bottom:2px; }
+.workspace-context-actions > button { flex:0 1 auto; max-width:100%; min-width:0; white-space:normal; }

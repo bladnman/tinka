@@ -1,3 +1,4 @@
+import {bindForm,restoreFocus,commitShortcutLabel} from './interaction.js';
 // Small shared primitives for graph workspaces; the legacy board stays independent.
 export const escape = (value) =>
   String(value ?? "").replace(
@@ -76,29 +77,28 @@ export class WorkspaceClient {
     const pending = this.queue
       .catch(() => {})
       .then(async () => {
-        const r = await fetch("/api/operations", {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            "x-tinka-workspace": this.config.workspaceId,
-          },
-          body: JSON.stringify({
-            type,
-            ...data,
-            expectedRevision: this.revision,
-            operationId,
-          }),
-        });
-        const d = await r.json();
-        if (!r.ok) {
-          const e = new Error(
-            r.status === 409
-              ? "This workspace changed elsewhere. Reload the board, review the latest version, then retry your change."
-              : d.error || `Change failed (${r.status})`,
-          );
-          e.conflict = r.status === 409;
-          e.rejected = r.status >= 400 && r.status < 500;
-          throw e;
+        const appendOnly=['addComment','replyComment','addHighlight'].includes(type);
+        let d;
+        for(let attempt=0;attempt<2;attempt++) {
+          const r = await fetch("/api/operations", {
+            method: "POST",
+            headers: {"Content-Type":"application/json","x-tinka-workspace":this.config.workspaceId},
+            body: JSON.stringify({type,...data,expectedRevision:this.revision,operationId}),
+          });
+          d = await r.json();
+          if(r.ok)break;
+          const revisionOnly=r.status===409&&d.code==='WORKSPACE_REVISION_CHANGED'&&Number.isSafeInteger(d.revision)&&d.revision>=0;
+          if(appendOnly&&revisionOnly&&attempt===0) {
+            // The server checked identity and reports a revision-only rejection
+            // before touching any target. Retain the payload/retry ID and mounted UI.
+            this.revision=Math.max(this.revision,d.revision);continue;
+          }
+          const e=new Error(appendOnly&&revisionOnly
+            ? 'Work changed again while posting. Your draft is retained; try Post again.'
+            : r.status===409&&!appendOnly
+              ? 'This workspace changed elsewhere. Reload the board, review the latest version, then retry your change.'
+              : d.error||`Change failed (${r.status})`);
+          e.conflict=r.status===409;e.rejected=r.status>=400&&r.status<500;e.code=d.code;throw e;
         }
         this.revision = Math.max(this.revision,d.revision);
         if (d.history && recordHistory && type !== "restoreMovement") this.onHistory?.(d.history,{type,data});
@@ -134,45 +134,41 @@ export function showFailure(error) {
   );
 }
 export function makeDialog(title, body, onSubmit) {
+  const opener = document.activeElement;
   const d = document.createElement("dialog");
   const titleId = "workspace-dialog-" + crypto.randomUUID();
   d.className = "workspace-dialog";
   d.setAttribute("aria-labelledby", titleId);
   d.innerHTML = `<form><button class="workspace-close" type="button" aria-label="Close dialog">×</button><h2 id="${titleId}">${escape(title)}</h2>${body}<p class="workspace-form-status" role="status"></p></form>`;
   document.body.append(d);
+  if (onSubmit && d.querySelector('[type=submit]')) {
+    const hint=document.createElement('small');hint.className='workspace-submit-hint';
+    hint.textContent=`${commitShortcutLabel()} to save`;
+    d.querySelector('.workspace-form-status').before(hint);
+  }
+  let closed = false, controller;
   const close = () => {
-    d.close();
-    d.remove();
+    if (closed || controller?.pending) return;
+    closed = true; controller?.destroy(); d.close(); d.remove(); restoreFocus(opener);
   };
   d.querySelector(".workspace-close").onclick = close;
-  d.addEventListener("cancel", (e) => {
-    e.preventDefault();
-    close();
-  });
-  d.addEventListener("close", () => d.remove());
-  d.querySelector("form").onsubmit = async (e) => {
-    e.preventDefault();
-    if (!onSubmit) return;
-    const submit = e.submitter;
-    if (submit) submit.disabled = true;
-    try {
-      await onSubmit(new FormData(e.target), d);
-      close();
-    } catch (error) {
+  d.addEventListener("cancel", event => { event.preventDefault(); close(); });
+  d.addEventListener("close", () => { controller?.destroy(); d.remove(); });
+  controller = bindForm(d.querySelector('form'), {
+    submit: async data => { await onSubmit?.(data, d); },
+    onSuccess: () => {
+      // The successful form is no longer pending from the domain's perspective.
+      if (!closed) { closed = true; controller.destroy(); d.close(); d.remove(); restoreFocus(opener); }
+    },
+    onError: error => {
       const status = d.querySelector(".workspace-form-status");
-      status.textContent = error.message;
-      status.setAttribute("role", "alert");
+      status.textContent = error.message; status.setAttribute("role", "alert");
       if (error.conflict && !d.querySelector("[data-reload]")) {
-        const b = document.createElement("button");
-        b.type = "button";
-        b.dataset.reload = "";
-        b.textContent = "Reload latest";
-        b.onclick = () => location.reload();
-        status.after(b);
+        const button = document.createElement("button"); button.type = "button";
+        button.dataset.reload = ""; button.textContent = "Reload latest"; button.onclick = () => location.reload(); status.after(button);
       }
-      if (submit) submit.disabled = false;
-    }
-  };
+    },
+  });
   d.showModal();
   return d;
 }

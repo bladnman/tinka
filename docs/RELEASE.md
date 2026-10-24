@@ -16,3 +16,10 @@ The installer retains an adjacent `.app.backup-TIMESTAMP-ID` directory. If the n
 
 
 Workspace metadata migration is separate from replacing the app. Never enable it implicitly in an installer. Back up workspace metadata, original legacy folders and resource roots before explicit conversion. Rollback of the app does not roll back schema 2 edits: retain the metadata backup and use the compatible candidate, or archive metadata outside its configured workspaceRoot to return to untouched legacy folders. Record these as separate gates in release evidence.
+
+Experience review must include an actual realistic mixed board and complete user
+loops, rather than isolated attractive controls: open/edit/re-edit, commit/cancel,
+failed-save recovery, comments/votes and return to the same passage or canvas.
+Inspect saved small geometry, narrow viewports and real content. Keep rendered
+candidate/owner acceptance separate from source tests, package identity and live
+health; do not publish a technically passing build while that review is pending.

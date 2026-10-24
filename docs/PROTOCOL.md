@@ -617,3 +617,89 @@ Graph board responses include a derived `childBoardCreatedAt` map from each
 placed child board ID to that board’s creation date. This response-only field
 distinguishes a newly created child board from its potentially older owner item;
 it is not written into items or board metadata.
+
+## Persistent text highlights and editing controls
+
+`highlight.add`, `highlight.list` and `highlight.remove` are independent from
+conversation threads. A highlight has no comment body. Canonical
+`item.review.highlights` is an optional ID-keyed map of
+`{id,author,anchor,createdAt,updatedAt}` records, with the existing self-reported
+`{id,label,kind:'human'|'agent'}` actor and text anchor. The style is fixed muted
+yellow; at most 200 marks and 256 KiB of serialized highlight metadata per item.
+References share this map. Duplicating an item snapshots an independent map; mark
+IDs are scoped to the new canonical item. Note/star/vote writes preserve marks,
+and highlight writes preserve the other review fields. Targeted board/item reads
+retain their full review contract; compact Home/graph/discovery omit review bodies.
+A board with many heavily annotated items can therefore have a larger targeted
+snapshot. Reader marks use the bounded targeted list below.
+
+- `highlight.add` accepts `{itemId,author,anchor,id?,expectedRevision?,operationId?}`;
+  the equivalent operation type is `addHighlight`. Current local Markdown or
+  inline text is required. Exact source facts must still match; a unique quote
+  and compatible context can be resolved once at creation. The stored anchor
+  receives current UTF-16 offsets and raw-byte SHA revision. A changed source or
+  ambiguous quote rejects creation; unavailable/unsafe/oversized sources reject it.
+  The receipt is `{revision,result:{itemId,highlightId}}`, with no quote body.
+- `highlight.list` accepts `{itemId,limit?,cursor?}`. GET
+  `/api/highlights?itemId=ID&limit=100&cursor=...` is equivalent. Limit is 1–100,
+  default 100. It returns `{revision,highlights,nextCursor}`; each record includes
+  current `anchorStatus`. Cursors bind the item and workspace revision; stale
+  cursors return 409. Source bodies are never returned.
+- `highlight.remove` accepts `{itemId,highlightId,expectedRevision?,operationId?}`;
+  equivalent operation `removeHighlight` hard-removes only that mark metadata.
+  Its receipt is `{revision,result:{itemId,highlightId,removed}}`. An absent mark
+  succeeds with `removed:false`. Operation IDs provide exact retry receipts;
+  reusing one for a different request conflicts. Removal does not edit source,
+  create a fake comment, or remove discussion/history elsewhere.
+
+Highlight matching uses the same source rules as text comments: same SHA and
+compatible quote facts are matched; a changed SHA is never painted as a current
+match. Changed/ambiguous/missing sources retain the original saved anchor under
+source-changed status. Reader Comment and Highlight are separate selection actions.
+Comment opens the compact conversation inside the existing reader; source/frame,
+variant and selection remain mounted. Narrow/reflowed readers may minimally reveal
+the same selected Range without reloading source. Historical variants remain
+read-only for annotation creation. Frame relays retain same-origin, exact-frame,
+current canonical-item checks.
+
+Multiline notes, sticky/connector text and comment/reply composers keep plain Enter
+as a newline. Their scoped Cmd/Ctrl+Enter uses the same pending-guarded save/post
+path as the button, with an OS-appropriate visible hint. IME composition and held
+keys do not submit. Empty notes/text can be cleared; empty comments remain invalid.
+Existing card-popup, reader Notes and legacy board notes still autosave, with the
+shortcut providing an explicit flush. Failed writes retain drafts and report
+without stealing click-away focus. Comment click-away preserves the draft and
+never posts it. Escape dismisses the innermost editor/conversation/control before
+the reader or canvas selection, returning focus where appropriate.
+
+Card More and the viewport selection toolbar expose controls hidden at small
+saved sizes, including exact board-unit geometry. They do not enlarge cards on
+load. Whole-body dragging an attached connector preserves attachments; endpoint
+handles reconnect, and explicit Detach start/end/both uses current resolved points.
+Reverse swaps complete endpoint objects, keeps line identity/arrow setting, and
+recomputes its compatibility bounding flags. Active text editors are protected
+from in-flight and subsequent board refreshes.
+
+Simple Markdown pipe tables are bounded to 16 columns and 200 rows, use existing
+inline rendering, and share browser/Node text extraction. Source bytes are never
+rewritten. Newly captured Markdown anchors carry `textModel:'markdown-v2'`; raw
+source SHA remains a hash of the same raw bytes. Missing textModel means legacy
+extraction. Where current and legacy extraction agree, existing compatible facts
+can still match. Where table extraction differs, legacy anchors retain their
+saved facts and become uncertain (or stale when absent), with no precise paint.
+An explicitly unknown saved model is unverified. New supplied model values accept
+only markdown-v2; inline text keeps its existing exact text semantics. Quote-only
+highlight creation can resolve once against current extraction and records its
+model. Legacy exact offsets/SHA on changed table extraction reject creation until
+the caller supplies current model/facts, rather than being silently retargeted.
+
+A scoped transaction rejected solely for its expected workspace revision returns
+409 `{error,code:'WORKSPACE_REVISION_CHANGED',revision}`. The browser may retry
+only `addComment`, `replyComment` and `addHighlight` once with that locked revision.
+The semantic operation payload and operationId stay unchanged; expectedRevision
+alone changes. The source/target is validated again under the normal transaction.
+Other409s and target validation errors do not trigger this retry. An additional
+revision race leaves the draft and offers another Post attempt. Unknown/lost write
+acknowledgments retain the operationId for deliberate retry and exact replay.
+No reader/source reload is required. Notes, sticky edits, geometry, resolution,
+votes and removals retain their existing conflict protection.
