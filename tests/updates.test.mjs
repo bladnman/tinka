@@ -14,12 +14,14 @@ import {checkForUpdates, CHECK_INTERVAL, updateContext, loadUpdateState, updateC
 const exec = promisify(execFile);
 const json = file => readFile(file, 'utf8').then(JSON.parse);
 const node = process.execPath;
-let root, release, archive, embedded;
+let root, release, archive, embedded, candidateVersion, priorVersion;
 before(async () => {
   root = await realpath(await mkdtemp(path.join(os.tmpdir(), 'tinka-updates-')));
   release = await buildRelease({outDir: path.join(root, 'release')});
   archive = {zipBytes: await readFile(release.appZip), checksumText: await readFile(release.appChecksum, 'utf8'), zipName: path.basename(release.appZip)};
   embedded = await json(new URL('../lib/update-compatibility.json', import.meta.url));
+  candidateVersion = release.version; priorVersion = embedded.fromVersions.at(-1);
+  assert(priorVersion, 'Release declares a tested eligible predecessor');
 });
 after(() => rm(root, {recursive: true, force: true}));
 async function fixture(t, portable = true) {
@@ -29,23 +31,23 @@ async function fixture(t, portable = true) {
   if (portable) await exec(node, [path.join(app, 'cli.mjs'), 'project', 'init', '--project', project, '--label', 'Fixture']);
   else await exec(node, [path.join(app, 'cli.mjs'), 'init', '--config', path.join(project, 'settings/a.json'), '--boards', path.join(project, 'boards'), '--label', 'Fixture']);
   const configPath = path.join(project, portable ? 'tinka/local/config.json' : 'settings/a.json');
-  const config = {...await json(configPath), configPath, workspaceRoot: path.join(portable ? path.join(project, 'design/boards') : path.join(project, 'boards'), '.tinka'), version: '0.5.15'};
+  const config = {...await json(configPath), configPath, workspaceRoot: path.join(portable ? path.join(project, 'design/boards') : path.join(project, 'boards'), '.tinka'), version: priorVersion};
   const context = await updateContext(config, app);
   // A deterministic prior-version fixture, with a valid per-file receipt.
   const packagePath = path.join(app, 'package.json');
-  await writeFile(packagePath, JSON.stringify({...await json(packagePath), version: '0.5.15'}));
+  await writeFile(packagePath, JSON.stringify({...await json(packagePath), version: priorVersion}));
   const receiptPath = path.join(app, 'INSTALLATION.json');
-  const receipt = await json(receiptPath); receipt.version = '0.5.15';
+  const receipt = await json(receiptPath); receipt.version = priorVersion;
   receipt.files['package.json'] = createHash('sha256').update(await readFile(packagePath)).digest('hex');
   await writeFile(receiptPath, JSON.stringify(receipt));
-  if (context.pinPath) await writeFile(context.pinPath, JSON.stringify({...await json(context.pinPath), version: '0.5.15'}));
+  if (context.pinPath) await writeFile(context.pinPath, JSON.stringify({...await json(context.pinPath), version: priorVersion}));
   t.after(async () => {
     await exec(node, [path.join(app, 'cli.mjs'), 'stop', '--config', configPath]).catch(() => {});
     await rm(project, {recursive: true, force: true});
   });
   return {project, app, config, context};
 }
-const latest = () => ({version: '0.5.17', compatibility: {...embedded, archiveSha256: createHash('sha256').update(archive.zipBytes).digest('hex')}});
+const latest = () => ({version: candidateVersion, compatibility: {...embedded, archiveSha256: createHash('sha256').update(archive.zipBytes).digest('hex')}});
 const source = async () => ({...archive, compatibility: embedded});
 async function policy(f, value) { await updateCommand(f.config, 'policy', value, {context: f.context}); }
 
@@ -78,11 +80,11 @@ test('forced check never downloads, attempts installation, or suppresses a later
 });
 
 test('compatibility requires explicit starting version, stable same major, runtime, schema and no migration', () => {
-  const options = {fromVersion: '0.5.15', toVersion: '0.5.17', nodeVersion: '22.0.0', platform: 'linux'};
+  const options = {fromVersion: priorVersion, toVersion: candidateVersion, nodeVersion: '22.0.0', platform: 'linux'};
   assert.equal(compatibilityError(embedded, options), null);
   for (const [metadata, override] of [
     [null, {}], [{...embedded, fromVersions: []}, {}], [{...embedded, migration: 'apply'}, {}],
-    [embedded, {toVersion: '1.0.0'}], [embedded, {fromVersion: '0.5.15-beta'}],
+    [embedded, {toVersion: '1.0.0'}], [embedded, {fromVersion: `${priorVersion}-beta`}],
     [embedded, {nodeVersion: '20.0.0'}], [embedded, {platform: 'win32'}], [embedded, {workspaceSchema: 3}],
     [{...embedded, schemas: {config: [], workspace: [1, 2]}}, {}], [{...embedded, runtime: {node: '*', platforms: ['linux']}}, {}],
     [{...embedded,schemas:{config:'1',workspace:'12'}},{}], [{...embedded,schemas:{config:[1,'2'],workspace:[1,2]}},{}],
@@ -99,8 +101,8 @@ test('healthy automatic replacement verifies app, updates only pin after health 
   await policy(f, 'auto');
   const result = await withAppLock(f.app, lockToken => checkForUpdates(f.config, {context: f.context, fetchLatest: async () => latest(), downloadRelease: source, lockToken}));
   assert(result.replaced); assert.match(result.message, /Review and commit/);
-  assert.equal((await json(f.context.pinPath)).version, '0.5.17');
-  assert.equal((await json(path.join(f.app, 'package.json'))).version, '0.5.17');
+  assert.equal((await json(f.context.pinPath)).version, candidateVersion);
+  assert.equal((await json(path.join(f.app, 'package.json'))).version, candidateVersion);
   assert(await installationPristine(f.app)); assert.deepEqual(await readFile(f.config.configPath), configBefore);
   assert.equal(await readFile(notes, 'utf8'), 'Keep IDs and notes');
   assert.equal(await readFile(guide, 'utf8'), 'Custom project instructions\n'); assert.equal(await readFile(setup, 'utf8'), '// Custom setup\n');
@@ -111,13 +113,13 @@ test('modified or legacy-receipt apps never auto replace; explicit bootstrap not
   const f = await fixture(t); await policy(f, 'auto'); let downloads = 0;
   await writeFile(path.join(f.app, 'custom.txt'), 'local overlay'); assert.equal(await installationPristine(f.app), false);
   let result = await checkForUpdates(f.config, {context: f.context, fetchLatest: async () => latest(), downloadRelease: async () => {downloads++; return source();}});
-  assert.match(result.message, /current standalone.*--version '0.5.15'/); assert.equal(downloads, 0);
+  assert(result.message.includes('current standalone') && result.message.includes(`--version '${priorVersion}'`)); assert.equal(downloads, 0);
   await rm(path.join(f.app, 'custom.txt'));
-  const receipt = path.join(f.app, 'INSTALLATION.json'); await writeFile(receipt, JSON.stringify({version: '0.5.15', sha256: 'old-receipt'}));
+  const receipt = path.join(f.app, 'INSTALLATION.json'); await writeFile(receipt, JSON.stringify({version: priorVersion, sha256: 'old-receipt'}));
   assert.equal(await installationPristine(f.app), false);
-  f.config.version = '0.5.17';
+  f.config.version = candidateVersion;
   result = await checkForUpdates(f.config, {context: f.context, fetchLatest: async () => latest(), downloadRelease: async () => {downloads++; return source();}});
-  assert.match(result.message, /--version '0.5.17'/); assert.equal(downloads, 0);
+  assert(result.message.includes(`--version '${candidateVersion}'`)); assert.equal(downloads, 0);
   await assert.rejects(installArchive({...archive, installDir: f.app, configPath: f.config.configPath, requirePristine: true}), /modified or lacks/);
 });
 
@@ -150,7 +152,7 @@ test('automatic install honors an explicit snooze; update now overrides it', asy
   const f=await fixture(t); await policy(f,'auto');
   await updateCommand(f.config,'later',null,{context:f.context});
   let downloads=0;
-  const options={context:f.context,fetchLatest:async()=>latest(),downloadRelease:async()=>{downloads++;return source();},install:async()=>({version:'0.5.17'})};
+  const options={context:f.context,fetchLatest:async()=>latest(),downloadRelease:async()=>{downloads++;return source();},install:async()=>({version:candidateVersion})};
   await checkForUpdates(f.config,options); assert.equal(downloads,0);
   await checkForUpdates(f.config,{...options,explicit:true}); assert.equal(downloads,1);
 });
@@ -211,31 +213,31 @@ test('manual and dotfolder configs keep distinct state and no portable pin is in
 test('package metadata mismatch rejects before touching app or pin', async t => {
   const f = await fixture(t);
   const pin = await readFile(f.context.pinPath);
-  await assert.rejects(installArchive({...archive, installDir: f.app, configPath: f.config.configPath, compatibility: {...embedded, migration: 'unknown'}, fromVersion: '0.5.15', pinPath: f.context.pinPath}), /does not match/);
-  assert.equal((await json(path.join(f.app, 'package.json'))).version, '0.5.15'); assert.deepEqual(await readFile(f.context.pinPath), pin);
+  await assert.rejects(installArchive({...archive, installDir: f.app, configPath: f.config.configPath, compatibility: {...embedded, migration: 'unknown'}, fromVersion: priorVersion, pinPath: f.context.pinPath}), /does not match/);
+  assert.equal((await json(path.join(f.app, 'package.json'))).version, priorVersion); assert.deepEqual(await readFile(f.context.pinPath), pin);
 });
 
 test('published metadata is data-only, current version uses one request, archive binding is enforced',async t=>{
   const f=await fixture(t); const originalFetch=globalThis.fetch; const calls=[]; let badDigest=true;
   const asset=id=>`https://api.github.com/repos/bladnman/tinka/releases/assets/${id}`;
-  const assets=[{name:archive.zipName,url:asset(1)},{name:`${archive.zipName}.sha256`,url:asset(2)},{name:'tinka-v0.5.17.compatibility.json',url:asset(3)}];
+  const assets=[{name:archive.zipName,url:asset(1)},{name:`${archive.zipName}.sha256`,url:asset(2)},{name:`tinka-v${candidateVersion}.compatibility.json`,url:asset(3)}];
   globalThis.fetch=async(input,options)=>{
     const url=String(input); if(!url.startsWith('https://api.github.com/'))return originalFetch(input,options);
     calls.push(url);
-    if(url.endsWith('/latest'))return new Response(JSON.stringify({tag_name:'v0.5.17',assets,body:'Untrusted prose is ignored.'}));
+    if(url.endsWith('/latest'))return new Response(JSON.stringify({tag_name:`v${candidateVersion}`,assets,body:'Untrusted prose is ignored.'}));
     if(url===asset(1))return new Response(archive.zipBytes);
     if(url===asset(2))return new Response(archive.checksumText);
     if(url===asset(3))return new Response(JSON.stringify({...embedded,archiveSha256:badDigest?'0'.repeat(64):createHash('sha256').update(archive.zipBytes).digest('hex')}));
     throw new Error('Unexpected test URL');
   };
   try{
-    assert.deepEqual(await publishedLatest('bladnman/tinka','0.5.17'),{version:'0.5.17'}); assert.equal(calls.length,1);
+    assert.deepEqual(await publishedLatest('bladnman/tinka',candidateVersion),{version:candidateVersion}); assert.equal(calls.length,1);
     const failed=await withAppLock(f.app,lockToken=>checkForUpdates(f.config,{context:f.context,explicit:true,lockToken}));
     assert.match(failed.message,/does not match the downloaded package/);
-    assert.equal((await json(path.join(f.app,'package.json'))).version,'0.5.15');
+    assert.equal((await json(path.join(f.app,'package.json'))).version,priorVersion);
     badDigest=false;
     const result=await withAppLock(f.app,lockToken=>checkForUpdates(f.config,{context:f.context,explicit:true,lockToken}));
-    assert(result.replaced); assert.equal((await json(f.context.pinPath)).version,'0.5.17');
+    assert(result.replaced); assert.equal((await json(f.context.pinPath)).version,candidateVersion);
   }finally{globalThis.fetch=originalFetch;}
 });
 
@@ -244,7 +246,7 @@ test('unresponsive latest endpoint has a bounded check timeout',async()=>{
   const originalFetch=globalThis.fetch;
   globalThis.fetch=(_input,options)=>originalFetch(`http://127.0.0.1:${server.address().port}/`,options);
   const started=Date.now();
-  try{await assert.rejects(publishedLatest('bladnman/tinka','0.5.15'));assert(Date.now()-started<3500);}
+  try{await assert.rejects(publishedLatest('bladnman/tinka',priorVersion));assert(Date.now()-started<3500);}
   finally{globalThis.fetch=originalFetch;server.closeAllConnections();await new Promise(resolve=>server.close(resolve));}
 });
 
@@ -262,14 +264,14 @@ test('failed candidate health rolls back app, exact config and pin; a prior owne
   const sourceBad = {zipBytes: await readFile(bad.appZip), checksumText: await readFile(bad.appChecksum, 'utf8'), zipName: path.basename(bad.appZip)};
   const configBefore = await readFile(f.config.configPath), pinBefore = await readFile(f.context.pinPath);
   await assert.rejects(installArchive({...sourceBad, installDir: f.app, configPath: f.config.configPath, pinPath: f.context.pinPath}), /health identity/);
-  assert.equal((await json(path.join(f.app, 'package.json'))).version, '0.5.15');
+  assert.equal((await json(path.join(f.app, 'package.json'))).version, priorVersion);
   assert.deepEqual(await readFile(f.config.configPath), configBefore); assert.deepEqual(await readFile(f.context.pinPath), pinBefore);
   // A checked-out portable project can lack local config entirely. Its pin
   // still must survive a broken candidate's failed health verification.
   await rm(path.join(f.project,'tinka/local'),{recursive:true});
-  await assert.rejects(installMain(['--project',f.project,'--version','0.5.17','--zip',bad.appZip,'--checksum',bad.appChecksum]),/health identity/);
+  await assert.rejects(installMain(['--project',f.project,'--version',candidateVersion,'--zip',bad.appZip,'--checksum',bad.appChecksum]),/health identity/);
   assert.deepEqual(await readFile(f.context.pinPath),pinBefore);
-  assert.equal((await json(path.join(f.app,'package.json'))).version,'0.5.15');
+  assert.equal((await json(path.join(f.app,'package.json'))).version,priorVersion);
   const cli = path.join(f.app, 'cli.mjs');
   await exec(node, [cli, 'start', '--config', f.config.configPath]);
   const prior = await json(`${f.config.configPath}.pid.json`);
@@ -277,5 +279,5 @@ test('failed candidate health rolls back app, exact config and pin; a prior owne
   const restored = await json(`${f.config.configPath}.pid.json`);
   assert.notEqual(restored.pid, prior.pid);
   const health = await fetch(`${restored.url}api/health`).then(response => response.json());
-  assert.equal(health.version, '0.5.15'); assert.equal(health.configPath, f.config.configPath);
+  assert.equal(health.version, priorVersion); assert.equal(health.configPath, f.config.configPath);
 });

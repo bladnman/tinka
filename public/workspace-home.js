@@ -1,3 +1,4 @@
+import {watchChanges} from "./live.js";
 import {newestBoardsFirst} from "./board-order.js";
 import {reconcileChildren} from "./reconcile.js";
 import {coverMarkup,observeCovers} from "./board-covers.js";
@@ -15,6 +16,7 @@ export class WorkspaceHome {
   constructor(config) {
     this.config = config;
     this.client = new WorkspaceClient(config);
+    this.client.onSettled=()=>this.drainLive();
     this.selected = new Set();
     this.archive = false;
     this.search = "";
@@ -22,7 +24,7 @@ export class WorkspaceHome {
     this.active = false;
   }
   async init() {
-    const ws = await this.client.get("/api/workspace");
+    const ws = await this.client.get("/api/workspace?view=home");
     if (!ws.enabled) {
       const box = document.createElement("section");
       box.className = "workspace-enable";
@@ -59,29 +61,24 @@ export class WorkspaceHome {
       this.render();
     };
     this.render();
-    this.poll();
+    this.liveDirty=false;
+    this.stopLive=watchChanges(this.config,{onChange:()=>{this.liveDirty=true;return this.drainLive();},onConnection:connected=>{document.getElementById("connection").textContent=connected?"Live on this Mac":"Reconnecting";}});
+    document.addEventListener("focusout",()=>queueMicrotask(()=>this.drainLive()));
+    document.addEventListener("close",()=>this.drainLive(),true);
     return true;
   }
   async refresh() {
-    this.workspace = await this.client.get("/api/workspace");
+    this.workspace = await this.client.get("/api/workspace?view=home");
     this.catalog = (await this.client.get("/api/boards")).boards || [];
     this.client.revision = this.workspace.revision;
     this.render();
   }
-  poll() {
-    clearTimeout(this.timer);
-    this.timer = setTimeout(
-      async () => {
-        try {
-          if (!document.querySelector("dialog[open]")) await this.refresh();
-        } catch {
-          document.getElementById("connection").textContent = "Reconnecting";
-        } finally {
-          this.poll();
-        }
-      },
-      document.hidden ? 8000 : 2000,
-    );
+  async drainLive() {
+    if(!this.liveDirty||this.liveRunning||this.client.pendingWrites||document.querySelector("dialog[open]"))return;
+    this.liveRunning=true;
+    try{while(this.liveDirty&&!document.querySelector("dialog[open]")){this.liveDirty=false;await this.refresh();}}
+    catch{this.liveDirty=true;document.getElementById("connection").textContent="Reconnecting";}
+    finally{this.liveRunning=false;}
   }
   render() {
     const ws = this.workspace,
@@ -119,7 +116,7 @@ export class WorkspaceHome {
           if (b.schemaVersion !== 2) return this.legacyCard(b);
           const i = items.get(b.ownerItemId),
             image = resourceURL(i.preview?.resource);
-          return `<article data-home-board="${esc(b.id)}" class="board-card ${this.selected.has(i.id) ? "workspace-home-selected" : ""}"><button type="button" class="workspace-home-select" data-home-select="${esc(i.id)}" aria-label="Select ${esc(b.title)}" aria-pressed="${this.selected.has(i.id)}">${this.selected.has(i.id) ? "✓" : "□"}</button><a class="board-link" href="/boards/${encodeURIComponent(b.id)}/"><div class="board-art" aria-hidden="true">${image ? `<img src="${esc(image)}" alt="">` : coverMarkup(ws.boardCovers?.[b.id],b.id)}<span class="art-label">${b.placements.filter((p) => !p.removedAt && !p.archivedAt).length} ITEMS</span></div><div class="board-info"><h3>${esc(b.title)}</h3><p>${esc(b.description || i.description || "A place to gather what you make.")}</p><div class="card-bottom"><span>${b.rounds.length} prior ${b.rounds.length === 1 ? "round" : "rounds"} retained</span><span class="arrow">↗</span></div></div></a></article>`;
+          return `<article data-home-board="${esc(b.id)}" class="board-card ${this.selected.has(i.id) ? "workspace-home-selected" : ""}"><button type="button" class="workspace-home-select" data-home-select="${esc(i.id)}" aria-label="Select ${esc(b.title)}" aria-pressed="${this.selected.has(i.id)}">${this.selected.has(i.id) ? "✓" : "□"}</button><a class="board-link" href="/boards/${encodeURIComponent(b.id)}/"><div class="board-art" aria-hidden="true">${image ? `<img src="${esc(image)}" alt="">` : coverMarkup(ws.boardCovers?.[b.id],b.id)}<span class="art-label">${b.itemCount} ITEMS</span></div><div class="board-info"><h3>${esc(b.title)}</h3><p>${esc(b.description || i.description || "A place to gather what you make.")}</p><div class="card-bottom"><span>${b.roundCount} prior ${b.roundCount === 1 ? "round" : "rounds"} retained</span><span class="arrow">↗</span></div></div></a></article>`;
         })
         .join("") +
       '<button class="new-board empty-card" type="button"><span class="plus" aria-hidden="true">+</span><strong>A fresh starting point.</strong><small>Create a board for the next idea.</small></button>';

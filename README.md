@@ -231,6 +231,41 @@ Agents use the same operations as the browser through HTTP or
 [schema 2 protocol](docs/PROTOCOL.md#schema-2-workspace) for resource declarations,
 content examples, shared references, conflicts and migration rollback.
 
+## Draw, read and discuss
+
+Tools → Add includes Sticky note, Process (rounded box), Decision (diamond)
+and Start / end (ellipse) alongside text, colored regions and arrows. Select an object to move, resize, recolor or
+edit its text. Drag between the connection ports on cards and shapes to attach
+an arrow; its endpoints follow the targets during movement and resizing. Drag an
+endpoint to reconnect it or leave a free point. The exact-geometry control uses
+logical board units and shows free, attached or detached endpoints. Moving the
+whole arrow makes both ends free. Arrow text appears at its midpoint. Escape
+cancels a gesture. Focus a decoration and press Enter for exact geometry or F2
+to edit its text. Decoration edits do not join card movement Undo/Redo.
+
+A linked local Markdown item uses its actual named-root file in both its full
+preview panel and reader. The reader offers Contents, the root-relative source
+link and Reload source. Select text in the current document to comment on that
+passage; comments and replies appear in the same Comments & votes panel as board
+and point discussions. Raw HTML is displayed as text. Documents are limited to
+2 MiB. Source edits retain comment history and report uncertain or unlocated
+quotes instead of silently moving a highlight. Historical document versions
+remain readable; open the current version to comment.
+
+Open Comments & votes for a board-wide note or use an item's comment button for
+its discussion. Add point can attach a note within a card or shape so it follows
+that target; old fixed points keep their original position. A missing target
+retains an explicitly detached original point. Show/hide pins, unresolved-only
+filtering and resolve/reopen keep discussions recoverable. Yes, No and Abstain
+replace your own prior vote; Clear removes it. No vote and Abstain are distinct.
+Actor names are self-reported local labels.
+
+Open views receive local server push updates from browser, CLI and project-file
+changes. Reconnecting resynchronizes current state. Incoming changes preserve
+review drafts and defer reconciliation through active gestures; an open preview
+gets a reload offer when its source changes. Each project retains its independent
+stream and runtime identity. Healthy connections do not poll workspace documents.
+
 ## If you're an agent
 
 Read [the agent guide](docs/AGENT.md), [folder protocol](docs/PROTOCOL.md),

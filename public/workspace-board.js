@@ -1,3 +1,6 @@
+import {Whiteboard,decorationMarkup,lineBox} from "./whiteboard.js";
+import {decorationBounds,resolveLine} from "./whiteboard-geometry.js";
+import {FeedbackController} from "./feedback.js";
 import {newestBoardsFirst} from "./board-order.js";
 import {reconcileChildren} from "./reconcile.js";
 import {coverMarkup, observeCovers} from "./board-covers.js";
@@ -24,7 +27,7 @@ export class WorkspaceBoard {
     this.hooks = hooks;
     this.client = new WorkspaceClient(config, snapshot.revision);
     this.history = new MovementHistory(this.client,config.workspaceId,() => this.updateHistoryControls());
-    this.client.onState = () => this.updateHistoryControls();
+    this.client.onState = () => { this.updateHistoryControls(); this.hooks.liveReady?.(); };
     this.selection = new Set();
     this.cutIntent = new CutIntent(config.workspaceId,snapshot.workspaceId,()=>this.syncCutMarks());
     this.filters = {
@@ -252,6 +255,8 @@ export class WorkspaceBoard {
           : this.selection.add(id);
         this.build(this.hooks.concepts());
       }
+      const feedback = e.target.closest("[data-item-feedback]");
+      if (feedback) this.feedback.open({itemId:feedback.dataset.itemFeedback});
       if (context) this.itemControls(context.dataset.itemControls, context.dataset.controlsFocus);
       if (edit)
         itemForm(this.client, {
@@ -287,8 +292,16 @@ export class WorkspaceBoard {
     $("workspace-retry-drafts").hidden = !this.pendingReview.size;
     $("workspace-retry-drafts").onclick = () => this.saveReview([], {});
     window.addEventListener("pagehide", () => this.persistDrafts());
+    this.whiteboard = new Whiteboard(this);
+    this.whiteboard.mount();
     this.pointer();
     this.canvasEditing();
+    document.addEventListener("focusout", () => queueMicrotask(() => { this.drainGeometryRefresh(); this.hooks.liveReady?.(); }));
+    this.feedback = new FeedbackController({client:this.client,getBoard:()=>this.snapshot,
+      getOrigin:()=>this.origin,screenToCanvas:point=>this.canvasPoint(point),
+      getMode:()=>this.mode,refresh:()=>this.refresh({saveReview:false})});
+    this.feedback.mount({toolbar:bar,world:$("world"),viewport:$("viewport")});
+    this.feedback.reload().catch(error=>console.warn("Feedback unavailable:",error.message));
     this.setMode(this.mode, false);
     this.loadCrumb();
     $("workspace-owner").hidden =
@@ -341,7 +354,7 @@ export class WorkspaceBoard {
   }
   async loadCrumb() {
     try {
-      const ws = await this.client.get("/api/workspace?covers=0");
+      const ws = this.workspaceGraph?.revision === this.snapshot.revision ? this.workspaceGraph : await this.client.get("/api/workspace?view=graph&covers=0");
       if (!this.workspaceGraph || ws.revision >= this.workspaceGraph.revision)
         this.workspaceGraph = ws;
       const parents = ws.boards.filter((b) =>
@@ -404,17 +417,33 @@ export class WorkspaceBoard {
   }
   async refresh({ saveReview = true } = {}) {
     // A live refresh must not reset an in-progress pointer gesture.
-    if (this.pointerGesture || this.moveCommitting) { this.pointerRefreshPending = true; return; }
+    if (this.pointerGesture || this.decorationGesture || this.moveCommitting) { this.pointerRefreshPending = true; return; }
     if (saveReview && this.pendingReview.size && !this.saving) await this.saveReview([], {});
     const snapshot = await this.client.get(
       `/api/boards/${encodeURIComponent(this.snapshot.id)}`,
     );
-    if (this.pointerGesture || this.moveCommitting) { this.pointerRefreshPending = true; return; }
+    if (this.pointerGesture || this.decorationGesture || this.moveCommitting) { this.pointerRefreshPending = true; return; }
     // A read started before a completed operation must not roll its UI back.
     if (snapshot.revision < Math.max(this.snapshot.revision, this.client.revision)) return;
     this.pointerRefreshPending = false;
     this.hooks.data(this.adapt(snapshot));
     await this.loadCrumb();
+    if (this.feedback) await this.feedback.reload();
+  }
+  liveBlocked() {
+    return !!(this.pointerGesture || this.decorationGesture || this.decorationCommitting || this.moveCommitting || this.movePending ||
+      this.client.pendingWrites || this.historyBusy || this.history?.busy || this.pasteBusy || this.saving ||
+      document.activeElement?.closest("input,textarea,select,[contenteditable]") || document.querySelector("dialog.workspace-dialog[open]"));
+  }
+  syncGeometry(overrides) {
+    this.whiteboard?.sync(overrides);
+    this.feedback?.sync(overrides);
+  }
+  drainGeometryRefresh() {
+    this.hooks.liveReady?.();
+    if (!this.pointerRefreshPending || this.liveBlocked()) return;
+    this.pointerRefreshPending = false;
+    this.refresh({saveReview:false}).catch(error => toast(error.message));
   }
   renderedPlacements() {
     const rendered = new Set([...$("world").querySelectorAll(".workspace-card[data-placement]")].map(card => card.dataset.placement));
@@ -515,7 +544,7 @@ export class WorkspaceBoard {
       items[item.id] = structuredClone(item);
       if (this.pendingReview.has(item.id)) items[item.id].review = {...item.review,...this.pendingReview.get(item.id)};
       if (!item.childBoardId || cut) continue;
-      const board = this.workspaceGraph?.boards.find(b => b.id === item.childBoardId);
+      const board = this.snapshot.childBoards?.[item.childBoardId];
       if (this.workspaceGraph?.revision !== this.snapshot.revision || !board) {
         this.refresh({saveReview:false}).catch(() => {});
         throw new Error("Loading this board’s layout. Copy the selection again when it is ready.");
@@ -913,7 +942,7 @@ export class WorkspaceBoard {
     if (this.mode === "canvas") {
       const entries = [
           ...concepts.map((c) => c.placement),
-          ...(this.snapshot.decorations || []),
+          ...(this.snapshot.decorations || []).map(d => decorationBounds(d,this.snapshot)),
         ],
         origin = {
           x: 70 - Math.min(0, ...entries.map((e) => e.x || 0)),
@@ -944,19 +973,22 @@ export class WorkspaceBoard {
       const selected = this.selection.has(p.id),
         unavailable = ["reserved", "building"].includes(item.build?.state),
         live = !icon && (this.mode === "grid" || panel) && !unavailable && !img &&
-          item.content?.kind === "html" && item.content?.resource && !item.content?.url;
+          ["html","markdown"].includes(item.content?.kind) && item.content?.resource && !item.content?.url;
       const review = { ...item.review, ...this.pendingReview.get(item.id) };
       const handoff = resourceURL(item.resources?.find(r => r.role === "handoff")?.resource);
       const previewSource = JSON.stringify([item.id, item.content || null]), previous = previews.get(p.id);
+      let documentPreview = item.content?.kind === "markdown" && item.content?.resource
+        ? `/app/media.html?${new URLSearchParams({kind:"markdown",root:item.content.resource.rootId,path:item.content.resource.path,name:item.title,chrome:"none",mode:"panel"})}` : null;
+      if (documentPreview) { const stamp=new URL(this.hooks.preview(c),location.href).searchParams.get("v"); if(stamp) documentPreview += `&v=${encodeURIComponent(stamp)}`; }
       const preview = previous?.frame?.dataset.previewSource === previewSource
-        ? previous.frame.getAttribute("src") : this.hooks.preview(c);
+        ? previous.frame.getAttribute("src") : documentPreview || this.hooks.preview(c);
       const imageSource = JSON.stringify([item.id, img || url]);
       const image = previous?.image?.dataset.previewSource === imageSource
         ? previous.image.getAttribute("src") : img || url;
       const pdf = !img && item.content?.kind === "pdf" ? resourceURL(item.content.resource) : null;
       const pdfSource = JSON.stringify([item.id,pdf]);
       const pdfURL = previous?.pdf?.dataset.previewSource === pdfSource ? previous.pdf.getAttribute("src") : pdf && pdfPreviewURL(pdf);
-      const footer = `<footer class="workspace-item-footer workspace-panel-caption"><button type="button" data-placement-select="${esc(p.id)}" aria-pressed="${selected}" aria-label="${selected ? "Deselect" : "Select"} ${esc(item.title)}">${selected ? "✓" : "□"}</button>${panel ? `<button type="button" class="workspace-panel-title" ${unavailable ? "disabled" : ""} data-open="${esc(c.key)}">${esc(item.title)}</button>` : '<span class="workspace-item-spacer" aria-hidden="true"></span>'}<button type="button" class="shortlist" data-star="${esc(c.key)}" aria-label="Favorite ${esc(item.title)}" aria-pressed="${!!review.star}">${review.star ? "★" : "☆"}</button><button type="button" data-item-controls="${esc(p.id)}" data-controls-focus="notes" aria-label="Details for ${esc(item.title)}" aria-haspopup="dialog" aria-expanded="${this.contextPlacement === p.id}">⋯${review.note ? '<span class="workspace-note-dot" aria-hidden="true"></span>' : ""}</button></footer>`;
+      const footer = `<footer class="workspace-item-footer workspace-panel-caption"><button type="button" data-placement-select="${esc(p.id)}" aria-pressed="${selected}" aria-label="${selected ? "Deselect" : "Select"} ${esc(item.title)}">${selected ? "✓" : "□"}</button>${panel ? `<button type="button" class="workspace-panel-title" ${unavailable ? "disabled" : ""} data-open="${esc(c.key)}">${esc(item.title)}</button>` : '<span class="workspace-item-spacer" aria-hidden="true"></span>'}<button type="button" data-item-feedback="${esc(item.id)}" aria-label="Comments and vote on ${esc(item.title)}" title="Comments and vote"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="M5 4h14a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H9l-5 3v-3a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2Z"/><path d="M7 9h10M7 13h7"/></svg></button><button type="button" class="shortlist" data-star="${esc(c.key)}" aria-label="Favorite ${esc(item.title)}" aria-pressed="${!!review.star}">${review.star ? "★" : "☆"}</button><button type="button" data-item-controls="${esc(p.id)}" data-controls-focus="notes" aria-label="Details for ${esc(item.title)}" aria-haspopup="dialog" aria-expanded="${this.contextPlacement === p.id}">⋯${review.note ? '<span class="workspace-note-dot" aria-hidden="true"></span>' : ""}</button></footer>`;
       const visual = unavailable
         ? `<div class="workspace-build-placeholder"><strong>${item.build.state === "building" ? "Taking shape." : "A place for a new idea."}</strong><span>${esc(item.build.message || "This slot will open when it is ready for review.")}</span></div>`
         : live ? `<iframe src="${esc(preview)}" data-preview-source="${esc(previewSource)}" title="${esc(item.title)} ${panel ? "design" : "live"} preview" tabindex="-1" loading="lazy" inert></iframe>`
@@ -988,7 +1020,7 @@ export class WorkspaceBoard {
     this.reconcile(world, `${this.mode === "canvas" ? this.decorations() : ""}${this.mode === "grid" ? grid || '<p class="workspace-empty">Nothing here yet. Add an idea or clear a filter.</p>' : `<div class="workspace-cards">${cards || '<p class="workspace-empty">Nothing here yet. Add an idea or clear a filter.</p>'}</div>`}`);
     if (this.mode === "canvas") {
       const p = concepts.map((c) => c.placement),
-        d = this.snapshot.decorations || [];
+        d = (this.snapshot.decorations || []).map(d => decorationBounds(d,this.snapshot));
       world.style.width =
         Math.max(
           800,
@@ -1016,6 +1048,7 @@ export class WorkspaceBoard {
     this.coverObserver = observeCovers(world,this.coverObserver);
     this.hooks.layout();
     this.positionContext();
+    this.syncGeometry();
   }
   reconcile(parent, markup) {
     const template = document.createElement("template");
@@ -1402,7 +1435,7 @@ export class WorkspaceBoard {
       if (e.target.closest(".workspace-card,button,a,input,textarea,select,label,[contenteditable],.workspace-review,[role=menu],[role=dialog]")) return false;
       const decoration = e.target.closest("[data-decoration]");
       if (!decoration) return true;
-      if (!decoration.classList.contains("decoration-region") || e.target.closest("[data-decoration-label]")) return false;
+      if (!decoration.classList.contains("decoration-region") || decoration.classList.contains("whiteboard-shape") || e.target.closest("[data-decoration-label]")) return false;
       const bounds = decoration.getBoundingClientRect();
       const label = decoration.querySelector("[data-decoration-label]")?.getBoundingClientRect();
       return e.clientX > bounds.left + 6 && e.clientX < bounds.right - 6 &&
@@ -1533,6 +1566,7 @@ export class WorkspaceBoard {
           width: `${p.width}px`, height: `${p.height}px`,
         });
       }
+      this.syncGeometry();
     };
     const finishVisuals = gesture => {
       gesture.entries.forEach(entry => entry.element.classList.remove("workspace-dragging"));
@@ -1594,11 +1628,7 @@ export class WorkspaceBoard {
         setHint(`Lifted ${item.title} · drag to place`);
       }, 450);
     };
-    const drainRefresh = () => {
-      if (!this.pointerRefreshPending || this.pointerGesture || this.movePending) return;
-      this.pointerRefreshPending = false;
-      this.refresh({ saveReview: false }).catch(() => toast("The board could not refresh. Reload to see the latest changes."));
-    };
+    const drainRefresh = () => this.drainGeometryRefresh();
     const cancel = () => {
       if (marquee) { finishMarquee(true); return; }
       if (!drag) return;
@@ -1689,7 +1719,7 @@ export class WorkspaceBoard {
         this.pointerGesture = true;
         this.updateHistoryControls();
         if (!this.workspaceGraph || this.workspaceGraph.revision !== this.snapshot.revision)
-          this.client.get("/api/workspace?covers=0").then(ws => {
+          this.client.get("/api/workspace?view=graph&covers=0").then(ws => {
             if (!this.workspaceGraph || ws.revision >= this.workspaceGraph.revision) this.workspaceGraph = ws;
           }).catch(() => {});
         beginHold(drag);
@@ -1759,6 +1789,8 @@ export class WorkspaceBoard {
             entry.element.style[key === "x" ? "left" : key === "y" ? "top" : key] =
               (key === "x" ? value + this.origin.x : key === "y" ? value + this.origin.y : value) + "px";
         }
+        this.syncGeometry({placements:new Map(drag.entries.map(entry => [entry.p.id,
+          drag.resize || drag.entries.length === 1 ? drag.patch : {x:entry.p.x + drag.translation.dx,y:entry.p.y + drag.translation.dy}]))});
         showTarget(this.boardDropTarget(drag, e.clientX, e.clientY));
       },
       true,
@@ -1859,17 +1891,23 @@ export class WorkspaceBoard {
           }
           return;
         }
+        this.movePending = true;
+        this.moveCommitting = true;
         try {
           await this.client.write("updatePlacement", {
             boardId: this.snapshot.id,
             placementId: done.id,
             patch: done.patch,
           });
+          this.moveCommitting = false;
           await this.refresh({saveReview:false});
         } catch (error) {
           showFailure(error);
           this.rebuild();
         } finally {
+          this.moveCommitting = false;
+          this.movePending = false;
+          this.updateHistoryControls();
           drainRefresh();
         }
       },
@@ -1911,17 +1949,10 @@ export class WorkspaceBoard {
   decorations() {
     return (this.snapshot.decorations || []).map(d => this.decorationMarkup(d)).join("");
   }
-  decorationMarkup(d) {
-    const line = d.type === "line", selected = this.activeDecoration === d.id;
-    const color = /^#[0-9a-f]{3,8}$/i.test(d.color) ? d.color : "#cfd8bf";
-    const x1 = d.flipX ? 100 : 0, y1 = d.flipY ? 100 : 0;
-    const x2 = 100 - x1, y2 = 100 - y1;
-    const mark = line ? `<svg class="workspace-decoration-line" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true"><defs><marker id="arrow-${esc(d.id)}" markerWidth="10" markerHeight="10" refX="8" refY="5" orient="auto" markerUnits="userSpaceOnUse"><path d="M1 1L9 5L1 9" fill="none" stroke="${color}" stroke-width="2"/></marker></defs><line x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}" stroke="${color}" stroke-width="2" vector-effect="non-scaling-stroke" ${d.endArrow ? `marker-end="url(#arrow-${esc(d.id)})"` : ""}/></svg><span class="workspace-decoration-label" data-decoration-label>${esc(d.text || "")}</span>` : `<span class="workspace-decoration-label" data-decoration-label>${esc(d.text || "")}</span>`;
-    return `<div tabindex="0" role="group" aria-label="${esc(d.type === "line" && d.endArrow ? "Arrow" : d.type)}: ${esc(d.text || "Untitled")}" class="workspace-decoration decoration-${esc(d.type || "text")} ${selected ? "selected" : ""}" data-decoration="${esc(d.id)}" style="left:${Number(d.x || 0) + this.origin.x}px;top:${Number(d.y || 0) + this.origin.y}px;width:${Number(d.width || 300)}px;height:${Number(d.height || 80)}px;--decoration-color:${color}">${mark}${selected ? `<div class="workspace-decoration-actions"><input type="color" data-decoration-color aria-label="Decoration color" value="${color}"><button type="button" data-decoration-delete aria-label="Delete decoration">×</button></div>${line ? `<button type="button" class="workspace-endpoint" data-endpoint="start" aria-label="Move arrow start" style="left:${x1}%;top:${y1}%"></button><button type="button" class="workspace-endpoint" data-endpoint="end" aria-label="Move arrow end" style="left:${x2}%;top:${y2}%"></button>` : '<button type="button" class="workspace-decoration-resize" data-decoration-resize aria-label="Resize decoration">◢</button>'}` : ""}</div>`;
-  }
+  decorationMarkup(d) { return this.whiteboard?.markup(d) || decorationMarkup(d,this.snapshot,this.origin,this.activeDecoration === d.id); }
   updateDecorationElement(d) {
     const old = document.querySelector(`[data-decoration="${CSS.escape(d.id)}"]`);
-    if (old) old.outerHTML = this.decorationMarkup(d);
+    if (old && !old.querySelector("[contenteditable]")) old.outerHTML = this.decorationMarkup(d);
   }
   closeAddMenu() {
     this.addPopup?.remove(); this.addPopup = null;
@@ -1933,7 +1964,7 @@ export class WorkspaceBoard {
     const menu = document.createElement("div");
     menu.className = "workspace-add-menu"; menu.setAttribute("role", "menu");
     menu.setAttribute("aria-label", "Add to board");
-    menu.innerHTML = `<button type="button" role="menuitem" data-add="text"><span aria-hidden="true">T</span>Text</button><button type="button" role="menuitem" data-add="region"><span aria-hidden="true">▧</span>Colored region</button><button type="button" role="menuitem" data-add="arrow"><span aria-hidden="true">↗</span>Arrow</button><hr><button type="button" role="menuitem" data-add="idea"><span aria-hidden="true">◇</span>Item…</button><button type="button" role="menuitem" data-add="board"><span aria-hidden="true">▱</span>Tinka / Board…</button><hr><button type="button" role="menuitem" data-add="background">Board background…</button><button type="button" role="menuitem" data-add="order">Comparison order…</button>`;
+    menu.innerHTML = `<button type="button" role="menuitem" data-add="text"><span aria-hidden="true">T</span>Text</button><button type="button" role="menuitem" data-add="region"><span aria-hidden="true">▧</span>Colored region</button><button type="button" role="menuitem" data-add="sticky"><span aria-hidden="true">▣</span>Sticky note</button><button type="button" role="menuitem" data-add="rounded"><span aria-hidden="true">▢</span>Process</button><button type="button" role="menuitem" data-add="diamond"><span aria-hidden="true">◇</span>Decision</button><button type="button" role="menuitem" data-add="ellipse"><span aria-hidden="true">⬭</span>Start / end</button><button type="button" role="menuitem" data-add="arrow"><span aria-hidden="true">↗</span>Arrow</button><hr><button type="button" role="menuitem" data-add="idea"><span aria-hidden="true">◇</span>Item…</button><button type="button" role="menuitem" data-add="board"><span aria-hidden="true">▱</span>Tinka / Board…</button><hr><button type="button" role="menuitem" data-add="background">Board background…</button><button type="button" role="menuitem" data-add="order">Comparison order…</button>`;
     document.body.append(menu); this.addPopup = menu;
     const rect = anchor?.getBoundingClientRect();
     const screen = point || { x: rect.right - menu.offsetWidth, y: rect.bottom + 6 };
@@ -1942,7 +1973,7 @@ export class WorkspaceBoard {
     menu.querySelectorAll("[data-add]").forEach(button => button.onclick = () => {
       const type = button.dataset.add;
       this.closeAddMenu();
-      if (["text", "region", "arrow"].includes(type)) this.createDecoration(type, point);
+      if (["text", "region", "arrow", "sticky", "rounded", "diamond", "ellipse"].includes(type)) this.createDecoration(type, point);
       else if (type === "board") this.newBoard();
       else if (type === "idea") itemForm(this.client, { boardId: this.snapshot.id, refresh: () => this.refresh() });
       else if (type === "background") this.backgroundForm();
@@ -1964,12 +1995,12 @@ export class WorkspaceBoard {
   }
   async createDecoration(type, screen) {
     if (this.mode !== "canvas") this.setMode("canvas");
-    const point = this.canvasPoint(screen), region = type === "region";
-    const d = { id: crypto.randomUUID(), type: type === "arrow" ? "line" : type,
-      x: point.x, y: point.y, width: region ? 420 : type === "arrow" ? 200 : 280,
-      height: region ? 280 : type === "arrow" ? 90 : 70,
-      text: type === "text" ? "Write something" : region ? "A new area" : "",
-      color: region ? "#e1e8d5" : "#7a8a68", ...(type === "arrow" ? { endArrow: true, flipY: true } : {}) };
+    const point = this.canvasPoint(screen), shaped = ["sticky","rounded","diamond","ellipse"].includes(type), region = type === "region" || shaped;
+    const d = { id: crypto.randomUUID(), type: type === "arrow" ? "line" : region ? "region" : type,
+      x: point.x, y: point.y, width: shaped ? type === "sticky" ? 220 : 240 : region ? 420 : type === "arrow" ? 200 : 280,
+      height: shaped ? type === "sticky" ? 200 : type === "diamond" ? 180 : 130 : region ? 280 : type === "arrow" ? 90 : 70,
+      text: type === "text" ? "Write something" : type === "sticky" ? "A thought to keep" : shaped ? ({rounded:"Process",diamond:"Decision",ellipse:"Start / end"}[type]) : region ? "A new area" : "",
+      color: type === "sticky" ? "#f6e6a4" : shaped ? "#e0e8da" : region ? "#e1e8d5" : "#7a8a68", ...(shaped ? {shape:type === "sticky" ? "rectangle" : type} : {}), ...(type === "arrow" ? { endArrow: true, flipY: true } : {}) };
     if (!screen) {
       const occupied = [...this.snapshot.placements.filter(p => !p.removedAt && !p.archivedAt), ...(this.snapshot.decorations || []).filter(d => region || d.type !== "region")];
       const free = point => !occupied.some(p => point.x < p.x + p.width + 16 && point.x + d.width + 16 > p.x && point.y < p.y + p.height + 16 && point.y + d.height + 16 > p.y);
@@ -1986,41 +2017,18 @@ export class WorkspaceBoard {
     }
     try {
       this.activeDecoration = d.id; this.selection.clear();
-      await this.writeDecorations([...(this.snapshot.decorations || []), d]);
+      if (type === "arrow") { const r=resolveLine(d,this.snapshot);d.from={x:r.from.x,y:r.from.y};d.to={x:r.to.x,y:r.to.y}; }
+      await this.client.write("createDecoration",{boardId:this.snapshot.id,decoration:d});
+      await this.refresh({saveReview:false});
       const element = document.querySelector(`[data-decoration="${CSS.escape(d.id)}"]`);
       element?.scrollIntoView({ block: "nearest", inline: "nearest" });
       element?.focus({ preventScroll: true });
       if (type !== "arrow") this.editDecoration(d.id, true);
     } catch (error) { showFailure(error); }
   }
-  async writeDecorations(decorations) {
-    await this.client.write("updateBoard", { boardId: this.snapshot.id, patch: { decorations } });
-    this.snapshot.decorations = decorations;
-    await this.refresh();
-  }
-  editDecoration(id, select = false) {
-    const d = this.snapshot.decorations.find(d => d.id === id);
-    const label = document.querySelector(`[data-decoration="${CSS.escape(id)}"] [data-decoration-label]`);
-    if (!d || !label || label.isContentEditable) return;
-    const original = d.text || ""; let cancelled = false;
-    label.contentEditable = "plaintext-only"; label.setAttribute("role", "textbox"); label.setAttribute("aria-label", d.type === "region" ? "Region label" : "Canvas text");
-    label.focus({ preventScroll: true });
-    if (select) { const range = document.createRange(); range.selectNodeContents(label); const sel = getSelection(); sel.removeAllRanges(); sel.addRange(range); }
-    label.onkeydown = e => {
-      e.stopPropagation();
-      if (e.key === "Escape") { e.preventDefault(); cancelled = true; label.textContent = original; label.blur(); }
-      if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); label.blur(); }
-    };
-    label.onblur = async () => {
-      label.removeAttribute("contenteditable"); label.removeAttribute("role");
-      const text = cancelled ? original : label.innerText.trim();
-      if (text === original) return;
-      try { await this.writeDecorations(this.snapshot.decorations.map(x => x.id === id ? { ...x, text } : x)); }
-      catch (error) { showFailure(error); }
-    };
-  }
+  editDecoration(id, select = false) { return this.whiteboard.edit(id,select); }
   canvasEditing() {
-    const viewport = $("viewport"); let drag = null;
+    const viewport = $("viewport");
     document.addEventListener("pointerdown", e => {
       if (this.context && !e.target.closest("#workspace-item-controls,[data-item-controls]")) this.closeContext();
       if (this.addPopup && !e.target.closest(".workspace-add-menu,#workspace-add")) this.closeAddMenu();
@@ -2029,71 +2037,14 @@ export class WorkspaceBoard {
       if (e.target.closest(".workspace-card,.workspace-decoration,button,input,textarea")) return;
       e.preventDefault(); this.addMenu(null, { x: e.clientX, y: e.clientY });
     });
-    viewport.addEventListener("dblclick", e => {
-      const mark = e.target.closest("[data-decoration]");
-      if (mark && !e.target.closest("button,input")) { e.preventDefault(); this.editDecoration(mark.dataset.decoration); }
-    });
-    viewport.addEventListener("change", async e => {
-      if (!e.target.matches("[data-decoration-color]")) return;
-      const id = e.target.closest("[data-decoration]").dataset.decoration;
-      try { await this.writeDecorations(this.snapshot.decorations.map(d => d.id === id ? { ...d, color: e.target.value } : d)); } catch (error) { showFailure(error); }
-    });
     viewport.addEventListener("click", e => {
-      if (e.target.closest("[data-decoration-delete]")) this.deleteDecoration();
-      if (!e.target.closest(".workspace-card,.workspace-decoration")) {
-        if (this.activeDecoration) { const old = this.snapshot.decorations.find(d => d.id === this.activeDecoration); this.activeDecoration = null; if (old) this.updateDecorationElement(old); }
+      if (!e.target.closest(".workspace-card,.workspace-decoration,.whiteboard-ports")) {
+        if (this.activeDecoration) { const old=this.snapshot.decorations.find(d=>d.id===this.activeDecoration);this.activeDecoration=null;if(old)this.updateDecorationElement(old); }
       }
     });
-    viewport.addEventListener("pointerdown", e => {
-      if (this.mode !== "canvas" || e.button !== 0) return;
-      const element = e.target.closest("[data-decoration]");
-      if (!element || e.target.closest("input,[contenteditable],[data-decoration-delete]")) return;
-      const id = element.dataset.decoration, d = this.snapshot.decorations.find(d => d.id === id);
-      if (!d) return;
-      if (this.activeDecoration !== id) {
-        const old = this.snapshot.decorations.find(d => d.id === this.activeDecoration);
-        this.activeDecoration = id; this.selection.clear(); document.querySelectorAll(".workspace-card.selected").forEach(c => c.classList.remove("selected")); this.selectionMenu();
-        if (old) this.updateDecorationElement(old);
-        this.updateDecorationElement(d);
-      }
-      drag = { d: { ...d }, x: e.clientX, y: e.clientY, pointerId: e.pointerId,
-        endpoint: e.target.closest("[data-endpoint]")?.dataset.endpoint,
-        resize: !!e.target.closest("[data-decoration-resize]"), active: false };
-      this.decorationGesture = true;
-      this.updateHistoryControls();
-      document.querySelector(`[data-decoration="${CSS.escape(id)}"]`)?.focus({ preventScroll: true });
-      e.stopImmediatePropagation();
-    }, true);
-    document.addEventListener("pointermove", e => {
-      if (!drag || e.pointerId !== drag.pointerId) return;
-      const dx = (e.clientX - drag.x) / this.hooks.zoom(), dy = (e.clientY - drag.y) / this.hooks.zoom();
-      if (!drag.active && Math.hypot(e.clientX - drag.x, e.clientY - drag.y) < 5) return;
-      drag.active = true; e.preventDefault(); e.stopImmediatePropagation();
-      const d = drag.d;
-      if (drag.endpoint) {
-        const start = { x: d.x + (d.flipX ? d.width : 0), y: d.y + (d.flipY ? d.height : 0) };
-        const end = { x: d.x + (d.flipX ? 0 : d.width), y: d.y + (d.flipY ? 0 : d.height) };
-        const point = drag.endpoint === "start" ? start : end; point.x += dx; point.y += dy;
-        drag.next = { ...d, x: Math.round(Math.min(start.x, end.x)), y: Math.round(Math.min(start.y, end.y)), width: Math.max(1, Math.round(Math.abs(end.x - start.x))), height: Math.max(1, Math.round(Math.abs(end.y - start.y))), flipX: end.x < start.x, flipY: end.y < start.y };
-      } else drag.next = { ...d, ...(drag.resize ? { width: Math.max(60, Math.round(d.width + dx)), height: Math.max(35, Math.round(d.height + dy)) } : { x: Math.round(d.x + dx), y: Math.round(d.y + dy) }) };
-      this.updateDecorationElement(drag.next);
-    }, true);
-    document.addEventListener("pointerup", async e => {
-      if (!drag || e.pointerId !== drag.pointerId) return;
-      const done = drag; drag = null;
-      this.decorationGesture = false;
-      this.updateHistoryControls();
-      if (!done.active || !done.next) return;
-      e.preventDefault(); e.stopImmediatePropagation();
-      try { await this.writeDecorations(this.snapshot.decorations.map(d => d.id === done.d.id ? done.next : d)); }
-      catch (error) { showFailure(error); this.rebuild(); }
-    }, true);
-    document.addEventListener("pointercancel", () => { if (drag) { this.updateDecorationElement(drag.d); drag = null; this.decorationGesture = false; this.updateHistoryControls(); } }, true);
-    window.addEventListener("blur", () => { if (drag) { this.updateDecorationElement(drag.d); drag = null; this.decorationGesture = false; this.updateHistoryControls(); } });
     document.addEventListener("keydown", async e => {
       if (document.querySelector("#reader-dialog[open],dialog.workspace-dialog[open]")) return;
       if (e.key === "Escape") {
-        if (drag) { this.updateDecorationElement(drag.d); drag = null; this.decorationGesture = false; this.updateHistoryControls(); e.preventDefault(); e.stopImmediatePropagation(); return; }
         if (this.context) { this.closeContext(true); e.preventDefault(); e.stopImmediatePropagation(); return; }
         if (this.addPopup) { this.closeAddMenu(); $("workspace-add").focus(); e.preventDefault(); e.stopImmediatePropagation(); return; }
         if (this.activeDecoration) { const old = this.snapshot.decorations.find(d => d.id === this.activeDecoration); this.activeDecoration = null; if (old) this.updateDecorationElement(old); e.preventDefault(); return; }
@@ -2116,7 +2067,12 @@ export class WorkspaceBoard {
       if (this.pointerGesture || this.movePending || this.historyBusy) return;
       const [dx,dy] = delta.map(v => v * (e.shiftKey ? 10 : 1));
       try {
-        if (this.activeDecoration) await this.writeDecorations(this.snapshot.decorations.map(d => d.id === this.activeDecoration ? { ...d, x: d.x + dx, y: d.y + dy } : d));
+        if (this.activeDecoration) {
+          const d=this.snapshot.decorations.find(d=>d.id===this.activeDecoration);
+          let patch={x:d.x+dx,y:d.y+dy};
+          if(d.type === "line"){const r=resolveLine(d,this.snapshot),from={x:r.from.x+dx,y:r.from.y+dy},to={x:r.to.x+dx,y:r.to.y+dy};patch={...lineBox(from,to),from,to};}
+          await this.whiteboard.save(d.id,patch);
+        }
         else {
           const placementIds = [...this.selection].filter(id => this.snapshot.placements.some(p => p.id === id && !p.removedAt && !p.deletedAt));
           if (!placementIds.length) return;
@@ -2126,12 +2082,7 @@ export class WorkspaceBoard {
       } catch (error) { showFailure(error); }
     }, true);
   }
-  async deleteDecoration() {
-    const id = this.activeDecoration; if (!id) return;
-    this.activeDecoration = null;
-    try { await this.writeDecorations(this.snapshot.decorations.filter(d => d.id !== id)); }
-    catch (error) { showFailure(error); }
-  }
+  async deleteDecoration() { return this.whiteboard.remove(); }
   backgroundForm() {
     const b = this.snapshot.background || {};
     makeDialog(

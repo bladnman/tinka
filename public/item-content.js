@@ -5,9 +5,10 @@ import {
   contentURL,
   toast,
 } from "./workspace.js";
+import {validTextAnchor} from './markdown-document.js';
 const host = document.getElementById("item-content"),
   q = new URLSearchParams(location.search);
-let item, variant, content;
+let item, variant, content, markdownFrame;
 const preferences = {
   theme: q.get("theme") || "paper",
   scale: Number(q.get("scale") || 100),
@@ -34,6 +35,16 @@ window.addEventListener("message", (e) => {
   if (e.origin !== location.origin) return;
   if (e.source === parent && e.data?.type === "reader-preferences")
     theme(e.data.theme, e.data.scale);
+  if(e.source===parent&&e.data?.type==='tinka-feedback-refresh'&&markdownFrame)
+    markdownFrame.contentWindow?.postMessage({type:'tinka-feedback-refresh'},location.origin);
+  let currentMarkdown=false;
+  try{currentMarkdown=markdownFrame&&markdownFrame.contentWindow.location.href===markdownFrame.src;}catch{}
+  if(e.source===markdownFrame?.contentWindow&&currentMarkdown&&parent!==window&&!q.get('variant')&&item?.content?.kind==='markdown'&&item.content.resource&&!item.content.url){
+    if(e.data?.type==='tinka-comment-selection'&&validTextAnchor(e.data.anchor)&&/^sha256:[a-f0-9]{64}$/.test(e.data.anchor.sourceRevision||''))
+      parent.postMessage({type:'tinka-comment-selection',itemId:item.id,anchor:e.data.anchor},location.origin);
+    if(e.data?.type==='tinka-open-comment'&&typeof e.data.threadId==='string'&&/^[a-zA-Z0-9][a-zA-Z0-9_-]{0,127}$/.test(e.data.threadId))
+      parent.postMessage({type:'tinka-open-comment',itemId:item.id,threadId:e.data.threadId},location.origin);
+  }
   if (
     e.source !== parent &&
     e.data?.type === "reader-close" &&
@@ -48,6 +59,7 @@ window.addEventListener("keydown", (e) => {
     parent.postMessage({ type: "reader-close" }, location.origin);
 });
 function frame(source) {
+  markdownFrame=null;
   const iframe = document.createElement("iframe");
   iframe.className = "item-full-frame";
   const url = new URL(source, location.href);
@@ -57,6 +69,7 @@ function frame(source) {
     if (q.get("v")) url.searchParams.set("v", q.get("v"));
   }
   iframe.src = url.href;
+  if(content?.kind==='markdown'&&url.origin===location.origin&&url.pathname==='/app/media.html')markdownFrame=iframe;
   iframe.title = item.title;
   iframe.addEventListener("load", () => {
     theme(preferences.theme, preferences.scale);
@@ -104,6 +117,11 @@ function render() {
       theme: q.get("theme") || "paper",
       scale: q.get("scale") || "100",
     });
+    if(content.kind==='markdown'){
+      params.set('item',item.id);params.set('commentBoard',q.get('commentBoard')||'');
+      if(q.get('variant'))params.set('variant',q.get('variant'));else params.set('annotate','1');
+      if(q.get('v'))params.set('v',q.get('v'));
+    }
     frame("/app/media.html?" + params);
     return;
   }

@@ -332,6 +332,164 @@ Local HTML cover thumbnails use an inert sandbox with an opaque origin. Local re
 
 Grid and Canvas use the same placements. Review order is separate from freeform geometry and remains suitable for comparison. Graph boards retain the comparison reader's previous/next, dots, revisions, notes/star, sizing, standalone opening and browser Back/Forward behavior. The compact header shows Home, an explicit parent return when applicable, one current title and Tools. Tools contains + Add, Grid/Canvas, search, recent, starred and archive views, board details, export and help. A valid `?from=BOARD_ID` retains the entry parent; ambiguous parents without entry context open a chooser. The reader uses Home, a containing-board return and one current item title; View holds comparison settings and item actions. Search, recent, starred and archive views operate on canonical items; a shared reference does not create another source of truth.
 
+### Discoverable tools, discovery cache and annotations
+
+`lib/tools.json` is the shipped catalog. CLI `tools list [--summary]`,
+`tools describe NAME` and `tools call NAME --config PATH [--json JSON|--file PATH]`
+expose the same named tools as GET `/api/tools` and POST `/api/tools/call`
+`{name,arguments}`. The HTTP call uses ordinary JSON limits and runtime identity/
+origin guards. files.import takes local paths through CLI only, opens regular
+files with byte limits before reading, and uses the existing import transaction.
+Browser file imports retain the multipart route. Existing operations remain.
+
+workspace.search accepts query, fields title/description, kind items/boards/all,
+withinBoardId, recursive, createdAfter/Before, updatedAfter/Before, sort
+title/createdAt/updatedAt, direction asc/desc, limit 1–100, cursor and explicit
+includeArchived/includeDeleted/body flags. Dates are ISO date strings. Results
+contain compact descriptions, stable IDs and links; direct locations are capped
+at eight with a total count. Recursive traversal is iterative and deduplicated;
+stable IDs break sort ties. Cursors bind query/workspace/revision and return 409
+after change. body:true scans inline text/review notes only. GET `/api/search`
+uses the same fields, comma-separated fields and true/false boolean parameters.
+
+The optional external `.discovery` cache contains 32 shards per collection and a
+small manifest binding format, durable workspace, revision, source fingerprints
+and per-shard SHA-256. Lookups check file membership and device/inode/size/mtime/
+ctime, detecting ordinary same-revision manual source edits. Each canonical
+commit updates affected summary shards and publishes the manifest last; feedback
+revisions retain unchanged graph shards. Cache failure never turns a committed
+canonical write into a reported failure. Missing/stale/corrupt cache rebuilds;
+symlinks fail closed. Canonical corruption is reported without automatic repair.
+workspace.rebuildIndex forces derived rebuild. workspace.inspect inventories
+individual files independently of home membership, reports parse/identity/core
+graph errors and never rewrites source or invents lost resource/home declarations.
+Description text is searchable in full, so unusually large descriptions can grow
+the summary cache; resource payload and inline document/review bodies are excluded.
+workspace.json/items/boards/threads and existing migration/journal records remain
+durable. Generated `.discovery` and `feedback-index` directories create their own
+ignore file with `*` only when absent, preserving existing ignore choices and
+avoiding new Git churn. Already tracked cache history is never automatically
+removed. Cache contents need not travel with the durable metadata backup.
+
+Targeted reads recover the journal, then load requested documents and immediate
+cover data. The bounded parsed-document cache checks identity/stat and returns
+independent clones. Search still stats all canonical item/board files; ordinary
+graph mutations still load/clone/validate the full core graph. DAG validation is
+iterative. GET `/api/workspace?view=header` probes only revision/identity;
+view=home returns home summaries/owners/covers, view=graph returns containment and
+placement geometry without document bodies/reviews/revisions/resources. Targeted
+board responses include immediate childBoards layouts for correct shallow board
+copying. The unqualified endpoint deliberately remains the complete export.
+
+Existing decoration types text/region/line gain region shape
+rectangle/rounded/diamond/ellipse and paired line from/to. Each endpoint is exact
+`{x,y}`, `{placementId,side,offset?,fallback?}` or
+`{decorationId,side,offset?,fallback?}`. Side is top/right/bottom/left, offset is
+finite 0–1 (default .5), fallback is `{x,y}`. Attachments target active same-board
+placements or non-line decorations; new invalid references reject. Shape ports
+project onto their silhouette. board.geometry returns the shared resolver's
+coordinates and detached flags. Old lines retain box/flip semantics. Scoped
+createDecoration/updateDecoration/removeDecoration operations preserve peers;
+updateBoard whole arrays remain supported. Owned target moves/removals freeze the
+last resolved point before mutation while retaining target IDs. Missing targets
+are detached, not silently retargeted. Manual removal may use legacy fallback.
+Board copies remap placement attachments; decoration IDs stay local. Cross-board
+moves leave source connectors detached.
+
+Annotations live in separate threads/ID.json: stable id, boardId, optional
+itemId/anchor, author `{id,label,kind:human|agent}`, body, timestamps, replies and
+resolved. addComment/replyComment/resolveComment are named feedback.comment/reply/
+resolve; feedback.list reads compact filtered summaries or a complete thread.
+General notes omit anchor. Point anchors use board-space x/y with optional
+placementId or decorationId. Text anchors preserve quote/context/offsets/source
+revision and report matched/uncertain/stale/unverified state after source edits.
+GET `/api/feedback` accepts boardId,itemId,threadId,resolved,limit,cursor and
+includeBodies. Scoped feedback/vote writes share the same lock/journal/revision/
+retry cache without loading the complete graph. No message bodies/thread array
+are added to the workspace header. Actors are self-reported, not authentication.
+vote/item.vote takes itemId, actor and yes/no/abstain/null, where null clears that
+actor's current value. Optional review.votes is keyed actor ID and preserves
+note/star. References share votes. No installation-time data conversion is needed,
+but older apps may reject/ignore new shapes/endpoints/votes/thread files; byte or
+schema-number preservation is not old-app usability.
+
+### Relative point and document anchors
+
+A point anchor may add `relative:{x,y}`, finite fractions in inclusive 0–1,
+with exactly one `placementId` or `decorationId`. Creation still requires finite
+board-space x/y as its immutable fallback. Current target bounds derive the
+location: `target.x + relative.x * target.width` and similarly for y. Placement
+archive/removal, canonical-item archive/deletion, unavailable geometry or missing
+board/decoration produces a detached creation fallback. `feedback.list` exposes
+`anchorPoint:{x,y,detached,fallback}` for compact/full/single reads. Legacy anchors
+without relative fractions remain fixed x/y. Threads are not rewritten by target
+moves/resizes. This differs from connector endpoints' last-resolved fallback.
+
+The shared Markdown model supports headings (levels 1–4), paragraphs, lists,
+quotes, fenced code and simple inline links/images/emphasis/code. Raw HTML stays
+literal; controls and image alt text are excluded from anchor text. Rendered
+block/list separators are newlines, normalized by converting CRLF/CR to LF,
+collapsing JavaScript Unicode whitespace to ASCII spaces and trimming. Other
+characters/case remain unchanged. Offsets count UTF-16 code units. Inline text
+anchors retain their exact source-text offsets and use the same context/revision
+matcher without Markdown extraction.
+
+`sourceRevision` is `sha256:` plus lowercase SHA-256 of raw source bytes, including
+Markdown syntax and line endings. Selection records quote, normalized offsets and
+up to 96 adjacent prefix/suffix characters; API bounds remain quote 20,000,
+context 2,000 each and offsets 2,000,000. Exact saved position/quote/context with
+the same revision is matched. A surviving unique context-compatible quote under
+a changed revision is uncertain; a unique quote with changed context is also
+uncertain without a precise highlight. Missing/ambiguous quotes are stale. Legacy
+anchors without a revision may match a unique compatible quote. Unsafe,
+unavailable, oversized or unsupported sources are unverified; absent canonical
+items are detached. No case rewrites the original anchor or chooses a duplicate.
+
+Local Markdown checks read regular named-root files through resource confinement,
+with no-follow open, fixed 2 MiB bound and before/after size/time checks. Source
+reads are memoized per feedback query; bodies are not included in responses.
+Reader and panel use the same renderer. Only the current local Markdown reader
+can relay a text selection through the exact mounted same-origin frames and
+canonical item identity. Historical variants lack variant anchor identity and
+therefore decline comment creation. Only confidently matched same-source quotes
+receive precise reader marks. Reload source recomputes text/revision/marks and
+retains an available heading; source freshness and quote confidence remain
+separate facts.
+
+### Local server push
+
+GET `/api/events?workspace=RUNTIME_ID&board=BOARD_ID` emits named `snapshot`
+events using existing board live state; omitting board emits Home `change`
+invalidations. Every data event includes runtimeId. Loopback Host/same-origin
+checks, live config roots and runtime identity are required before subscription;
+stale identities fail 403. This query identity is a local namespace guard, not
+an authenticated account. Existing JSON live/config/workspace routes remain
+manual/agent read APIs.
+
+Each server shares filesystem watchers for boards, metadata, named resources,
+public shell and their relevant parents; external CLI writes and atomic file or
+directory replacement invalidate views. Legacy board metadata participates in
+fingerprints and keyed reconciliation; app-shell changes offer an explicit Refresh.
+Watchers are primary; healthy streams
+perform no periodic document scan. Events coalesce for 850 ms, snapshots build
+once per subscribed board per flush, and changes arriving during a build retain
+a dirty follow-up. Metadata events refresh all subscribed board channels; resource events may also
+reconcile more than the directly changed board. Filesystem watching is best effort.
+The hub permits at most 128 streams, checks for more than 256 KiB queued output
+before each frame/heartbeat and closes slow clients, and emits 15-second comment
+heartbeats without file reads. A single large snapshot can exceed that threshold
+before the next check. The hub tears down watchers/timers when the last client leaves. Failed/missing
+watchers or snapshot reads report reconnecting and retry with 1.5–30 second
+backoff; healthy roots do not get a periodic reconciliation loop.
+
+Initial connection, reconnection, visibility return and online return synchronize
+current state rather than replaying an event history. Generation IDs are process
+local and may restart. Remote reconciliation preserves review drafts, defers
+through active pointers/editing/writes and retains keyed media; changed active
+content offers reload. Source change notifications do not authorize replacing an
+active reader or saving its draft. Independent project instances retain separate
+hubs and config namespaces. No account service, registry or scheduler is added.
+
 ### HTTP and concurrent agents
 
 GET `/api/workspace` returns `{enabled:false,revision:0}` before initialization, or the schema 2 snapshot with `enabled:true`, `items:[]`, `boards:[]`, `homeBoardIds` and `resourceRoots`. GET `/api/boards` lists home graph boards and unmigrated legacy boards; the complete destination catalog is in `/api/workspace.boards`. GET `/api/boards/:id` returns the schema 2 board snapshot with canonical `items` keyed by ID, or the legacy response for an unmigrated board. Workspace and board responses add derived `boardCovers` keyed by represented board ID, with `count` and at most four `tiles`; these are response data, not stored metadata. GET `/api/items/:id` returns one canonical item. GET `/api/items/:id/cover-thumbnail` returns a confined local HTML cover representation. `/resources/:rootId/PATH` serves declared local resources and preserves relative HTML asset URLs.

@@ -1,7 +1,9 @@
 import { watchBoard } from './live.js';
+import { reconcileChildren } from './reconcile.js';
 import { openRemovalPrompt } from './agent-prompt.js';
 import { WorkspaceBoard } from './workspace-board.js';
 import { contentURL, enableOrganization } from './workspace.js';
+import { validTextAnchor } from './markdown-document.js';
 
 const $ = id => document.getElementById(id);
 const viewport = $('viewport');
@@ -90,7 +92,7 @@ function mediaHref(item, theme = 'paper', scale = 100, inReader = false) {
 }
 
 function previewHref(concept, variant = null, theme = 'paper', scale = 100, revision = null, inReader = false) {
-  if (concept?.graphItem) { const params = new URLSearchParams({item:concept.graphItem.id,theme,scale:String(scale)}); if (variant) params.set('variant',variant.id); if (revision) params.set('v',String(revision)); return `/app/item.html?${params}`; }
+  if (concept?.graphItem) { const params = new URLSearchParams({item:concept.graphItem.id,theme,scale:String(scale),commentBoard:boardId}); if (variant) params.set('variant',variant.id); if (revision) params.set('v',String(revision)); return `/app/item.html?${params}`; }
   const item = descriptor(concept, variant);
   const remote = safeRemoteUrl(item.url);
   const source = safeBoardPath(item.path);
@@ -118,7 +120,7 @@ async function fetchBoard() {
   if (!response.ok) throw new Error(`Board metadata unavailable (${response.status})`);
   const data = await response.json();
   if (data.schemaVersion === 2) {
-    if (!graph) graph = new WorkspaceBoard(appConfig, data, { concepts:()=>all, active:()=>active, zoom:()=>zoom, shiftOrigin:(dx,dy)=>{if(dx||dy){view.x-=dx*zoom;view.y-=dy*zoom;resting=false;}}, shiftViewport:(dx,dy)=>{if(dx||dy)moveView(view.x+dx,view.y+dy);}, revealPlacements:revealPlacements, preview:c=>previewHref(c), layout:()=>{ if(resting)rest();else applyView(); }, mode:mode=>{ if(mode==='canvas'){zoom=1;settleCushion();}else{viewport.scrollLeft=0;viewport.scrollTop=0;} }, reloadReader:()=>loadRevision(), saveStatus:setSaveStatus, openOwner:()=>{const c=graph.ownerConcept();if(c)openReader(c.key);}, closeReader:()=>closeReader(), data:acceptGraphData });
+    if (!graph) graph = new WorkspaceBoard(appConfig, data, { concepts:()=>all, active:()=>active, zoom:()=>zoom, shiftOrigin:(dx,dy)=>{if(dx||dy){view.x-=dx*zoom;view.y-=dy*zoom;resting=false;}}, shiftViewport:(dx,dy)=>{if(dx||dy)moveView(view.x+dx,view.y+dy);}, revealPlacements:revealPlacements, preview:c=>previewHref(c), layout:()=>{ if(resting)rest();else applyView(); }, mode:mode=>{ if(mode==='canvas'){zoom=1;settleCushion();}else{viewport.scrollLeft=0;viewport.scrollTop=0;} }, reloadReader:()=>loadRevision(), saveStatus:setSaveStatus, openOwner:()=>{const c=graph.ownerConcept();if(c)openReader(c.key);}, closeReader:()=>closeReader(), liveReady:()=>{void drainLiveUpdates().catch(()=>{});}, data:acceptGraphData });
     return graph.adapt(data);
   }
   if (!Array.isArray(data.rounds)) throw new Error('The board manifest is invalid.');
@@ -157,13 +159,19 @@ function updateMetadata() {
 
 function buildCanvas() {
   if (graph) { graph.build(all); updateMetadata(); renderNav(); applyNotes(); return; }
+  const retainedLegacy=new Map([...world.querySelectorAll(".concept-card")].map(card=>[card.dataset.key,card.querySelector("iframe")]));
   const cards = round => all.filter(concept => concept.round === round.id).map(concept => {
     const versions = revisions[concept.key] || [];
     const revisionButtons = versions.map(variant => `<button class="revision-button" type="button" data-open="${esc(concept.key)}" data-revision="${esc(variant.id)}">Try ${esc(variant.name)} ↗</button>`).join('');
     const handoff = safeBoardPath(concept.handoff);
-    return `<article class="concept-card" data-key="${esc(concept.key)}"><header class="card-label"><div class="card-title"><span class="card-number">${esc(concept.number || String(concept.col + 1).padStart(2, '0'))}</span><h3>${esc(concept.name)}</h3><span class="card-category">${esc(concept.category || '')}</span></div><div class="card-actions">${revisionButtons}<button type="button" data-open="${esc(concept.key)}">Open experiment ↗</button>${handoff ? `<a class="handoff-link" href="${esc(handoff)}" target="_blank" rel="noopener">Handoff ↗</a>` : ''}<button class="remove-action" type="button" data-remove-experiment="${esc(concept.key)}" aria-label="Remove ${esc(concept.name)} from board" title="Get a removal prompt">Remove…</button></div></header><div class="preview"><iframe src="${esc(previewHref(concept, null, concept.tone === 'night' ? 'night' : 'paper'))}" title="${esc(concept.name)} preview" tabindex="-1" loading="eager" inert></iframe><button class="preview-launch" type="button" data-open="${esc(concept.key)}" aria-label="Explore ${esc(concept.name)}"><span>Open ${esc(concept.name)} ↗</span></button></div><div class="card-copy"><div><p>${esc(concept.description || '')}</p><p class="question">${esc(concept.question || '')}</p></div><div class="note-box"><button class="shortlist" type="button" data-star="${esc(concept.key)}" aria-label="Shortlist ${esc(concept.name)}" aria-pressed="false">☆</button><label>THOUGHTS TO RETURN TO<textarea data-note="${esc(concept.key)}" placeholder="What feels right? What gets in the way?" aria-label="Notes on ${esc(concept.name)}"></textarea></label></div></div></article>`;
+    const previewSource=previewHref(concept,null,concept.tone==='night'?'night':'paper');
+    const retained=retainedLegacy.get(concept.key);
+    const preview=retained?.dataset.previewSource===previewSource?retained.src:previewSource;
+    return `<article class="concept-card" data-key="${esc(concept.key)}" data-placement="${esc(concept.key)}"><header class="card-label"><div class="card-title"><span class="card-number">${esc(concept.number || String(concept.col + 1).padStart(2, '0'))}</span><h3>${esc(concept.name)}</h3><span class="card-category">${esc(concept.category || '')}</span></div><div class="card-actions">${revisionButtons}<button type="button" data-open="${esc(concept.key)}">Open experiment ↗</button>${handoff ? `<a class="handoff-link" href="${esc(handoff)}" target="_blank" rel="noopener">Handoff ↗</a>` : ''}<button class="remove-action" type="button" data-remove-experiment="${esc(concept.key)}" aria-label="Remove ${esc(concept.name)} from board" title="Get a removal prompt">Remove…</button></div></header><div class="preview"><iframe src="${esc(preview)}" data-preview-source="${esc(previewSource)}" title="${esc(concept.name)} preview" tabindex="-1" loading="eager" inert></iframe><button class="preview-launch" type="button" data-open="${esc(concept.key)}" aria-label="Explore ${esc(concept.name)}"><span>Open ${esc(concept.name)} ↗</span></button></div><div class="card-copy"><div><p>${esc(concept.description || '')}</p><p class="question">${esc(concept.question || '')}</p></div><div class="note-box"><button class="shortlist" type="button" data-star="${esc(concept.key)}" aria-label="Shortlist ${esc(concept.name)}" aria-pressed="false">☆</button><label>THOUGHTS TO RETURN TO<textarea data-note="${esc(concept.key)}" placeholder="What feels right? What gets in the way?" aria-label="Notes on ${esc(concept.name)}"></textarea></label></div></div></article>`;
   }).join('');
-  world.innerHTML = rounds.map(round => `<section class="round" aria-labelledby="round-heading-${esc(round.id)}"><header class="round-header"><span class="round-label">ROUND ${esc(round.number || '')} · ${esc(round.date || '')}</span><h2 id="round-heading-${esc(round.id)}">${esc(round.title || 'Exploration')}</h2><p>${esc(round.description || '')}</p></header><div class="concepts">${cards(round)}</div></section>`).join('') + '<section class="future-row"><span>CONTINUE EXPLORING</span><h2>Room for what comes next.</h2><p>New explorations can join this board without replacing earlier work.</p></section>';
+  const freshLegacy=document.createElement("template");
+  freshLegacy.innerHTML = rounds.map(round => `<section class="round" data-round="${esc(round.id)}" aria-labelledby="round-heading-${esc(round.id)}"><header class="round-header"><span class="round-label">ROUND ${esc(round.number || '')} · ${esc(round.date || '')}</span><h2 id="round-heading-${esc(round.id)}">${esc(round.title || 'Exploration')}</h2><p>${esc(round.description || '')}</p></header><div class="concepts">${cards(round)}</div></section>`).join('') + '<section class="future-row"><span>CONTINUE EXPLORING</span><h2>Room for what comes next.</h2><p>New explorations can join this board without replacing earlier work.</p></section>';
+  reconcileChildren(world,freshLegacy.content);
   decorateBuildCards();
   renderNav();
   if (resting) rest(); else applyView();
@@ -761,6 +769,7 @@ function endScrub(commit) {
   track.querySelectorAll('.scrubbing').forEach(dot => dot.classList.remove('scrubbing'));
   hideTooltip();
   if (commit && key) openReader(key, 'original', { focus: 'dot' });
+  void drainLiveUpdates().catch(()=>{});
 }
 
 // ---- Notes ----
@@ -840,7 +849,7 @@ function decorateBuildCards() {
   });
 }
 
-function applyBoardSnapshot(snapshot) {
+function applyBoardSnapshotNow(snapshot) {
   if (graph) {
     graph.updateCovers(snapshot.boardCovers);
     const concepts = Object.fromEntries(all.map(c=>[c.key, {...(c.graphItem.build||{state:'ready'}), ...(snapshot.items?.[c.graphItem.id]||{})}]));
@@ -851,7 +860,11 @@ function applyBoardSnapshot(snapshot) {
       const card = [...world.querySelectorAll('.workspace-card')].find(c => c.dataset.key === concept.key);
       if (loadedPreviews.has(concept.key) && loadedPreviews.get(concept.key) !== revision) {
         const frame = card?.querySelector('.workspace-live-preview iframe');
-        if (frame) replaceFrame(frame, previewHref(concept, null, 'paper', 100, revision));
+        if (frame) {
+          const source=new URL(frame.src,location.href);
+          if(source.pathname==='/app/media.html'&&source.searchParams.get('mode')==='panel'&&source.searchParams.get('kind')==='markdown'){source.searchParams.set('v',revision);replaceFrame(frame,source.href);}
+          else replaceFrame(frame, previewHref(concept, null, 'paper', 100, revision));
+        }
         const pdf = card?.querySelector('.workspace-pdf-preview');
         if (pdf) {
           const source = new URL(pdf.src, location.href);
@@ -916,8 +929,29 @@ function acceptGraphData(fresh) {
   if(activeKey){active=all.find(c=>c.key===activeKey)||active;renderRevisionOptions();renderReaderHeader();updateReaderNavigation();}
 }
 
-async function refreshManifest() {
-  if (graph) { if (graph.pointerGesture) { await graph.refresh({saveReview:false}); return; } if (document.activeElement?.matches('textarea,input,[contenteditable]') || graph.saving || graph.pendingReview.size) return; await graph.refresh(); return; }
+let pendingLiveSnapshot=null,liveManifestPending=false,liveDraining=false;
+function liveBlocked(){
+  const focused=document.activeElement;
+  // Legacy board notes already preserve their exact value and selection during
+  // keyed manifest reconciliation. Other editors retain deferred refresh.
+  const legacyNote=!graph&&focused?.matches('textarea[data-note]')&&world.contains(focused);
+  const editing=focused?.closest?.('textarea,input,select,[contenteditable]')&&!legacyNote;
+  return !!(pointers.size||scrub||graph?.liveBlocked?.()||graph?.pointerGesture||graph?.decorationGesture||graph?.moveCommitting||graph?.client.pendingWrites||graph?.saving||editing||document.querySelector('dialog.workspace-dialog[open]'));
+}
+async function drainLiveUpdates(){
+  if(liveDraining||liveBlocked())return;liveDraining=true;
+  try{while(!liveBlocked()&&(liveManifestPending||pendingLiveSnapshot)){
+    if(liveManifestPending){liveManifestPending=false;try{await refreshManifestNow();}catch(error){liveManifestPending=true;throw error;}}
+    if(liveBlocked())break;
+    if(pendingLiveSnapshot){const snapshot=pendingLiveSnapshot;pendingLiveSnapshot=null;applyBoardSnapshotNow(snapshot);}
+  }}finally{liveDraining=false;}
+}
+function applyBoardSnapshot(snapshot){pendingLiveSnapshot=snapshot;return drainLiveUpdates();}
+function refreshManifest(){liveManifestPending=true;return drainLiveUpdates();}
+document.addEventListener('focusout',()=>queueMicrotask(()=>{void drainLiveUpdates().catch(()=>{});}));
+document.addEventListener('close',()=>queueMicrotask(()=>{void drainLiveUpdates().catch(()=>{});}),true);
+async function refreshManifestNow() {
+  if(graph){await graph.refresh({saveReview:false});return;}
   const fresh = await fetchBoard();
   const selected = rounds[currentRound]?.id;
   const focused = document.activeElement;
@@ -959,11 +993,8 @@ async function reloadCanvas() {
 
 function scheduleShellReload() {
   $('live-refresh').hidden = false;
-  clearTimeout(shellReloadTimer);
-  shellReloadTimer = setTimeout(() => {
-    if (document.querySelector('dialog[open]') || document.activeElement?.matches('textarea,input,[contenteditable]')) { scheduleShellReload(); return; }
-    reloadCanvas();
-  }, 1200);
+  // A new app shell is available. Only the explicit refresh action replaces the
+  // page, preserving reader state, local drafts and active gestures.
 }
 
 function showError(message) {
@@ -1069,7 +1100,17 @@ $('active-reader').addEventListener('load', () => {
     });
   } catch {} // Independent cross-origin previews own their keyboard handling.
 });
-window.addEventListener('message', event => { if (event.origin === location.origin && event.source === $('active-reader').contentWindow && event.data?.type === 'reader-close') handleEscape(); });
+window.addEventListener('message', event => {
+  if(event.origin!==location.origin||event.source!==$('active-reader').contentWindow)return;
+  if(event.data?.type==='reader-close'){handleEscape();return;}
+  const item=active?.graphItem;
+  if(!dialog.open||!graph||!item||activeVariantId!=='original'||event.data?.itemId!==item.id||item.content?.kind!=='markdown'||!item.content.resource||item.content.url)return;
+  if(event.data.type==='tinka-comment-selection'&&validTextAnchor(event.data.anchor)&&/^sha256:[a-f0-9]{64}$/.test(event.data.anchor.sourceRevision||'')){
+    closeReader();graph.feedback.commentOnText(item.id,event.data.anchor);
+  }else if(event.data.type==='tinka-open-comment'&&typeof event.data.threadId==='string'&&/^[a-zA-Z0-9][a-zA-Z0-9_-]{0,127}$/.test(event.data.threadId)){
+    closeReader();graph.feedback.open({itemId:item.id,threadId:event.data.threadId});
+  }
+});
 $('export').onclick = () => {
   const blob = new Blob([JSON.stringify({ board: boardId, title: board?.title || 'Board', exportedAt: new Date().toISOString(), notes }, null, 2)], { type: 'application/json' });
   const link = document.createElement('a');
@@ -1164,6 +1205,7 @@ function endPointer(event) {
     const [id, point] = [...pointers.entries()][0];
     pan = graph && !point.canPan ? null : { id, x: point.x, y: point.y, left: view.x, top: view.y, active: true };
   } else if (!pointers.size) { pan = null; viewport.classList.remove('panning'); }
+  void drainLiveUpdates().catch(()=>{});
 }
 viewport.addEventListener('pointerup', endPointer);
 viewport.addEventListener('pointercancel', endPointer);
@@ -1285,6 +1327,7 @@ else {
     if (!dialog.open && document.activeElement === document.body) viewport.focus({ preventScroll: true });
     $('live-status').classList.add('live-indicator');
     watchBoard(boardId, {
+      config:appConfig,
       onSnapshot: applyBoardSnapshot,
       onManifestChange: refreshManifest,
       onShellChange: scheduleShellReload,

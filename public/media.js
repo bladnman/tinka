@@ -1,3 +1,4 @@
+import {DOCUMENT_BYTE_LIMIT,parseMarkdown,renderMarkdownDocument,selectionTextAnchor,documentTextMap,locateTextAnchor} from './markdown-document.js';
 const $ = id => document.getElementById(id);
 const query = new URLSearchParams(location.search);
 const kind = query.get('kind') || 'html';
@@ -24,12 +25,12 @@ function sourceUrl() {
   if (remote) {
     try {
       const url = new URL(remote);
-      return ['http:', 'https:'].includes(url.protocol) ? url.href : null;
+      return ['http:', 'https:'].includes(url.protocol) && !url.username && !url.password ? url.href : null;
     } catch { return null; }
   }
-  if (!/^[a-z0-9][a-z0-9-]*$/.test(resourceRoot || boardId)) return null;
+  if (!(resourceRoot ? /^[a-zA-Z0-9][a-zA-Z0-9_-]{0,127}$/.test(resourceRoot) : /^[a-z0-9][a-z0-9-]*$/.test(boardId))) return null;
   const parts = path.split('/');
-  if (!parts.length || parts.some(part => !part || part === '.' || part === '..' || part.includes('\\') || part.includes('\0'))) return null;
+  if (!parts.length || parts.some(part => !part || part.startsWith('.') || part.includes('\\') || part.includes('\0'))) return null;
   return resourceRoot ? `/resources/${encodeURIComponent(resourceRoot)}/${parts.map(encodeURIComponent).join('/')}` : `/boards/${encodeURIComponent(boardId)}/files/${parts.map(encodeURIComponent).join('/')}`;
 }
 
@@ -38,109 +39,92 @@ function applyPreferences(theme, scale) {
   if ([100, 115, 130].includes(Number(scale))) document.documentElement.style.setProperty('--scale', String(Number(scale) / 100));
 }
 
-function markdownAssetUrl(value, baseUrl) {
-  try {
-    const candidate = new URL(value, baseUrl);
-    const boardPath = resourceRoot ? `/resources/${encodeURIComponent(resourceRoot)}/` : `/boards/${encodeURIComponent(boardId)}/files/`;
-    if (['http:', 'https:'].includes(candidate.protocol) && (candidate.origin !== location.origin || candidate.pathname.startsWith(boardPath))) return candidate.href;
-  } catch {}
-  return null;
-}
-
-function appendInline(parent, text, baseUrl) {
-  const token = /(!?\[([^\]]+)\]\(([^)]+)\)|`([^`]+)`|\*\*([^*]+)\*\*|\*([^*]+)\*)/g;
-  let cursor = 0;
-  for (const match of text.matchAll(token)) {
-    if (match.index > cursor) parent.append(document.createTextNode(text.slice(cursor, match.index)));
-    if (match[2] !== undefined) {
-      const href = markdownAssetUrl(match[3], baseUrl);
-      if (href) {
-        if (match[1].startsWith('!')) {
-          const image = document.createElement('img');
-          image.src = href;
-          image.alt = match[2];
-          image.loading = 'lazy';
-          parent.append(image);
-        } else {
-          const link = document.createElement('a');
-          link.href = href;
-          link.textContent = match[2];
-          if (new URL(href).origin !== location.origin) { link.target = '_blank'; link.rel = 'noopener noreferrer'; }
-          parent.append(link);
-        }
-      } else parent.append(document.createTextNode(match[0]));
-    } else {
-      const element = document.createElement(match[4] !== undefined ? 'code' : match[5] !== undefined ? 'strong' : 'em');
-      element.textContent = match[4] ?? match[5] ?? match[6];
-      parent.append(element);
-    }
-    cursor = match.index + match[0].length;
+function setupMarkdown(asset){
+  const panel=query.get('mode')==='panel',itemId=query.get('item')||'',commentBoard=query.get('commentBoard')||'';
+  const canComment=!panel&&!query.get('variant')&&query.get('annotate')==='1'&&Boolean(resourceRoot&&itemId)&&parent!==window;
+  document.documentElement.dataset.documentMode=panel?'panel':'reader';
+  const tools=document.createElement('nav');tools.className='document-tools';tools.setAttribute('aria-label','Document tools');
+  const source=document.createElement('a');source.className='document-source';source.href=asset;source.target='_blank';source.rel='noopener noreferrer';source.textContent=resourceRoot?`${resourceRoot} / ${path}`:boardId?`${boardId} / ${path}`:'Original document';source.title='Open original source';
+  const outline=document.createElement('select');outline.setAttribute('aria-label','Document contents');
+  const reload=document.createElement('button');reload.type='button';reload.textContent='Reload source';reload.dataset.documentReload='';
+  const status=document.createElement('p');status.className='document-status';status.setAttribute('role','status');
+  const comment=document.createElement('button');comment.type='button';comment.className='document-selection-action';comment.textContent='Comment on selection';comment.hidden=true;
+  if(!panel){tools.append(source,outline,reload);content.before(tools);content.before(status);document.body.append(comment);}
+  let article,model,revision,selectedAnchor,generation=0,feedbackController;
+  function post(type,detail){parent.postMessage({type,...detail},location.origin);}
+  function updateSelection(){
+    const selection=window.getSelection();
+    selectedAnchor=canComment&&article?selectionTextAnchor(article,selection,revision):null;
+    if(canComment&&article&&selection?.rangeCount&&!selection.isCollapsed&&article.contains(selection.anchorNode)&&article.contains(selection.focusNode)&&!selectedAnchor)
+      status.textContent='This passage is too long or too far into this document for a text comment. Select a shorter or earlier passage.';
+    comment.hidden=!selectedAnchor;
+    if(selectedAnchor){const rect=window.getSelection().getRangeAt(0).getBoundingClientRect();comment.style.left=`${Math.max(8,Math.min(innerWidth-190,rect.left))}px`;comment.style.top=`${Math.max(8,Math.min(innerHeight-42,rect.bottom+8))}px`;}
   }
-  if (cursor < text.length) parent.append(document.createTextNode(text.slice(cursor)));
-}
-
-function renderMarkdown(markdown, baseUrl) {
-  const article = document.createElement('article');
-  article.className = 'markdown';
-  const lines = markdown.replace(/\r\n?/g, '\n').split('\n');
-  let index = 0;
-  while (index < lines.length) {
-    const line = lines[index];
-    if (!line.trim()) { index++; continue; }
-    const codeFence = line.match(/^\s*```/);
-    if (codeFence) {
-      const code = [];
-      index++;
-      while (index < lines.length && !/^\s*```/.test(lines[index])) code.push(lines[index++]);
-      if (index < lines.length) index++;
-      const pre = document.createElement('pre');
-      const codeNode = document.createElement('code');
-      codeNode.textContent = code.join('\n');
-      pre.append(codeNode);
-      article.append(pre);
-      continue;
+  document.addEventListener('selectionchange',updateSelection);
+  content.addEventListener('scroll',()=>{comment.hidden=true;},{passive:true});
+  comment.addEventListener('pointerdown',event=>event.preventDefault());
+  comment.onclick=()=>{if(selectedAnchor){post('tinka-comment-selection',{anchor:selectedAnchor});comment.hidden=true;}};
+  outline.onchange=()=>{article?.querySelector(`[id="${CSS.escape(outline.value)}"]`)?.scrollIntoView({block:'start'});};
+  async function readBytes(response){
+    if(!response.ok||Number(response.headers.get('content-length'))>DOCUMENT_BYTE_LIMIT)throw Error('unavailable');
+    const reader=response.body.getReader(),chunks=[];let size=0;
+    try{while(true){const {value,done}=await reader.read();if(done)break;size+=value.length;if(size>DOCUMENT_BYTE_LIMIT)throw Error('large');chunks.push(value);}}finally{await reader.cancel().catch(()=>{});}
+    const bytes=new Uint8Array(size);let offset=0;for(const chunk of chunks){bytes.set(chunk,offset);offset+=chunk.length;}return bytes;
+  }
+  function highlightThreads(threads){
+    if(!article||!canComment)return;
+    const map=documentTextMap(article.textContent),locations=[];
+    for(const thread of threads){
+      if(thread.anchor?.kind!=='text'||thread.anchorStatus!=='matched'||thread.anchor.sourceRevision!==revision)continue;
+      const location=locateTextAnchor(model.text,thread.anchor,revision);if(location.status!=='matched')continue;
+      locations.push({start:map.starts[location.start],end:map.ends[location.end-1],thread});
     }
-    const heading = line.match(/^(#{1,4})\s+(.+)$/);
-    if (heading) {
-      const element = document.createElement(`h${heading[1].length}`);
-      appendInline(element, heading[2], baseUrl);
-      article.append(element);
-      index++;
-      continue;
-    }
-    if (/^\s*(?:---+|\*\*\*+)\s*$/.test(line)) { article.append(document.createElement('hr')); index++; continue; }
-    if (/^\s*>\s?/.test(line)) {
-      const parts = [];
-      while (index < lines.length && /^\s*>\s?/.test(lines[index])) parts.push(lines[index++].replace(/^\s*>\s?/, ''));
-      const blockquote = document.createElement('blockquote');
-      appendInline(blockquote, parts.join(' '), baseUrl);
-      article.append(blockquote);
-      continue;
-    }
-    const list = line.match(/^\s*(?:([-*+])|(\d+)\.)\s+(.+)$/);
-    if (list) {
-      const ordered = Boolean(list[2]);
-      const element = document.createElement(ordered ? 'ol' : 'ul');
-      while (index < lines.length) {
-        const item = lines[index].match(/^\s*(?:([-*+])|(\d+)\.)\s+(.+)$/);
-        if (!item || Boolean(item[2]) !== ordered) break;
-        const li = document.createElement('li');
-        appendInline(li, item[3], baseUrl);
-        element.append(li);
-        index++;
+    const walker=document.createTreeWalker(article,NodeFilter.SHOW_TEXT),nodes=[];let offset=0;
+    while(walker.nextNode()){const node=walker.currentNode;nodes.push({node,start:offset,end:offset+node.length});offset+=node.length;}
+    for(const {node,start,end} of nodes){
+      const slices=locations.filter(mark=>mark.start<end&&mark.end>start).sort((a,b)=>a.start-b.start);if(!slices.length)continue;
+      const fragment=document.createDocumentFragment();let cursor=0;
+      for(const slice of slices){const from=Math.max(cursor,slice.start-start,0),to=Math.min(node.length,slice.end-start);if(to<=from)continue;
+        fragment.append(document.createTextNode(node.data.slice(cursor,from)));const mark=document.createElement('mark');mark.dataset.documentThread=slice.thread.id;mark.textContent=node.data.slice(from,to);mark.tabIndex=0;mark.title='Open comment';mark.setAttribute('role','button');
+        const open=()=>post('tinka-open-comment',{threadId:slice.thread.id});mark.onclick=open;mark.onkeydown=event=>{if(event.key==='Enter'||event.key===' '){event.preventDefault();open();}};fragment.append(mark);cursor=to;
       }
-      article.append(element);
-      continue;
+      fragment.append(document.createTextNode(node.data.slice(cursor)));node.replaceWith(fragment);
     }
-    const paragraph = [];
-    while (index < lines.length && lines[index].trim() && !/^(#{1,4}\s|\s*```|\s*>|\s*[-*+]\s|\s*\d+\.\s)/.test(lines[index])) paragraph.push(lines[index++].trim());
-    if (!paragraph.length) paragraph.push(lines[index++].trim());
-    const p = document.createElement('p');
-    appendInline(p, paragraph.join(' '), baseUrl);
-    article.append(p);
   }
-  content.replaceChildren(article);
+  async function loadFeedback(current){
+    if(!canComment)return;
+    feedbackController?.abort();feedbackController=new AbortController();
+    try{
+      const params=new URLSearchParams({itemId,limit:'50'});if(commentBoard)params.set('boardId',commentBoard);
+      const response=await fetch('/api/feedback?'+params,{cache:'no-store',signal:feedbackController.signal});if(!response.ok)throw Error();const result=await response.json();if(current!==generation)return;
+      highlightThreads(result.threads||[]);
+      const changed=(result.threads||[]).filter(thread=>thread.anchor?.kind==='text'&&thread.anchorStatus!=='matched');
+      if(changed.length)status.textContent=`${changed.length} comment${changed.length===1?'':'s'} need source review. Changed or unlocated quotes remain in Comments & votes.`;
+      else if(result.nextCursor)status.textContent='Showing the first 50 comments. Open Comments & votes for more.';
+      else status.textContent='Select document text to leave a comment.';
+    }catch(error){if(error.name!=='AbortError'&&current===generation)status.textContent='Document loaded. Comments are unavailable; try Reload source.';}
+  }
+  async function load(){
+    const current=++generation,heading=outline.value;comment.hidden=true;selectedAnchor=null;reload.disabled=true;status.textContent='Loading source…';
+    try{
+      const bytes=await readBytes(await fetch(asset,{cache:'no-store'})),digest=await crypto.subtle.digest('SHA-256',bytes);
+      if(current!==generation)return;
+      revision='sha256:'+Array.from(new Uint8Array(digest),value=>value.toString(16).padStart(2,'0')).join('');
+      model=parseMarkdown(new TextDecoder().decode(bytes));
+      const prefix=resourceRoot?`/resources/${encodeURIComponent(resourceRoot)}/`:`/boards/${encodeURIComponent(boardId)}/files/`;
+      article=renderMarkdownDocument(document,model,{baseUrl:new URL(asset,location.href),origin:location.origin,resourcePrefix:prefix});content.replaceChildren(article);
+      outline.replaceChildren(new Option('Contents…',''));for(const entry of model.headings)outline.append(new Option(entry.label,entry.id));outline.hidden=!model.headings.length;
+      if(heading&&model.headings.some(entry=>entry.id===heading)){outline.value=heading;article.querySelector(`[id="${CSS.escape(heading)}"]`)?.scrollIntoView({block:'start'});}
+      status.textContent=canComment?'Select document text to leave a comment.':query.get('variant')?'Comments on historical versions are unavailable. Open the current version to comment.':'Read-only document preview.';
+      await loadFeedback(current);
+    }catch{if(current===generation){showError('The Markdown source could not be read. It may be unavailable or larger than 2 MiB.');status.textContent='Source unavailable.';}}
+    finally{if(current===generation)reload.disabled=false;}
+  }
+  reload.onclick=load;
+  window.addEventListener('message',event=>{if(event.origin===location.origin&&event.source===parent&&event.data?.type==='tinka-feedback-refresh')load();});
+  load();
 }
+
 
 applyPreferences(query.get('theme'), query.get('scale'));
 // Inside Tinka's experiment view the surrounding header already names the item and links to it.
@@ -181,6 +165,6 @@ else {
       content.append(frame);
     }
   } else if (kind === 'markdown') {
-    fetch(asset).then(response => { if (!response.ok) throw new Error(); return response.text(); }).then(text => renderMarkdown(text, new URL(asset, location.href))).catch(() => showError('The Markdown file could not be loaded.'));
+    setupMarkdown(asset);
   } else showError('This media type is not supported.');
 }

@@ -337,3 +337,54 @@ each retained round, sorting only among board-card slots. Other items, Canvas
 geometry, saved review order and reader comparison order stay intact. Renames,
 notes and edits do not change this display order. Equal dates retain source order;
 boards with missing or invalid dates follow dated boards in source order.
+
+## Whiteboard, source review and push additions
+
+Simple whiteboard UI uses the existing text/region/line model and shared logical
+resolver: rectangle/rounded/diamond/ellipse regions, sticky preset, four target
+ports, paired attached/free endpoints and midpoint text labels. Exact inspector
+values are board units and expose attached/free/detached state. Temporary card
+and decoration geometry drives connectors and relative feedback pins through the
+same pure helpers without remounting card media. Whole-line movement deliberately
+makes both ends free. Scoped decoration mutations preserve peers; card movement
+Undo/Redo does not cover decoration edits.
+
+Point feedback optionally adds normalized relative:{x,y} within one placement or
+decoration; saved board x/y remains the creation fallback. Read results derive
+anchorPoint:{x,y,detached,fallback}; target archive/removal/missing state does not
+rewrite threads. Anchors without relative retain fixed x/y. Detached point
+fallback is the original location, distinct from connector last-resolved fallback.
+
+Named-root Markdown panels/readers share the browser/Node parser and text model.
+Raw HTML is literal. Rendered text normalizes Unicode whitespace/line endings for
+UTF-16 selection offsets, excluding controls/images; inline text retains exact
+stored offsets. Raw byte SHA-256 revisions are independent from normalized text.
+Quote/context/revision matching yields matched/uncertain/stale/unverified/detached
+without rewriting anchors or selecting ambiguous duplicates. Safe local source
+checks are regular-file/no-follow, fixed 2 MiB, race-aware and per-query memoized.
+Only confidently matched same-source quotes get marks. Reader Contents, relative
+source attribution and explicit reload reuse the authoritative source. Same-origin
+exact-frame/canonical-item checks restrict current-document selection relays;
+historical variants decline annotation creation.
+
+Project-local SSE /api/events is runtime-identity guarded, watcher-driven and
+instance-owned. Home invalidations and existing board snapshots resync every
+connection, including reconnect/visibility/online return. Healthy 15s heartbeats
+read no files; 850ms event coalescing shares builds per subscribed board. Limits:
+128 streams; the slow-client guard checks 256KiB queued output before each
+frame/heartbeat, so one snapshot may exceed it until the next check. Metadata
+events refresh all subscribed board channels. fs.watch remains best effort.
+Failed watcher/snapshot paths use
+bounded 1.5–30s retries and visible reconnecting state. No routine browser polling,
+healthy periodic body rescans, persisted event log, remote collaboration or
+account authentication is implied. Pending updates defer through gestures and
+writes, preserve review drafts and mounted previews, and offer active-source
+reload. Closing the last stream releases watchers/timers; server shutdown ends
+streams. Existing JSON/tool reads remain supported.
+
+All additions remain schema2 and require no installation migration. Older apps
+may reject/ignore new shape/endpoint/relative-anchor/vote fields or thread files;
+retained bytes alone do not establish usability after app rollback. Back up the
+complete authoritative data/resources/config/pin and app before replacement, and
+restore with a compatible app. Source/pin/package/installed/live identity, rendered
+behavior, human acceptance and publication are separate evidence gates.

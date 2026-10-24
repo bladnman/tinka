@@ -353,7 +353,7 @@ try{
   await showRound('third');
   await settledRound(2);
   await a.page.waitForFunction(()=>document.querySelector('#live-status').textContent.startsWith('Live ·'));
-  const shellReload=a.page.waitForEvent('load');
+  const shellDocument=await a.page.evaluate(()=>window.__shellFixtureDocument=crypto.randomUUID());
   // Click the visible scaled card directly, without Playwright scrolling its transformed ancestors.
   const promptButton=await a.page.locator('[data-remove-experiment="third/pages"]').boundingBox();
   const canvasTransforms=()=>({pan:document.querySelector('#plane').style.transform,zoom:document.querySelector('#world').style.transform});
@@ -362,15 +362,23 @@ try{
   await a.page.locator('#agent-prompt-dialog').waitFor();
   const viewBeforeReload=await a.page.evaluate(canvasTransforms);
   await a.page.locator('.agent-dialog-close').focus();
-  await a.page.route('**/api/boards/keyboard/live',async route=>{
-    const response=await route.fetch();
-    const snapshot=await response.json();
-    await route.fulfill({response,json:{...snapshot,shellRevision:'browser-fixture-shell',revision:`browser-fixture-${snapshot.revision}`}});
+  const shellConfig=await fetch(`${a.url}api/config`).then(response=>response.json());
+  await a.page.route(/\/api\/events\?.*board=keyboard/,async route=>{
+    const snapshot=await fetch(`${a.url}api/boards/keyboard/live`).then(response=>response.json());
+    const changed={...snapshot,runtimeId:shellConfig.workspaceId,shellRevision:'browser-fixture-shell',revision:`browser-fixture-${snapshot.revision}`};
+    await route.fulfill({contentType:'text/event-stream',headers:{'Cache-Control':'no-store'},body:`retry: 1500\nevent: snapshot\ndata: ${JSON.stringify(changed)}\n\n`});
   });
+  // Reconnect this page's stream so the browser-only shell fixture is received.
+  await a.page.evaluate(()=>dispatchEvent(new Event('online')));
   await a.page.locator('#live-refresh').waitFor({state:'visible'});
   await a.page.waitForTimeout(1500);
   assert.equal(await a.page.locator('#agent-prompt-dialog').isVisible(),true);
   await a.page.locator('.agent-dialog-close').click();
+  await a.page.waitForTimeout(1500);
+  assert.equal(await a.page.evaluate(()=>window.__shellFixtureDocument),shellDocument,'Shell updates wait for explicit Refresh after the dialog closes');
+  assert.deepEqual(await a.page.evaluate(canvasTransforms),viewBeforeReload);
+  const shellReload=a.page.waitForEvent('load');
+  await a.page.locator('#live-refresh').click();
   await shellReload;
   await a.page.waitForFunction(()=>document.activeElement.id==='viewport');
   await a.page.waitForFunction(view=>{
@@ -379,9 +387,7 @@ try{
     const actual=await a.page.evaluate(()=>({pan:document.querySelector('#plane').style.transform,zoom:document.querySelector('#world').style.transform,round:document.querySelector('#round-status').textContent}));
     throw new Error(`Canvas view after shell reload: before prompt ${JSON.stringify(beforePrompt)}, expected ${JSON.stringify(viewBeforeReload)}, actual ${JSON.stringify(actual)}; ${error.message}`);
   });
-  // Drain the shell stub before navigation cancels or auto-continues an intercepted poll.
-  // unroute() uses the default non-waiting behavior, so an outstanding route.fetch()
-  // could otherwise resume with fulfill() after Playwright had already handled its route.
+  // Drain the complete SSE shell stub before leaving this browser-only fixture.
   await a.page.unrouteAll({behavior:'wait'});
   await a.page.goto(`${a.url}boards/first-steps/`);
 

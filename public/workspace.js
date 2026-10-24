@@ -66,7 +66,7 @@ export class WorkspaceClient {
       this.revision = data.revision;
       if (data.history) this.onHistory?.(data.history,{type:"importFiles",data:{files}});
       return data.result;
-    }).finally(()=>{this.pendingWrites--;this.onState?.();});
+    }).finally(()=>{this.pendingWrites--;this.onState?.();this.onSettled?.();});
     this.queue = pending;
     return pending;
   }
@@ -103,7 +103,7 @@ export class WorkspaceClient {
         this.revision = Math.max(this.revision,d.revision);
         if (d.history && recordHistory && type !== "restoreMovement") this.onHistory?.(d.history,{type,data});
         return includeHistory ? {result:d.result || d,history:d.history || null,replayed:!!d.replayed} : d.result || d;
-      }).finally(() => { this.pendingWrites--; this.onState?.(); });
+      }).finally(() => { this.pendingWrites--; this.onState?.();this.onSettled?.(); });
     this.queue = pending;
     return pending;
   }
@@ -200,7 +200,7 @@ export async function destinationDialog(
   client,
   { sourceBoardId, placementIds, itemIds, kind = "move", refresh },
 ) {
-  const ws = await client.get("/api/workspace");
+  const ws = await client.get("/api/workspace?view=graph&covers=0");
   const source = ws.boards.find((b) => b.id === sourceBoardId),
     selectedItems =
       itemIds ||
@@ -212,11 +212,8 @@ export async function destinationDialog(
     byItem = new Map(ws.items.map((i) => [i.id, i])),
     byBoard = new Map(ws.boards.map((b) => [b.id, b]));
   const visit = (id) => {
-    if (!id || forbidden.has(id)) return;
-    forbidden.add(id);
-    for (const p of byBoard.get(id)?.placements || [])
-      if (!p.removedAt && !p.deletedAt)
-        visit(byItem.get(p.itemId)?.childBoardId);
+    const pending=[id];
+    while(pending.length){const current=pending.pop();if(!current||forbidden.has(current))continue;forbidden.add(current);for(const p of byBoard.get(current)?.placements||[])if(!p.removedAt&&!p.deletedAt)pending.push(byItem.get(p.itemId)?.childBoardId);}
   };
   for (const id of selectedItems) visit(byItem.get(id)?.childBoardId);
   const boards = ws.boards.filter(

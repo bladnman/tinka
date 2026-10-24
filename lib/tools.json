@@ -1,0 +1,3231 @@
+{
+  "schemaVersion": 1,
+  "name": "Tinka tools",
+  "tools": [
+    {
+      "name": "workspace.search",
+      "description": "Search metadata deterministically across nested boards. Defaults to compact title/description matches; body explicitly scans inline text and review notes, never resource files.",
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "query": {
+            "type": "string"
+          },
+          "kind": {
+            "enum": [
+              "all",
+              "items",
+              "boards"
+            ]
+          },
+          "fields": {
+            "type": "array",
+            "items": {
+              "enum": [
+                "title",
+                "description"
+              ]
+            }
+          },
+          "withinBoardId": {
+            "type": "string",
+            "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_-]{0,127}$",
+            "maxLength": 128
+          },
+          "recursive": {
+            "type": "boolean"
+          },
+          "createdAfter": {
+            "type": "string"
+          },
+          "createdBefore": {
+            "type": "string"
+          },
+          "updatedAfter": {
+            "type": "string"
+          },
+          "updatedBefore": {
+            "type": "string"
+          },
+          "sort": {
+            "enum": [
+              "title",
+              "createdAt",
+              "updatedAt"
+            ]
+          },
+          "direction": {
+            "enum": [
+              "asc",
+              "desc"
+            ]
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 100
+          },
+          "cursor": {
+            "type": "string"
+          },
+          "includeArchived": {
+            "type": "boolean"
+          },
+          "includeDeleted": {
+            "type": "boolean"
+          },
+          "body": {
+            "type": "boolean"
+          }
+        },
+        "required": []
+      }
+    },
+    {
+      "name": "workspace.recent",
+      "description": "Return recently updated compact metadata, including deeply nested items and boards.",
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 100
+          },
+          "withinBoardId": {
+            "type": "string",
+            "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_-]{0,127}$",
+            "maxLength": 128
+          },
+          "kind": {
+            "enum": [
+              "all",
+              "items",
+              "boards"
+            ]
+          }
+        },
+        "required": []
+      }
+    },
+    {
+      "name": "workspace.show",
+      "description": "Explicit complete workspace export. Expensive at scale; prefer search and targeted inspection.",
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {},
+        "required": []
+      }
+    },
+    {
+      "name": "workspace.view",
+      "description": "Read a metadata header, Home summaries/covers or containment/placement geometry without exporting historical document bodies.",
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "view": {
+            "enum": [
+              "header",
+              "home",
+              "graph"
+            ]
+          },
+          "covers": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "view"
+        ]
+      }
+    },
+    {
+      "name": "workspace.rebuildIndex",
+      "description": "Rebuild disposable discovery shards from authoritative individual files. Changes no canonical documents.",
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {},
+        "required": []
+      },
+      "mutating": true
+    },
+    {
+      "name": "workspace.inspect",
+      "description": "Read-only parse/identity inventory independent of home membership or discovery cache, including corrupt-header diagnostics.",
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {},
+        "required": []
+      }
+    },
+    {
+      "name": "workspace.migrate",
+      "description": "Preview or explicitly apply legacy conversion. App installation never performs this operation.",
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "dryRun": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "dryRun"
+        ]
+      },
+      "mutating": true
+    },
+    {
+      "name": "item.get",
+      "description": "Read one canonical item without loading unrelated boards or bodies.",
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "itemId": {
+            "type": "string",
+            "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_-]{0,127}$",
+            "maxLength": 128
+          }
+        },
+        "required": [
+          "itemId"
+        ]
+      }
+    },
+    {
+      "name": "board.get",
+      "description": "Read one board, its canonical items and immediate collection covers; never recursively export the workspace.",
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "boardId": {
+            "type": "string",
+            "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_-]{0,127}$",
+            "maxLength": 128
+          }
+        },
+        "required": [
+          "boardId"
+        ]
+      }
+    },
+    {
+      "name": "board.geometry",
+      "description": "Resolve board-space line endpoints, shape bounds and attachment/detached state deterministically.",
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "boardId": {
+            "type": "string",
+            "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_-]{0,127}$",
+            "maxLength": 128
+          }
+        },
+        "required": [
+          "boardId"
+        ]
+      }
+    },
+    {
+      "name": "workspace.apply",
+      "description": "Apply one existing graph operation with normal validation, revision checks and idempotence. Prefer named tools for discoverable schemas.",
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "operation": {
+            "type": "object"
+          }
+        },
+        "required": [
+          "operation"
+        ]
+      },
+      "mutating": true
+    },
+    {
+      "name": "item.create",
+      "description": "Create a title-only, inline, resource-backed or composite item; files remain project-owned.",
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "expectedRevision": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "operationId": {
+            "type": "string",
+            "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_-]{0,127}$",
+            "maxLength": 128
+          },
+          "boardId": {
+            "type": "string",
+            "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_-]{0,127}$",
+            "maxLength": 128
+          },
+          "item": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string",
+                "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_-]{0,127}$",
+                "maxLength": 128
+              },
+              "title": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 1000
+              },
+              "description": {
+                "type": "string",
+                "maxLength": 200000
+              },
+              "content": {
+                "oneOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "kind": {
+                        "enum": [
+                          "html",
+                          "image",
+                          "markdown",
+                          "video",
+                          "pdf",
+                          "url",
+                          "text",
+                          "note",
+                          "audio",
+                          "file"
+                        ]
+                      },
+                      "resource": {
+                        "type": "object",
+                        "properties": {
+                          "rootId": {
+                            "type": "string",
+                            "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_-]{0,127}$",
+                            "maxLength": 128
+                          },
+                          "path": {
+                            "type": "string",
+                            "description": "Path relative to a registered project-controlled resource root; no absolute paths."
+                          }
+                        },
+                        "required": [
+                          "rootId",
+                          "path"
+                        ],
+                        "additionalProperties": false
+                      },
+                      "url": {
+                        "type": "string",
+                        "description": "HTTP(S) URL without credentials; never executed by Tinka."
+                      },
+                      "text": {
+                        "type": "string",
+                        "maxLength": 2000000
+                      },
+                      "openMode": {
+                        "enum": [
+                          "inline",
+                          "standalone",
+                          "external",
+                          "download",
+                          "preview"
+                        ]
+                      },
+                      "startInstructions": {
+                        "type": "string",
+                        "maxLength": 20000
+                      }
+                    },
+                    "required": [
+                      "kind"
+                    ]
+                  }
+                ]
+              },
+              "preview": {
+                "oneOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "resource": {
+                        "type": "object",
+                        "properties": {
+                          "rootId": {
+                            "type": "string",
+                            "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_-]{0,127}$",
+                            "maxLength": 128
+                          },
+                          "path": {
+                            "type": "string",
+                            "description": "Path relative to a registered project-controlled resource root; no absolute paths."
+                          }
+                        },
+                        "required": [
+                          "rootId",
+                          "path"
+                        ],
+                        "additionalProperties": false
+                      },
+                      "url": {
+                        "type": "string"
+                      },
+                      "text": {
+                        "type": "string",
+                        "maxLength": 200000
+                      }
+                    },
+                    "required": []
+                  }
+                ]
+              },
+              "resources": {
+                "type": "array",
+                "items": {
+                  "oneOf": [
+                    {
+                      "type": "object",
+                      "properties": {
+                        "rootId": {
+                          "type": "string",
+                          "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_-]{0,127}$",
+                          "maxLength": 128
+                        },
+                        "path": {
+                          "type": "string",
+                          "description": "Path relative to a registered project-controlled resource root; no absolute paths."
+                        }
+                      },
+                      "required": [
+                        "rootId",
+                        "path"
+                      ],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "resource": {
+                          "type": "object",
+                          "properties": {
+                            "rootId": {
+                              "type": "string",
+                              "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_-]{0,127}$",
+                              "maxLength": 128
+                            },
+                            "path": {
+                              "type": "string",
+                              "description": "Path relative to a registered project-controlled resource root; no absolute paths."
+                            }
+                          },
+                          "required": [
+                            "rootId",
+                            "path"
+                          ],
+                          "additionalProperties": false
+                        }
+                      },
+                      "required": [
+                        "resource"
+                      ]
+                    }
+                  ]
+                },
+                "maxItems": 10000
+              },
+              "revisions": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "description": "Revision metadata: optional id, name, content, resource, url and retained legacy fields."
+                },
+                "maxItems": 10000
+              },
+              "build": {
+                "type": "object",
+                "properties": {
+                  "state": {
+                    "enum": [
+                      "reserved",
+                      "building",
+                      "review",
+                      "ready",
+                      "complete",
+                      "blocked",
+                      "draft"
+                    ]
+                  },
+                  "message": {
+                    "type": "string",
+                    "maxLength": 20000
+                  },
+                  "updatedAt": {}
+                },
+                "required": []
+              },
+              "review": {
+                "type": "object",
+                "properties": {
+                  "note": {
+                    "type": "string",
+                    "maxLength": 200000
+                  },
+                  "star": {
+                    "type": "boolean"
+                  }
+                },
+                "required": []
+              }
+            },
+            "required": [
+              "title"
+            ]
+          },
+          "placement": {
+            "type": "object",
+            "properties": {
+              "x": {
+                "type": "number",
+                "minimum": -10000000,
+                "maximum": 10000000
+              },
+              "y": {
+                "type": "number",
+                "minimum": -10000000,
+                "maximum": 10000000
+              },
+              "width": {
+                "type": "number",
+                "minimum": 40,
+                "maximum": 100000
+              },
+              "height": {
+                "type": "number",
+                "minimum": 40,
+                "maximum": 100000
+              },
+              "z": {
+                "type": "number",
+                "minimum": -10000000,
+                "maximum": 10000000
+              },
+              "presentation": {
+                "type": "object",
+                "properties": {
+                  "mode": {
+                    "enum": [
+                      "card",
+                      "panel",
+                      "icon"
+                    ]
+                  },
+                  "paper": {
+                    "type": "string",
+                    "pattern": "^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{4}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})$"
+                  },
+                  "viewport": {
+                    "type": "object",
+                    "properties": {
+                      "width": {
+                        "type": "integer",
+                        "minimum": 40,
+                        "maximum": 10000
+                      },
+                      "height": {
+                        "type": "integer",
+                        "minimum": 40,
+                        "maximum": 10000
+                      }
+                    },
+                    "required": [
+                      "width",
+                      "height"
+                    ],
+                    "additionalProperties": false
+                  }
+                },
+                "required": [
+                  "mode"
+                ],
+                "additionalProperties": false
+              }
+            },
+            "required": [],
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "item"
+        ]
+      },
+      "operation": "createItem",
+      "mutating": true,
+      "examples": [
+        {
+          "boardId": "release-review",
+          "item": {
+            "title": "Live design doc",
+            "content": {
+              "kind": "markdown",
+              "resource": {
+                "rootId": "project",
+                "path": "docs/design.md"
+              }
+            }
+          },
+          "placement": {
+            "x": 200,
+            "y": 100,
+            "width": 420,
+            "height": 560,
+            "presentation": {
+              "mode": "panel"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "item.update",
+      "description": "Update canonical title, description, content, preview, revisions or build metadata.",
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "expectedRevision": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "operationId": {
+            "type": "string",
+            "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_-]{0,127}$",
+            "maxLength": 128
+          },
+          "itemId": {
+            "type": "string",
+            "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_-]{0,127}$",
+            "maxLength": 128
+          },
+          "patch": {
+            "type": "object",
+            "properties": {
+              "title": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 1000
+              },
+              "description": {
+                "type": "string",
+                "maxLength": 200000
+              },
+              "content": {
+                "oneOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "kind": {
+                        "enum": [
+                          "html",
+                          "image",
+                          "markdown",
+                          "video",
+                          "pdf",
+                          "url",
+                          "text",
+                          "note",
+                          "audio",
+                          "file"
+                        ]
+                      },
+                      "resource": {
+                        "type": "object",
+                        "properties": {
+                          "rootId": {
+                            "type": "string",
+                            "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_-]{0,127}$",
+                            "maxLength": 128
+                          },
+                          "path": {
+                            "type": "string",
+                            "description": "Path relative to a registered project-controlled resource root; no absolute paths."
+                          }
+                        },
+                        "required": [
+                          "rootId",
+                          "path"
+                        ],
+                        "additionalProperties": false
+                      },
+                      "url": {
+                        "type": "string",
+                        "description": "HTTP(S) URL without credentials; never executed by Tinka."
+                      },
+                      "text": {
+                        "type": "string",
+                        "maxLength": 2000000
+                      },
+                      "openMode": {
+                        "enum": [
+                          "inline",
+                          "standalone",
+                          "external",
+                          "download",
+                          "preview"
+                        ]
+                      },
+                      "startInstructions": {
+                        "type": "string",
+                        "maxLength": 20000
+                      }
+                    },
+                    "required": [
+                      "kind"
+                    ]
+                  }
+                ]
+              },
+              "preview": {
+                "oneOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "resource": {
+                        "type": "object",
+                        "properties": {
+                          "rootId": {
+                            "type": "string",
+                            "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_-]{0,127}$",
+                            "maxLength": 128
+                          },
+                          "path": {
+                            "type": "string",
+                            "description": "Path relative to a registered project-controlled resource root; no absolute paths."
+                          }
+                        },
+                        "required": [
+                          "rootId",
+                          "path"
+                        ],
+                        "additionalProperties": false
+                      },
+                      "url": {
+                        "type": "string"
+                      },
+                      "text": {
+                        "type": "string",
+                        "maxLength": 200000
+                      }
+                    },
+                    "required": []
+                  }
+                ]
+              },
+              "resources": {
+                "type": "array",
+                "items": {
+                  "oneOf": [
+                    {
+                      "type": "object",
+                      "properties": {
+                        "rootId": {
+                          "type": "string",
+                          "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_-]{0,127}$",
+                          "maxLength": 128
+                        },
+                        "path": {
+                          "type": "string",
+                          "description": "Path relative to a registered project-controlled resource root; no absolute paths."
+                        }
+                      },
+                      "required": [
+                        "rootId",
+                        "path"
+                      ],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "resource": {
+                          "type": "object",
+                          "properties": {
+                            "rootId": {
+                              "type": "string",
+                              "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_-]{0,127}$",
+                              "maxLength": 128
+                            },
+                            "path": {
+                              "type": "string",
+                              "description": "Path relative to a registered project-controlled resource root; no absolute paths."
+                            }
+                          },
+                          "required": [
+                            "rootId",
+                            "path"
+                          ],
+                          "additionalProperties": false
+                        }
+                      },
+                      "required": [
+                        "resource"
+                      ]
+                    }
+                  ]
+                },
+                "maxItems": 10000
+              },
+              "revisions": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "description": "Revision metadata: optional id, name, content, resource, url and retained legacy fields."
+                },
+                "maxItems": 10000
+              },
+              "build": {
+                "type": "object",
+                "properties": {
+                  "state": {
+                    "enum": [
+                      "reserved",
+                      "building",
+                      "review",
+                      "ready",
+                      "complete",
+                      "blocked",
+                      "draft"
+                    ]
+                  },
+                  "message": {
+                    "type": "string",
+                    "maxLength": 20000
+                  },
+                  "updatedAt": {}
+                },
+                "required": []
+              },
+              "review": {
+                "type": "object",
+                "properties": {
+                  "note": {
+                    "type": "string",
+                    "maxLength": 200000
+                  },
+                  "star": {
+                    "type": "boolean"
+                  }
+                },
+                "required": []
+              }
+            },
+            "required": []
+          }
+        },
+        "required": [
+          "itemId",
+          "patch"
+        ]
+      },
+      "operation": "updateItem",
+      "mutating": true
+    },
+    {
+      "name": "item.review",
+      "description": "Set the existing canonical review note/star shared across references.",
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "expectedRevision": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "operationId": {
+            "type": "string",
+            "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_-]{0,127}$",
+            "maxLength": 128
+          },
+          "itemId": {
+            "type": "string",
+            "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_-]{0,127}$",
+            "maxLength": 128
+          },
+          "patch": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "note": {
+                "type": "string"
+              },
+              "star": {
+                "type": "boolean"
+              }
+            },
+            "required": []
+          }
+        },
+        "required": [
+          "itemId",
+          "patch"
+        ]
+      },
+      "operation": "review",
+      "mutating": true
+    },
+    {
+      "name": "item.duplicate",
+      "description": "Create an independent item using the same resource files; copied boards retain child references.",
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "expectedRevision": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "operationId": {
+            "type": "string",
+            "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_-]{0,127}$",
+            "maxLength": 128
+          },
+          "itemId": {
+            "type": "string",
+            "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_-]{0,127}$",
+            "maxLength": 128
+          },
+          "targetBoardId": {
+            "type": "string",
+            "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_-]{0,127}$",
+            "maxLength": 128
+          },
+          "title": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "itemId"
+        ]
+      },
+      "operation": "duplicate",
+      "mutating": true
+    },
+    {
+      "name": "item.archive",
+      "description": "Archive or restore canonical items across references.",
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "expectedRevision": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "operationId": {
+            "type": "string",
+            "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_-]{0,127}$",
+            "maxLength": 128
+          },
+          "itemIds": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_-]{0,127}$",
+              "maxLength": 128
+            },
+            "minItems": 1
+          },
+          "archived": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "itemIds",
+          "archived"
+        ]
+      },
+      "operation": "archiveItem",
+      "mutating": true
+    },
+    {
+      "name": "item.delete",
+      "description": "Mark canonical items deleted across references without deleting resource files.",
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "expectedRevision": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "operationId": {
+            "type": "string",
+            "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_-]{0,127}$",
+            "maxLength": 128
+          },
+          "itemIds": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_-]{0,127}$",
+              "maxLength": 128
+            },
+            "minItems": 1
+          }
+        },
+        "required": [
+          "itemIds"
+        ]
+      },
+      "operation": "deleteItem",
+      "mutating": true
+    },
+    {
+      "name": "board.create",
+      "description": "Create a board on Home or under a parent; optional existing owner item retains its content.",
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "expectedRevision": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "operationId": {
+            "type": "string",
+            "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_-]{0,127}$",
+            "maxLength": 128
+          },
+          "id": {
+            "type": "string",
+            "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_-]{0,127}$",
+            "maxLength": 128
+          },
+          "title": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          },
+          "itemId": {
+            "type": "string",
+            "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_-]{0,127}$",
+            "maxLength": 128
+          },
+          "parentBoardId": {
+            "type": "string",
+            "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_-]{0,127}$",
+            "maxLength": 128
+          }
+        },
+        "required": [
+          "title"
+        ]
+      },
+      "operation": "createBoard",
+      "mutating": true
+    },
+    {
+      "name": "board.update",
+      "description": "Update board title, review order, existing decorations or background.",
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "expectedRevision": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "operationId": {
+            "type": "string",
+            "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_-]{0,127}$",
+            "maxLength": 128
+          },
+          "boardId": {
+            "type": "string",
+            "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_-]{0,127}$",
+            "maxLength": 128
+          },
+          "patch": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "title": {
+                "type": "string"
+              },
+              "description": {
+                "type": "string"
+              },
+              "reviewOrder": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_-]{0,127}$",
+                  "maxLength": 128
+                }
+              },
+              "decorations": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "string",
+                      "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_-]{0,127}$",
+                      "maxLength": 128
+                    },
+                    "type": {
+                      "enum": [
+                        "text",
+                        "region",
+                        "line"
+                      ]
+                    },
+                    "x": {
+                      "type": "number",
+                      "minimum": -10000000,
+                      "maximum": 10000000
+                    },
+                    "y": {
+                      "type": "number",
+                      "minimum": -10000000,
+                      "maximum": 10000000
+                    },
+                    "width": {
+                      "type": "number",
+                      "exclusiveMinimum": 0,
+                      "maximum": 100000
+                    },
+                    "height": {
+                      "type": "number",
+                      "exclusiveMinimum": 0,
+                      "maximum": 100000
+                    },
+                    "color": {
+                      "type": "string",
+                      "pattern": "^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{4}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})$"
+                    },
+                    "text": {
+                      "type": "string",
+                      "maxLength": 20000
+                    },
+                    "shape": {
+                      "enum": [
+                        "rectangle",
+                        "rounded",
+                        "diamond",
+                        "ellipse"
+                      ]
+                    },
+                    "endArrow": {
+                      "type": "boolean"
+                    },
+                    "flipX": {
+                      "type": "boolean"
+                    },
+                    "flipY": {
+                      "type": "boolean"
+                    },
+                    "from": {
+                      "oneOf": [
+                        {
+                          "type": "object",
+                          "properties": {
+                            "x": {
+                              "type": "number",
+                              "minimum": -10000000,
+                              "maximum": 10000000
+                            },
+                            "y": {
+                              "type": "number",
+                              "minimum": -10000000,
+                              "maximum": 10000000
+                            }
+                          },
+                          "required": [
+                            "x",
+                            "y"
+                          ],
+                          "additionalProperties": false
+                        },
+                        {
+                          "type": "object",
+                          "properties": {
+                            "placementId": {
+                              "type": "string",
+                              "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_-]{0,127}$",
+                              "maxLength": 128
+                            },
+                            "side": {
+                              "enum": [
+                                "top",
+                                "right",
+                                "bottom",
+                                "left"
+                              ]
+                            },
+                            "offset": {
+                              "type": "number",
+                              "minimum": 0,
+                              "maximum": 1
+                            },
+                            "fallback": {
+                              "type": "object",
+                              "properties": {
+                                "x": {
+                                  "type": "number",
+                                  "minimum": -10000000,
+                                  "maximum": 10000000
+                                },
+                                "y": {
+                                  "type": "number",
+                                  "minimum": -10000000,
+                                  "maximum": 10000000
+                                }
+                              },
+                              "required": [
+                                "x",
+                                "y"
+                              ],
+                              "additionalProperties": false
+                            }
+                          },
+                          "required": [
+                            "placementId",
+                            "side"
+                          ],
+                          "additionalProperties": false
+                        },
+                        {
+                          "type": "object",
+                          "properties": {
+                            "decorationId": {
+                              "type": "string",
+                              "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_-]{0,127}$",
+                              "maxLength": 128
+                            },
+                            "side": {
+                              "enum": [
+                                "top",
+                                "right",
+                                "bottom",
+                                "left"
+                              ]
+                            },
+                            "offset": {
+                              "type": "number",
+                              "minimum": 0,
+                              "maximum": 1
+                            },
+                            "fallback": {
+                              "type": "object",
+                              "properties": {
+                                "x": {
+                                  "type": "number",
+                                  "minimum": -10000000,
+                                  "maximum": 10000000
+                                },
+                                "y": {
+                                  "type": "number",
+                                  "minimum": -10000000,
+                                  "maximum": 10000000
+                                }
+                              },
+                              "required": [
+                                "x",
+                                "y"
+                              ],
+                              "additionalProperties": false
+                            }
+                          },
+                          "required": [
+                            "decorationId",
+                            "side"
+                          ],
+                          "additionalProperties": false
+                        }
+                      ]
+                    },
+                    "to": {
+                      "oneOf": [
+                        {
+                          "type": "object",
+                          "properties": {
+                            "x": {
+                              "type": "number",
+                              "minimum": -10000000,
+                              "maximum": 10000000
+                            },
+                            "y": {
+                              "type": "number",
+                              "minimum": -10000000,
+                              "maximum": 10000000
+                            }
+                          },
+                          "required": [
+                            "x",
+                            "y"
+                          ],
+                          "additionalProperties": false
+                        },
+                        {
+                          "type": "object",
+                          "properties": {
+                            "placementId": {
+                              "type": "string",
+                              "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_-]{0,127}$",
+                              "maxLength": 128
+                            },
+                            "side": {
+                              "enum": [
+                                "top",
+                                "right",
+                                "bottom",
+                                "left"
+                              ]
+                            },
+                            "offset": {
+                              "type": "number",
+                              "minimum": 0,
+                              "maximum": 1
+                            },
+                            "fallback": {
+                              "type": "object",
+                              "properties": {
+                                "x": {
+                                  "type": "number",
+                                  "minimum": -10000000,
+                                  "maximum": 10000000
+                                },
+                                "y": {
+                                  "type": "number",
+                                  "minimum": -10000000,
+                                  "maximum": 10000000
+                                }
+                              },
+                              "required": [
+                                "x",
+                                "y"
+                              ],
+                              "additionalProperties": false
+                            }
+                          },
+                          "required": [
+                            "placementId",
+                            "side"
+                          ],
+                          "additionalProperties": false
+                        },
+                        {
+                          "type": "object",
+                          "properties": {
+                            "decorationId": {
+                              "type": "string",
+                              "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_-]{0,127}$",
+                              "maxLength": 128
+                            },
+                            "side": {
+                              "enum": [
+                                "top",
+                                "right",
+                                "bottom",
+                                "left"
+                              ]
+                            },
+                            "offset": {
+                              "type": "number",
+                              "minimum": 0,
+                              "maximum": 1
+                            },
+                            "fallback": {
+                              "type": "object",
+                              "properties": {
+                                "x": {
+                                  "type": "number",
+                                  "minimum": -10000000,
+                                  "maximum": 10000000
+                                },
+                                "y": {
+                                  "type": "number",
+                                  "minimum": -10000000,
+                                  "maximum": 10000000
+                                }
+                              },
+                              "required": [
+                                "x",
+                                "y"
+                              ],
+                              "additionalProperties": false
+                            }
+                          },
+                          "required": [
+                            "decorationId",
+                            "side"
+                          ],
+                          "additionalProperties": false
+                        }
+                      ]
+                    }
+                  },
+                  "required": [
+                    "id",
+                    "type",
+                    "x",
+                    "y",
+                    "width",
+                    "height",
+                    "color",
+                    "text"
+                  ],
+                  "description": "Board-local text, region/shape or line. from/to must occur together on lines. Attached targets must be same-board active placements or non-line decorations; fallback is used only if target later detaches. Omitted region shape preserves existing colored-area behavior."
+                },
+                "maxItems": 10000
+              },
+              "background": {
+                "oneOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "color": {
+                        "type": "string"
+                      },
+                      "resource": {
+                        "type": "object",
+                        "properties": {
+                          "rootId": {
+                            "type": "string",
+                            "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_-]{0,127}$",
+                            "maxLength": 128
+                          },
+                          "path": {
+                            "type": "string",
+                            "description": "Path relative to a registered project-controlled resource root; no absolute paths."
+                          }
+                        },
+                        "required": [
+                          "rootId",
+                          "path"
+                        ],
+                        "additionalProperties": false
+                      }
+                    },
+                    "required": []
+                  }
+                ]
+              }
+            },
+            "required": []
+          }
+        },
+        "required": [
+          "boardId",
+          "patch"
+        ]
+      },
+      "operation": "updateBoard",
+      "mutating": true
+    },
+    {
+      "name": "placement.update",
+      "description": "Update placement-local geometry/presentation; notes and content remain canonical.",
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "expectedRevision": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "operationId": {
+            "type": "string",
+            "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_-]{0,127}$",
+            "maxLength": 128
+          },
+          "boardId": {
+            "type": "string",
+            "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_-]{0,127}$",
+            "maxLength": 128
+          },
+          "placementId": {
+            "type": "string",
+            "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_-]{0,127}$",
+            "maxLength": 128
+          },
+          "patch": {
+            "type": "object",
+            "properties": {
+              "x": {
+                "type": "number",
+                "minimum": -10000000,
+                "maximum": 10000000
+              },
+              "y": {
+                "type": "number",
+                "minimum": -10000000,
+                "maximum": 10000000
+              },
+              "width": {
+                "type": "number",
+                "minimum": 40,
+                "maximum": 100000
+              },
+              "height": {
+                "type": "number",
+                "minimum": 40,
+                "maximum": 100000
+              },
+              "z": {
+                "type": "number",
+                "minimum": -10000000,
+                "maximum": 10000000
+              },
+              "presentation": {
+                "type": "object",
+                "properties": {
+                  "mode": {
+                    "enum": [
+                      "card",
+                      "panel",
+                      "icon"
+                    ]
+                  },
+                  "paper": {
+                    "type": "string",
+                    "pattern": "^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{4}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})$"
+                  },
+                  "viewport": {
+                    "type": "object",
+                    "properties": {
+                      "width": {
+                        "type": "integer",
+                        "minimum": 40,
+                        "maximum": 10000
+                      },
+                      "height": {
+                        "type": "integer",
+                        "minimum": 40,
+                        "maximum": 10000
+                      }
+                    },
+                    "required": [
+                      "width",
+                      "height"
+                    ],
+                    "additionalProperties": false
+                  }
+                },
+                "required": [
+                  "mode"
+                ],
+                "additionalProperties": false
+              }
+            },
+            "required": [],
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "boardId",
+          "placementId",
+          "patch"
+        ]
+      },
+      "operation": "updatePlacement",
+      "mutating": true
+    },
+    {
+      "name": "placement.translate",
+      "description": "Translate selected placements atomically, preserving arrangement and returning movement history.",
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "expectedRevision": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "operationId": {
+            "type": "string",
+            "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_-]{0,127}$",
+            "maxLength": 128
+          },
+          "boardId": {
+            "type": "string",
+            "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_-]{0,127}$",
+            "maxLength": 128
+          },
+          "placementIds": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_-]{0,127}$",
+              "maxLength": 128
+            },
+            "minItems": 1
+          },
+          "dx": {
+            "type": "number",
+            "minimum": -10000000,
+            "maximum": 10000000
+          },
+          "dy": {
+            "type": "number",
+            "minimum": -10000000,
+            "maximum": 10000000
+          }
+        },
+        "required": [
+          "boardId",
+          "placementIds",
+          "dx",
+          "dy"
+        ]
+      },
+      "operation": "translatePlacements",
+      "mutating": true
+    },
+    {
+      "name": "placement.move",
+      "description": "Move references between boards or into a new board, preserving item identity and files.",
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "expectedRevision": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "operationId": {
+            "type": "string",
+            "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_-]{0,127}$",
+            "maxLength": 128
+          },
+          "sourceBoardId": {
+            "type": "string",
+            "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_-]{0,127}$",
+            "maxLength": 128
+          },
+          "placementIds": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_-]{0,127}$",
+              "maxLength": 128
+            },
+            "minItems": 1
+          },
+          "itemIds": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_-]{0,127}$",
+              "maxLength": 128
+            },
+            "minItems": 1
+          },
+          "targetBoardId": {
+            "type": "string",
+            "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_-]{0,127}$",
+            "maxLength": 128
+          },
+          "newBoard": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string",
+                "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_-]{0,127}$",
+                "maxLength": 128
+              },
+              "title": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 1000
+              },
+              "parentBoardId": {
+                "type": "string",
+                "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_-]{0,127}$",
+                "maxLength": 128
+              }
+            },
+            "required": [
+              "title"
+            ]
+          },
+          "targetPosition": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "x": {
+                "type": "number",
+                "minimum": -10000000,
+                "maximum": 10000000
+              },
+              "y": {
+                "type": "number",
+                "minimum": -10000000,
+                "maximum": 10000000
+              }
+            },
+            "required": [
+              "x",
+              "y"
+            ]
+          },
+          "expectedSourcePlacements": {
+            "type": "array",
+            "items": {
+              "type": "object"
+            }
+          },
+          "expectedSourceReviewOrder": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_-]{0,127}$",
+              "maxLength": 128
+            }
+          }
+        },
+        "required": []
+      },
+      "operation": "move",
+      "mutating": true
+    },
+    {
+      "name": "placement.reference",
+      "description": "Place the same canonical items elsewhere with shared feedback.",
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "expectedRevision": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "operationId": {
+            "type": "string",
+            "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_-]{0,127}$",
+            "maxLength": 128
+          },
+          "sourceBoardId": {
+            "type": "string",
+            "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_-]{0,127}$",
+            "maxLength": 128
+          },
+          "placementIds": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_-]{0,127}$",
+              "maxLength": 128
+            },
+            "minItems": 1
+          },
+          "itemIds": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_-]{0,127}$",
+              "maxLength": 128
+            },
+            "minItems": 1
+          },
+          "targetBoardId": {
+            "type": "string",
+            "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_-]{0,127}$",
+            "maxLength": 128
+          },
+          "newBoard": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string",
+                "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_-]{0,127}$",
+                "maxLength": 128
+              },
+              "title": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 1000
+              },
+              "parentBoardId": {
+                "type": "string",
+                "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_-]{0,127}$",
+                "maxLength": 128
+              }
+            },
+            "required": [
+              "title"
+            ]
+          }
+        },
+        "required": []
+      },
+      "operation": "reference",
+      "mutating": true
+    },
+    {
+      "name": "placement.archive",
+      "description": "Archive/restore selected placements only.",
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "expectedRevision": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "operationId": {
+            "type": "string",
+            "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_-]{0,127}$",
+            "maxLength": 128
+          },
+          "boardId": {
+            "type": "string",
+            "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_-]{0,127}$",
+            "maxLength": 128
+          },
+          "placementIds": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_-]{0,127}$",
+              "maxLength": 128
+            },
+            "minItems": 1
+          },
+          "archived": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "boardId",
+          "placementIds",
+          "archived"
+        ]
+      },
+      "operation": "archive",
+      "mutating": true
+    },
+    {
+      "name": "placement.remove",
+      "description": "Detach selected placements without deleting canonical items or files; movement history supports undo.",
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "expectedRevision": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "operationId": {
+            "type": "string",
+            "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_-]{0,127}$",
+            "maxLength": 128
+          },
+          "boardId": {
+            "type": "string",
+            "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_-]{0,127}$",
+            "maxLength": 128
+          },
+          "placementIds": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_-]{0,127}$",
+              "maxLength": 128
+            },
+            "minItems": 1
+          }
+        },
+        "required": [
+          "boardId",
+          "placementIds"
+        ]
+      },
+      "operation": "remove",
+      "mutating": true
+    },
+    {
+      "name": "placement.paste",
+      "description": "Paste a validated same-workspace placement snapshot as independent copies.",
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "expectedRevision": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "operationId": {
+            "type": "string",
+            "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_-]{0,127}$",
+            "maxLength": 128
+          },
+          "targetBoardId": {
+            "type": "string",
+            "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_-]{0,127}$",
+            "maxLength": 128
+          },
+          "targetPosition": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "x": {
+                "type": "number",
+                "minimum": -10000000,
+                "maximum": 10000000
+              },
+              "y": {
+                "type": "number",
+                "minimum": -10000000,
+                "maximum": 10000000
+              }
+            },
+            "required": [
+              "x",
+              "y"
+            ]
+          },
+          "clipboard": {
+            "type": "object"
+          }
+        },
+        "required": [
+          "targetBoardId",
+          "targetPosition",
+          "clipboard"
+        ]
+      },
+      "operation": "pastePlacements",
+      "mutating": true
+    },
+    {
+      "name": "movement.restore",
+      "description": "Replay an opaque server-authenticated movement receipt for undo/redo.",
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "expectedRevision": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "operationId": {
+            "type": "string",
+            "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_-]{0,127}$",
+            "maxLength": 128
+          },
+          "history": {
+            "type": "object"
+          }
+        },
+        "required": [
+          "history"
+        ]
+      },
+      "operation": "restoreMovement",
+      "mutating": true
+    },
+    {
+      "name": "workspace.update",
+      "description": "Register project-controlled named resource roots outside replaceable app metadata.",
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "expectedRevision": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "operationId": {
+            "type": "string",
+            "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_-]{0,127}$",
+            "maxLength": 128
+          },
+          "patch": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "resourceRoots": {
+                "type": "object"
+              },
+              "homeBoardIds": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              }
+            },
+            "required": []
+          }
+        },
+        "required": [
+          "patch"
+        ]
+      },
+      "operation": "updateWorkspace",
+      "mutating": true
+    },
+    {
+      "name": "decoration.create",
+      "description": "Create text, region/sticky/shape or line with explicit or attached endpoints.",
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "expectedRevision": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "operationId": {
+            "type": "string",
+            "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_-]{0,127}$",
+            "maxLength": 128
+          },
+          "boardId": {
+            "type": "string",
+            "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_-]{0,127}$",
+            "maxLength": 128
+          },
+          "decoration": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string",
+                "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_-]{0,127}$",
+                "maxLength": 128
+              },
+              "type": {
+                "enum": [
+                  "text",
+                  "region",
+                  "line"
+                ]
+              },
+              "x": {
+                "type": "number",
+                "minimum": -10000000,
+                "maximum": 10000000
+              },
+              "y": {
+                "type": "number",
+                "minimum": -10000000,
+                "maximum": 10000000
+              },
+              "width": {
+                "type": "number",
+                "exclusiveMinimum": 0,
+                "maximum": 100000
+              },
+              "height": {
+                "type": "number",
+                "exclusiveMinimum": 0,
+                "maximum": 100000
+              },
+              "color": {
+                "type": "string",
+                "pattern": "^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{4}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})$"
+              },
+              "text": {
+                "type": "string",
+                "maxLength": 20000
+              },
+              "shape": {
+                "enum": [
+                  "rectangle",
+                  "rounded",
+                  "diamond",
+                  "ellipse"
+                ]
+              },
+              "endArrow": {
+                "type": "boolean"
+              },
+              "flipX": {
+                "type": "boolean"
+              },
+              "flipY": {
+                "type": "boolean"
+              },
+              "from": {
+                "oneOf": [
+                  {
+                    "type": "object",
+                    "properties": {
+                      "x": {
+                        "type": "number",
+                        "minimum": -10000000,
+                        "maximum": 10000000
+                      },
+                      "y": {
+                        "type": "number",
+                        "minimum": -10000000,
+                        "maximum": 10000000
+                      }
+                    },
+                    "required": [
+                      "x",
+                      "y"
+                    ],
+                    "additionalProperties": false
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "placementId": {
+                        "type": "string",
+                        "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_-]{0,127}$",
+                        "maxLength": 128
+                      },
+                      "side": {
+                        "enum": [
+                          "top",
+                          "right",
+                          "bottom",
+                          "left"
+                        ]
+                      },
+                      "offset": {
+                        "type": "number",
+                        "minimum": 0,
+                        "maximum": 1
+                      },
+                      "fallback": {
+                        "type": "object",
+                        "properties": {
+                          "x": {
+                            "type": "number",
+                            "minimum": -10000000,
+                            "maximum": 10000000
+                          },
+                          "y": {
+                            "type": "number",
+                            "minimum": -10000000,
+                            "maximum": 10000000
+                          }
+                        },
+                        "required": [
+                          "x",
+                          "y"
+                        ],
+                        "additionalProperties": false
+                      }
+                    },
+                    "required": [
+                      "placementId",
+                      "side"
+                    ],
+                    "additionalProperties": false
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "decorationId": {
+                        "type": "string",
+                        "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_-]{0,127}$",
+                        "maxLength": 128
+                      },
+                      "side": {
+                        "enum": [
+                          "top",
+                          "right",
+                          "bottom",
+                          "left"
+                        ]
+                      },
+                      "offset": {
+                        "type": "number",
+                        "minimum": 0,
+                        "maximum": 1
+                      },
+                      "fallback": {
+                        "type": "object",
+                        "properties": {
+                          "x": {
+                            "type": "number",
+                            "minimum": -10000000,
+                            "maximum": 10000000
+                          },
+                          "y": {
+                            "type": "number",
+                            "minimum": -10000000,
+                            "maximum": 10000000
+                          }
+                        },
+                        "required": [
+                          "x",
+                          "y"
+                        ],
+                        "additionalProperties": false
+                      }
+                    },
+                    "required": [
+                      "decorationId",
+                      "side"
+                    ],
+                    "additionalProperties": false
+                  }
+                ]
+              },
+              "to": {
+                "oneOf": [
+                  {
+                    "type": "object",
+                    "properties": {
+                      "x": {
+                        "type": "number",
+                        "minimum": -10000000,
+                        "maximum": 10000000
+                      },
+                      "y": {
+                        "type": "number",
+                        "minimum": -10000000,
+                        "maximum": 10000000
+                      }
+                    },
+                    "required": [
+                      "x",
+                      "y"
+                    ],
+                    "additionalProperties": false
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "placementId": {
+                        "type": "string",
+                        "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_-]{0,127}$",
+                        "maxLength": 128
+                      },
+                      "side": {
+                        "enum": [
+                          "top",
+                          "right",
+                          "bottom",
+                          "left"
+                        ]
+                      },
+                      "offset": {
+                        "type": "number",
+                        "minimum": 0,
+                        "maximum": 1
+                      },
+                      "fallback": {
+                        "type": "object",
+                        "properties": {
+                          "x": {
+                            "type": "number",
+                            "minimum": -10000000,
+                            "maximum": 10000000
+                          },
+                          "y": {
+                            "type": "number",
+                            "minimum": -10000000,
+                            "maximum": 10000000
+                          }
+                        },
+                        "required": [
+                          "x",
+                          "y"
+                        ],
+                        "additionalProperties": false
+                      }
+                    },
+                    "required": [
+                      "placementId",
+                      "side"
+                    ],
+                    "additionalProperties": false
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "decorationId": {
+                        "type": "string",
+                        "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_-]{0,127}$",
+                        "maxLength": 128
+                      },
+                      "side": {
+                        "enum": [
+                          "top",
+                          "right",
+                          "bottom",
+                          "left"
+                        ]
+                      },
+                      "offset": {
+                        "type": "number",
+                        "minimum": 0,
+                        "maximum": 1
+                      },
+                      "fallback": {
+                        "type": "object",
+                        "properties": {
+                          "x": {
+                            "type": "number",
+                            "minimum": -10000000,
+                            "maximum": 10000000
+                          },
+                          "y": {
+                            "type": "number",
+                            "minimum": -10000000,
+                            "maximum": 10000000
+                          }
+                        },
+                        "required": [
+                          "x",
+                          "y"
+                        ],
+                        "additionalProperties": false
+                      }
+                    },
+                    "required": [
+                      "decorationId",
+                      "side"
+                    ],
+                    "additionalProperties": false
+                  }
+                ]
+              }
+            },
+            "required": [
+              "type",
+              "x",
+              "y",
+              "width",
+              "height",
+              "color",
+              "text"
+            ],
+            "description": "Board-local text, region/shape or line. from/to must occur together on lines. Attached targets must be same-board active placements or non-line decorations; fallback is used only if target later detaches. Omitted region shape preserves existing colored-area behavior."
+          }
+        },
+        "required": [
+          "boardId",
+          "decoration"
+        ]
+      },
+      "operation": "createDecoration",
+      "mutating": true,
+      "examples": [
+        {
+          "boardId": "release-review",
+          "decoration": {
+            "id": "approval",
+            "type": "line",
+            "x": 0,
+            "y": 0,
+            "width": 300,
+            "height": 100,
+            "color": "#627351",
+            "text": "Review",
+            "endArrow": true,
+            "from": {
+              "decorationId": "review-step",
+              "side": "right"
+            },
+            "to": {
+              "placementId": "screenshot-placement",
+              "side": "left"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "decoration.update",
+      "description": "Update exactly one board-local decoration, preserving peers; endpoint pair uses board units.",
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "expectedRevision": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "operationId": {
+            "type": "string",
+            "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_-]{0,127}$",
+            "maxLength": 128
+          },
+          "boardId": {
+            "type": "string",
+            "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_-]{0,127}$",
+            "maxLength": 128
+          },
+          "decorationId": {
+            "type": "string",
+            "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_-]{0,127}$",
+            "maxLength": 128
+          },
+          "patch": {
+            "type": "object",
+            "properties": {
+              "type": {
+                "enum": [
+                  "text",
+                  "region",
+                  "line"
+                ]
+              },
+              "x": {
+                "type": "number",
+                "minimum": -10000000,
+                "maximum": 10000000
+              },
+              "y": {
+                "type": "number",
+                "minimum": -10000000,
+                "maximum": 10000000
+              },
+              "width": {
+                "type": "number",
+                "exclusiveMinimum": 0,
+                "maximum": 100000
+              },
+              "height": {
+                "type": "number",
+                "exclusiveMinimum": 0,
+                "maximum": 100000
+              },
+              "color": {
+                "type": "string",
+                "pattern": "^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{4}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})$"
+              },
+              "text": {
+                "type": "string",
+                "maxLength": 20000
+              },
+              "shape": {
+                "enum": [
+                  "rectangle",
+                  "rounded",
+                  "diamond",
+                  "ellipse"
+                ]
+              },
+              "endArrow": {
+                "type": "boolean"
+              },
+              "flipX": {
+                "type": "boolean"
+              },
+              "flipY": {
+                "type": "boolean"
+              },
+              "from": {
+                "oneOf": [
+                  {
+                    "type": "object",
+                    "properties": {
+                      "x": {
+                        "type": "number",
+                        "minimum": -10000000,
+                        "maximum": 10000000
+                      },
+                      "y": {
+                        "type": "number",
+                        "minimum": -10000000,
+                        "maximum": 10000000
+                      }
+                    },
+                    "required": [
+                      "x",
+                      "y"
+                    ],
+                    "additionalProperties": false
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "placementId": {
+                        "type": "string",
+                        "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_-]{0,127}$",
+                        "maxLength": 128
+                      },
+                      "side": {
+                        "enum": [
+                          "top",
+                          "right",
+                          "bottom",
+                          "left"
+                        ]
+                      },
+                      "offset": {
+                        "type": "number",
+                        "minimum": 0,
+                        "maximum": 1
+                      },
+                      "fallback": {
+                        "type": "object",
+                        "properties": {
+                          "x": {
+                            "type": "number",
+                            "minimum": -10000000,
+                            "maximum": 10000000
+                          },
+                          "y": {
+                            "type": "number",
+                            "minimum": -10000000,
+                            "maximum": 10000000
+                          }
+                        },
+                        "required": [
+                          "x",
+                          "y"
+                        ],
+                        "additionalProperties": false
+                      }
+                    },
+                    "required": [
+                      "placementId",
+                      "side"
+                    ],
+                    "additionalProperties": false
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "decorationId": {
+                        "type": "string",
+                        "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_-]{0,127}$",
+                        "maxLength": 128
+                      },
+                      "side": {
+                        "enum": [
+                          "top",
+                          "right",
+                          "bottom",
+                          "left"
+                        ]
+                      },
+                      "offset": {
+                        "type": "number",
+                        "minimum": 0,
+                        "maximum": 1
+                      },
+                      "fallback": {
+                        "type": "object",
+                        "properties": {
+                          "x": {
+                            "type": "number",
+                            "minimum": -10000000,
+                            "maximum": 10000000
+                          },
+                          "y": {
+                            "type": "number",
+                            "minimum": -10000000,
+                            "maximum": 10000000
+                          }
+                        },
+                        "required": [
+                          "x",
+                          "y"
+                        ],
+                        "additionalProperties": false
+                      }
+                    },
+                    "required": [
+                      "decorationId",
+                      "side"
+                    ],
+                    "additionalProperties": false
+                  }
+                ]
+              },
+              "to": {
+                "oneOf": [
+                  {
+                    "type": "object",
+                    "properties": {
+                      "x": {
+                        "type": "number",
+                        "minimum": -10000000,
+                        "maximum": 10000000
+                      },
+                      "y": {
+                        "type": "number",
+                        "minimum": -10000000,
+                        "maximum": 10000000
+                      }
+                    },
+                    "required": [
+                      "x",
+                      "y"
+                    ],
+                    "additionalProperties": false
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "placementId": {
+                        "type": "string",
+                        "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_-]{0,127}$",
+                        "maxLength": 128
+                      },
+                      "side": {
+                        "enum": [
+                          "top",
+                          "right",
+                          "bottom",
+                          "left"
+                        ]
+                      },
+                      "offset": {
+                        "type": "number",
+                        "minimum": 0,
+                        "maximum": 1
+                      },
+                      "fallback": {
+                        "type": "object",
+                        "properties": {
+                          "x": {
+                            "type": "number",
+                            "minimum": -10000000,
+                            "maximum": 10000000
+                          },
+                          "y": {
+                            "type": "number",
+                            "minimum": -10000000,
+                            "maximum": 10000000
+                          }
+                        },
+                        "required": [
+                          "x",
+                          "y"
+                        ],
+                        "additionalProperties": false
+                      }
+                    },
+                    "required": [
+                      "placementId",
+                      "side"
+                    ],
+                    "additionalProperties": false
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "decorationId": {
+                        "type": "string",
+                        "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_-]{0,127}$",
+                        "maxLength": 128
+                      },
+                      "side": {
+                        "enum": [
+                          "top",
+                          "right",
+                          "bottom",
+                          "left"
+                        ]
+                      },
+                      "offset": {
+                        "type": "number",
+                        "minimum": 0,
+                        "maximum": 1
+                      },
+                      "fallback": {
+                        "type": "object",
+                        "properties": {
+                          "x": {
+                            "type": "number",
+                            "minimum": -10000000,
+                            "maximum": 10000000
+                          },
+                          "y": {
+                            "type": "number",
+                            "minimum": -10000000,
+                            "maximum": 10000000
+                          }
+                        },
+                        "required": [
+                          "x",
+                          "y"
+                        ],
+                        "additionalProperties": false
+                      }
+                    },
+                    "required": [
+                      "decorationId",
+                      "side"
+                    ],
+                    "additionalProperties": false
+                  }
+                ]
+              }
+            },
+            "required": [],
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "boardId",
+          "decorationId",
+          "patch"
+        ]
+      },
+      "operation": "updateDecoration",
+      "mutating": true
+    },
+    {
+      "name": "decoration.remove",
+      "description": "Remove one decoration; existing connectors retain honest detached endpoint references.",
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "expectedRevision": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "operationId": {
+            "type": "string",
+            "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_-]{0,127}$",
+            "maxLength": 128
+          },
+          "boardId": {
+            "type": "string",
+            "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_-]{0,127}$",
+            "maxLength": 128
+          },
+          "decorationId": {
+            "type": "string",
+            "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_-]{0,127}$",
+            "maxLength": 128
+          }
+        },
+        "required": [
+          "boardId",
+          "decorationId"
+        ]
+      },
+      "operation": "removeDecoration",
+      "mutating": true
+    },
+    {
+      "name": "link.preview",
+      "description": "Read bounded public HTTP(S) metadata for an explicitly supplied URL; does not execute remote HTML or write resources.",
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "url": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "url"
+        ]
+      }
+    },
+    {
+      "name": "files.import",
+      "description": "Import 1–20 local image/PDF files through the same validated import transaction. Paths are CLI-only; resource files remain outside app.",
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "expectedRevision": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "operationId": {
+            "type": "string",
+            "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_-]{0,127}$",
+            "maxLength": 128
+          },
+          "workspaceId": {
+            "type": "string",
+            "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_-]{0,127}$",
+            "maxLength": 128
+          },
+          "targetBoardId": {
+            "type": "string",
+            "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_-]{0,127}$",
+            "maxLength": 128
+          },
+          "targetPosition": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "x": {
+                "type": "number",
+                "minimum": -10000000,
+                "maximum": 10000000
+              },
+              "y": {
+                "type": "number",
+                "minimum": -10000000,
+                "maximum": 10000000
+              }
+            },
+            "required": [
+              "x",
+              "y"
+            ]
+          },
+          "paths": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "minItems": 1,
+            "maxItems": 20
+          },
+          "placements": {
+            "type": "array",
+            "items": {
+              "type": "object"
+            }
+          }
+        },
+        "required": [
+          "workspaceId",
+          "targetBoardId",
+          "targetPosition",
+          "paths",
+          "expectedRevision",
+          "operationId"
+        ]
+      },
+      "mutating": true,
+      "transports": [
+        "cli"
+      ]
+    },
+    {
+      "name": "feedback.list",
+      "mutating": false,
+      "description": "List compact feedback summaries by board/item or inspect one complete thread. Cursor binds the workspace revision. Point results include anchorPoint with resolved x/y and detached/fallback flags. Actor names are self-reported.",
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "boardId": {
+            "type": "string",
+            "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_-]{0,127}$",
+            "maxLength": 128
+          },
+          "itemId": {
+            "type": "string",
+            "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_-]{0,127}$",
+            "maxLength": 128
+          },
+          "threadId": {
+            "type": "string",
+            "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_-]{0,127}$",
+            "maxLength": 128
+          },
+          "resolved": {
+            "type": "boolean"
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 100
+          },
+          "cursor": {
+            "type": "string"
+          },
+          "includeBodies": {
+            "type": "boolean"
+          }
+        },
+        "required": []
+      }
+    },
+    {
+      "name": "feedback.comment",
+      "mutating": true,
+      "description": "Add a general, board-point, item or exact text-quote comment. Optional point relative:{x,y} fractions (0–1) require one target and follow its bounds; x/y retains the creation fallback. Author is a self-reported local identity.",
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "expectedRevision": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "operationId": {
+            "type": "string",
+            "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_-]{0,127}$",
+            "maxLength": 128
+          },
+          "boardId": {
+            "type": "string",
+            "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_-]{0,127}$",
+            "maxLength": 128
+          },
+          "id": {
+            "type": "string",
+            "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_-]{0,127}$",
+            "maxLength": 128
+          },
+          "itemId": {
+            "type": "string",
+            "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_-]{0,127}$",
+            "maxLength": 128
+          },
+          "anchor": {
+            "oneOf": [
+              {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "kind",
+                  "x",
+                  "y"
+                ],
+                "properties": {
+                  "kind": {
+                    "const": "point"
+                  },
+                  "x": {
+                    "type": "number",
+                    "minimum": -10000000,
+                    "maximum": 10000000
+                  },
+                  "y": {
+                    "type": "number",
+                    "minimum": -10000000,
+                    "maximum": 10000000
+                  },
+                  "placementId": {
+                    "type": "string",
+                    "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_-]{0,127}$",
+                    "maxLength": 128
+                  },
+                  "decorationId": {
+                    "type": "string",
+                    "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_-]{0,127}$",
+                    "maxLength": 128
+                  },
+                  "relative": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": [
+                      "x",
+                      "y"
+                    ],
+                    "properties": {
+                      "x": {
+                        "type": "number",
+                        "minimum": 0,
+                        "maximum": 1
+                      },
+                      "y": {
+                        "type": "number",
+                        "minimum": 0,
+                        "maximum": 1
+                      }
+                    }
+                  }
+                },
+                "allOf": [
+                  {
+                    "not": {
+                      "required": [
+                        "placementId",
+                        "decorationId"
+                      ]
+                    }
+                  },
+                  {
+                    "if": {
+                      "required": [
+                        "relative"
+                      ]
+                    },
+                    "then": {
+                      "oneOf": [
+                        {
+                          "required": [
+                            "placementId"
+                          ]
+                        },
+                        {
+                          "required": [
+                            "decorationId"
+                          ]
+                        }
+                      ]
+                    }
+                  }
+                ]
+              },
+              {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "kind",
+                  "quote"
+                ],
+                "properties": {
+                  "kind": {
+                    "const": "text"
+                  },
+                  "quote": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 20000
+                  },
+                  "prefix": {
+                    "type": "string",
+                    "maxLength": 2000
+                  },
+                  "suffix": {
+                    "type": "string",
+                    "maxLength": 2000
+                  },
+                  "start": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 2000000
+                  },
+                  "end": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 2000000
+                  },
+                  "sourceRevision": {
+                    "type": "string",
+                    "maxLength": 256
+                  }
+                }
+              }
+            ]
+          },
+          "author": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "id",
+              "label",
+              "kind"
+            ],
+            "properties": {
+              "id": {
+                "type": "string",
+                "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_-]{0,127}$",
+                "maxLength": 128
+              },
+              "label": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 120
+              },
+              "kind": {
+                "enum": [
+                  "human",
+                  "agent"
+                ]
+              }
+            }
+          },
+          "body": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 20000
+          }
+        },
+        "required": [
+          "boardId",
+          "author",
+          "body"
+        ]
+      }
+    },
+    {
+      "name": "feedback.reply",
+      "mutating": true,
+      "description": "Append a human or agent reply to a stable feedback thread.",
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "expectedRevision": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "operationId": {
+            "type": "string",
+            "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_-]{0,127}$",
+            "maxLength": 128
+          },
+          "threadId": {
+            "type": "string",
+            "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_-]{0,127}$",
+            "maxLength": 128
+          },
+          "id": {
+            "type": "string",
+            "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_-]{0,127}$",
+            "maxLength": 128
+          },
+          "author": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "id",
+              "label",
+              "kind"
+            ],
+            "properties": {
+              "id": {
+                "type": "string",
+                "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_-]{0,127}$",
+                "maxLength": 128
+              },
+              "label": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 120
+              },
+              "kind": {
+                "enum": [
+                  "human",
+                  "agent"
+                ]
+              }
+            }
+          },
+          "body": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 20000
+          }
+        },
+        "required": [
+          "threadId",
+          "author",
+          "body"
+        ]
+      }
+    },
+    {
+      "name": "feedback.resolve",
+      "mutating": true,
+      "description": "Resolve or reopen a feedback thread without losing its messages.",
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "expectedRevision": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "operationId": {
+            "type": "string",
+            "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_-]{0,127}$",
+            "maxLength": 128
+          },
+          "threadId": {
+            "type": "string",
+            "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_-]{0,127}$",
+            "maxLength": 128
+          },
+          "resolved": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "threadId",
+          "resolved"
+        ]
+      }
+    },
+    {
+      "name": "item.vote",
+      "mutating": true,
+      "description": "Set one current yes/no/abstain vote per self-reported actor on a canonical item. null clears that actor’s vote; references share votes.",
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "expectedRevision": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "operationId": {
+            "type": "string",
+            "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_-]{0,127}$",
+            "maxLength": 128
+          },
+          "itemId": {
+            "type": "string",
+            "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_-]{0,127}$",
+            "maxLength": 128
+          },
+          "actor": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "id",
+              "label",
+              "kind"
+            ],
+            "properties": {
+              "id": {
+                "type": "string",
+                "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_-]{0,127}$",
+                "maxLength": 128
+              },
+              "label": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 120
+              },
+              "kind": {
+                "enum": [
+                  "human",
+                  "agent"
+                ]
+              }
+            }
+          },
+          "value": {
+            "enum": [
+              "yes",
+              "no",
+              "abstain",
+              null
+            ]
+          }
+        },
+        "required": [
+          "itemId",
+          "actor",
+          "value"
+        ]
+      }
+    }
+  ]
+}

@@ -31,15 +31,17 @@ async function init(root,name,port){
   return config;
 }
 async function occupied(t){
-  // listen(0) can choose a port so high that no +100 fallback is legal.
-  // These collision fixtures require room for the complete candidate range.
+  // macOS ephemeral allocation can stay above the legal fallback range.
+  // Bind an explicit legal base and retry collisions without touching listeners.
   const highestBase=65535-(PORT_ATTEMPTS-1)*PORT_STEP;
-  for(let attempt=0;attempt<20;attempt++){
+  for(let attempt=0;attempt<40;attempt++){
     const server=net.createServer();
-    await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve));
-    const port=server.address().port;
-    if(port<=highestBase){t.after(()=>new Promise(resolve=>server.close(resolve)));return port;}
-    await new Promise(resolve=>server.close(resolve));
+    const port=20000+Math.floor(Math.random()*(highestBase-20000));
+    const bound=await new Promise((resolve,reject)=>{
+      server.once('error',error=>error.code==='EADDRINUSE'?resolve(false):reject(error));
+      server.listen(port,'127.0.0.1',()=>resolve(true));
+    });
+    if(bound){t.after(()=>new Promise(resolve=>server.close(resolve)));return port;}
   }
   throw new Error('Could not reserve a collision fixture with a complete legal fallback range.');
 }

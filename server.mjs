@@ -7,8 +7,12 @@ import {fileURLToPath} from 'node:url';
 import {boardResponse,discoverBoards,loadBoard,readNotes,writeNotes} from './lib/boards.mjs';
 import {loadConfig,publicConfig,VERSION,PORT_STEP,PORT_ATTEMPTS,savePort} from './lib/config.mjs';
 import {createLiveState,createWorkspaceLiveState} from './lib/live.mjs';
+import {createPushHub} from './lib/push.mjs';
 import {boardDirectory,existingInside,HttpError,safeRelative} from './lib/paths.mjs';
-import {readWorkspace,getBoardSnapshot,applyOperation,applyFileImport} from './lib/workspace.mjs';
+import {readWorkspace,workspaceHeader,workspaceView,getBoardSnapshot,getItemSnapshot,boardExists,applyOperation,applyFileImport} from './lib/workspace.mjs';
+import {listTools,callTool,toolDefinition} from './lib/tools.mjs';
+import {discoveryCatalog,searchWorkspace} from './lib/discovery.mjs';
+import {listFeedback} from './lib/feedback.mjs';
 import {migrateLegacy} from './lib/migrate.mjs';
 import {resolveResource,resourceUrl} from './lib/resources.mjs';
 import {withStore} from './lib/store.mjs';
@@ -21,7 +25,7 @@ const types={'.html':'text/html; charset=utf-8','.js':'text/javascript; charset=
 const noStore={'Cache-Control':'no-store','X-Content-Type-Options':'nosniff'};
 const closing=new WeakMap();
 export function closeAppServer(server){
-  if(!closing.has(server))closing.set(server,new Promise(resolve=>server.close(resolve)));
+  if(!closing.has(server)){server.pushHub?.close();closing.set(server,new Promise(resolve=>server.close(resolve)));}
   return closing.get(server);
 }
 function sendJson(res,status,value){res.writeHead(status,{'Content-Type':'application/json; charset=utf-8',...noStore});res.end(JSON.stringify(value));}
@@ -49,20 +53,20 @@ async function loadGraphBoard(config,id){
   if(board)return board;
   // A deleted migrated board still has its original payload folder. It must
   // not reappear as a legacy board merely because its owner was tombstoned.
-  const workspace=await readWorkspace(config);
-  if(workspace?.boards.some(board=>board.id===id))throw new HttpError(404,'Board not found.');
+  if(await boardExists(config,id))throw new HttpError(404,'Board not found.');
   return null;
 }
 async function boardCatalog(config){
-  const workspace=await readWorkspace(config);
-  if(!workspace)return discoverBoards(config);
+  const catalog=await discoveryCatalog(config);
+  if(!catalog)return discoverBoards(config);
+  const workspace={...catalog.metadata,items:Object.values(catalog.index.items),boards:Object.values(catalog.index.boards)};
   const home=new Set(workspace.homeBoardIds||[]);
-  const migrated=new Set(workspace.boards.flatMap(board=>[board.id,board.legacyBoardId,board.legacy?.boardId].filter(Boolean)));
+  const migrated=new Set(workspace.boards.flatMap(board=>[board.id,board.legacyBoardId].filter(Boolean)));
   const legacy=await discoverBoards(config,{excludeIds:migrated});
   const items=new Map(workspace.items.map(item=>[item.id,item]));
-  const boards=workspace.boards.filter(board=>home.has(board.id)&&!items.get(board.ownerItemId)?.deletedAt).map(board=>{
-    const placements=(board.placements||[]).filter(p=>!p.archivedAt&&!p.removedAt&&!p.deletedAt);
-    return {id:board.id,schemaVersion:2,ownerItemId:board.ownerItemId,title:board.title,description:board.description,createdAt:board.createdAt,updatedAt:board.updatedAt,conceptCount:placements.length,roundCount:board.rounds?.length||0,revisionCount:placements.reduce((sum,p)=>sum+(items.get(p.itemId)?.revisions?.length||0),0),buildingCount:placements.filter(p=>items.get(p.itemId)?.build?.state==='building').length,...(board.cover?{cover:board.cover}:{}),...(items.get(board.ownerItemId)?.preview?{preview:items.get(board.ownerItemId).preview}:{})};
+  const boards=workspace.boards.filter(board=>home.has(board.id)&&!items.get(board.ownerItemId)?.deleted).map(board=>{
+    const placements=(board.placements||[]).filter(p=>!p.archived);
+    return {id:board.id,schemaVersion:2,ownerItemId:board.ownerItemId,title:board.title,description:board.description,createdAt:board.createdAt,updatedAt:board.updatedAt,conceptCount:placements.length,roundCount:board.roundCount,revisionCount:placements.reduce((sum,p)=>sum+(items.get(p.itemId)?.revisions||0),0),buildingCount:placements.filter(p=>items.get(p.itemId)?.state==='building').length,...(board.cover?{cover:board.cover}:{}),...(items.get(board.ownerItemId)?.preview?{preview:items.get(board.ownerItemId).preview}:{})};
   });
   return {...legacy,boards:newestBoardsFirst([...legacy.boards.filter(board=>!migrated.has(board.id)),...boards]),workspaceRevision:workspace.revision,revision:`${legacy.revision}:${workspace.revision}`};
 }
@@ -90,6 +94,10 @@ async function sendFile(req,res,root,relative){
 
 export function createAppServer(config){
   const live=new Map();
+  const push=createPushHub(config,{snapshot:async id=>{
+    const graph=await loadGraphBoard(config,id);
+    return (graph?createWorkspaceLiveState(config,id,{cacheMs:0}):createLiveState(config,id,{cacheMs:0}))();
+  }});
   const server=http.createServer(async(req,res)=>{
     // close() removes currently idle sockets. An accepted request can become
     // idle later, after its complete response (and any metadata write) drains.
@@ -105,9 +113,31 @@ export function createAppServer(config){
         res.end(`export const rounds=${JSON.stringify(board.manifest.rounds)};\nexport const revisions=${JSON.stringify(board.manifest.revisions)};\n`);return;
       }
       if(config.legacyBoard&&/^\/(rounds|shared|assets)\//.test(pathname))pathname=`/boards/${config.legacyBoard}/files${pathname}`;
+      if(pathname==='/api/events'&&method==='GET'){
+        checkWriteOrigin(req,server);
+        const current=await loadConfig(config.configPath);
+        if(url.searchParams.get('workspace')!==config.workspaceId||current.workspaceId!==config.workspaceId||current.workspaceRoot!==config.workspaceRoot)throw new HttpError(403,'Workspace changed. Reload this page.');
+        const board=url.searchParams.get('board');if(board){if(!await loadGraphBoard(config,board))await boardDirectory(config.boardsRoot,board);}
+        push.subscribe(req,res,board);return;
+      }
       if(pathname==='/api/health'&&method==='GET'){sendJson(res,200,{app:'board-room',version:VERSION,configPath:config.configPath,boardsRoot:config.boardsRoot,projectLabel:config.projectLabel,workspaceId:config.workspaceId,port:server.address().port,url:`http://127.0.0.1:${server.address().port}/`});return;}
       if(pathname==='/api/config'&&method==='GET'){sendJson(res,200,publicConfig(config));return;}
-      if(pathname==='/api/workspace'&&method==='GET'){const workspace=await readWorkspace(config,{covers:url.searchParams.get('covers')!=='0'});sendJson(res,200,workspace?{...workspace,enabled:true}:{enabled:false,revision:0});return;}
+      if(pathname==='/api/tools'&&method==='GET'){sendJson(res,200,listTools());return;}
+      if(pathname==='/api/tools/call'&&method==='POST'){
+        await checkWrite(req,server,config);const input=await requestJson(req);
+        if(!input||typeof input!=='object'||Array.isArray(input)||typeof input.name!=='string'||Object.keys(input).some(key=>!['name','arguments'].includes(key)))throw new HttpError(400,'Provide {name,arguments}.');
+        sendJson(res,200,await callTool(config,input.name,input.arguments??{},{transport:'http'}));return;
+      }
+      if(pathname==='/api/feedback'&&method==='GET'){
+        const input=Object.fromEntries(url.searchParams);
+        for(const key of ['resolved','includeBodies'])if(input[key]!==undefined){if(!['true','false'].includes(input[key]))throw new HttpError(400,`${key} must be true or false.`);input[key]=input[key]==='true';}
+        if(input.limit!==undefined)input.limit=Number(input.limit);
+        sendJson(res,200,await listFeedback(config,input));return;
+      }
+      if(pathname==='/api/search'&&method==='GET'){
+        const input=Object.fromEntries(url.searchParams);for(const key of ['recursive','includeArchived','includeDeleted','body'])if(input[key]!==undefined){if(!['true','false'].includes(input[key]))throw new HttpError(400,`${key} must be true or false.`);input[key]=input[key]==='true';}if(input.limit!==undefined)input.limit=Number(input.limit);if(input.fields!==undefined)input.fields=input.fields.split(',');sendJson(res,200,await searchWorkspace(config,input));return;
+      }
+      if(pathname==='/api/workspace'&&method==='GET'){const view=url.searchParams.get('view');if(view){sendJson(res,200,view==='header'?await workspaceHeader(config):await workspaceView(config,view,{covers:url.searchParams.get('covers')!=='0'}));return;}const workspace=await readWorkspace(config,{covers:url.searchParams.get('covers')!=='0'});sendJson(res,200,workspace?{...workspace,enabled:true}:{enabled:false,revision:0});return;}
       if(pathname==='/api/imports'&&method==='POST'){
         await checkWrite(req,server,config);
         const controller=new AbortController();
@@ -122,7 +152,7 @@ export function createAppServer(config){
       if(pathname==='/api/operations'&&method==='POST'){await checkWrite(req,server,config);const operation=await requestJson(req);if(!operation||typeof operation!=='object'||Array.isArray(operation)||typeof operation.type!=='string')throw new HttpError(400,'Provide an operation object with type.');sendJson(res,200,await applyOperation(config,operation));return;}
       const thumbnail=/^\/api\/items\/([^/]+)\/cover-thumbnail$/.exec(pathname);
       if(thumbnail&&method==='GET'){
-        const item=await withStore(config,(_root,state)=>state?.items[decodeSegment(thumbnail[1])]);
+        const item=await getItemSnapshot(config,decodeSegment(thumbnail[1]));
         if(item?.deletedAt||item?.archivedAt)throw new HttpError(404,'Item not found.');
         if(!item?.content?.resource||item.content.kind!=='html'||item.content.url)throw new HttpError(404,'Local HTML preview not found.');
         const file=await resolveResource(config,item.content.resource);
@@ -137,7 +167,7 @@ export function createAppServer(config){
       const itemApi=/^\/api\/items\/([^/]+)(?:\/(review))?$/.exec(pathname);
       if(itemApi){
         const id=decodeSegment(itemApi[1]);
-        if(method==='GET'&&!itemApi[2]){const workspace=await readWorkspace(config);const item=workspace?.items.find(item=>item.id===id&&!item.deletedAt);if(!item)throw new HttpError(404,'Item not found.');sendJson(res,200,item);return;}
+        if(method==='GET'&&!itemApi[2]){const item=await getItemSnapshot(config,id);if(!item)throw new HttpError(404,'Item not found.');sendJson(res,200,item);return;}
         if(method==='PATCH'&&itemApi[2]){await checkWrite(req,server,config);const input=await requestJson(req);if(!input||typeof input!=='object'||Array.isArray(input))throw new HttpError(400,'Provide a review object.');const {expectedRevision,operationId,patch,...fields}=input;sendJson(res,200,await applyOperation(config,{type:'review',itemId:id,patch:patch||fields,...(expectedRevision!==undefined?{expectedRevision}:{}),...(operationId?{operationId}:{})}));return;}
         throw new HttpError(405,'Method not allowed.');
       }
@@ -183,6 +213,7 @@ export function createAppServer(config){
       throw new HttpError(404,'Not found.');
     }catch(error){sendError(res,error);}
   });
+  server.pushHub=push;server.once('close',()=>push.close());
   return server;
 }
 export async function listen(config,{port=config.port,persist=false}={}){

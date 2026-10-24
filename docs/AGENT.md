@@ -31,6 +31,109 @@ Before claiming a running workspace, verify `/api/health` matches the selected
 canonical config path and project label. Report the actual URL printed by start.
 Do not kill, adopt or reconfigure another instance to resolve a collision.
 
+## Discover tools and selected work
+
+The immediately readable tool catalog is [`../lib/tools.json`](../lib/tools.json).
+It ships beside the CLI with schemas and examples; no MCP server or skill is
+required. Discover compact tool names, read one schema, then inspect selected work:
+
+```sh
+node /absolute/app/cli.mjs tools list --summary
+node /absolute/app/cli.mjs tools describe item.create
+node /absolute/app/cli.mjs tools call workspace.search --config /absolute/config.json \
+  --json '{"query":"release","kind":"boards","limit":10}'
+node /absolute/app/cli.mjs tools call board.get --config /absolute/config.json \
+  --json '{"boardId":"release-review"}'
+```
+
+`tools list` returns the full `{schemaVersion,name,tools}` catalog; each entry has
+name, description and inputSchema. All named tools use `tools call NAME` with
+`--json` or `--file`. Existing CLI and `workspace op` aliases remain supported.
+HTTP uses GET `/api/tools` and POST `/api/tools/call` `{name,arguments}` with
+normal runtime identity/origin guards. Local file-path imports are CLI-only;
+browser imports retain their bounded multipart route.
+
+`workspace.search` and `workspace.recent` find nested work by title, description,
+creation/update dates and optional withinBoardId scope. Compact results provide
+stable IDs, direct locations and links. Recursive scope is default; shared
+descendants are visited once. Limit is 1–100, default 25. Sort uses stable ID ties;
+the cursor binds query and workspace revision. Restart if it is stale.
+`body:true` explicitly scans inline text/review notes, never linked resource files
+or remote pages. Use item.get/board.get for selected records. workspace.show is
+an explicit complete export and may be expensive. Browser Home/containment routes
+use compact views rather than automatically exporting every document body.
+
+The optional external `.discovery` cache is sharded, checksummed and rebuildable.
+Missing/stale/corrupt cache rebuilds from authoritative individual files;
+workspace.rebuildIndex requests this explicitly. workspace.inspect reports file
+parse/identity and core graph errors, including a corrupt header, without repairing
+authoritative data. Preserve complete metadata and the journal for recovery.
+Search still stats all item/board files; warmed searches avoid parsing unrelated
+bodies. Ordinary graph edits retain full load/clone/validation work.
+
+decoration.create/update/remove provide scoped text, region/sticky/shape and line
+operations. Region shape is rectangle/rounded/diamond/ellipse. Lines define both
+from/to as exact `{x,y}` or attachments such as
+`{placementId,side:"right",offset:0.5}` / `{decorationId,side:"left"}`.
+Coordinates are board units. board.geometry returns resolved endpoints, silhouette
+ports, bounds and detached state. Owned target moves/removals preserve the last
+resolved point in an attachment fallback; target IDs remain visible. Copied board
+attachments remap placement IDs. Cross-board moves detach source connectors.
+Old box/flip lines remain supported.
+
+feedback.comment/list/reply/resolve provide annotations distinct from note
+content and existing canonical review.note/star. Threads may be general, board
+point/placement/decoration attached, or anchored to item text quotes. Replies and
+resolution retain history. item.vote sets one yes/no/abstain value per actor;
+null clears it. Actors are self-reported local descriptors, not authentication.
+Inspect anchor status after document edits; quotes are never silently retargeted.
+Independent threads/ID.json files use the same lock/journal/revision as graph work.
+
+Point comments can follow a target with normalized fractions while retaining a
+creation fallback. For example, after inspecting a board and its placement IDs:
+
+```json
+{"boardId":"release-review","itemId":"opening-idea","anchor":{"kind":"point","x":360,"y":220,"placementId":"PLACEMENT_ID","relative":{"x":0.5,"y":0.25}},"author":{"id":"review-agent","label":"Review agent","kind":"agent"},"body":"Leave more room here."}
+```
+
+Call `feedback.comment` with that payload. `relative` requires exactly one
+placement or decoration target. `feedback.list` returns derived
+`anchorPoint:{x,y,detached,fallback}`. Missing/archived targets use the saved
+creation x/y; this is not a last-known-position history. Without `relative`, x/y
+stays fixed even when a legacy anchor contains target IDs. Do not rewrite thread
+files when geometry changes.
+
+Local Markdown uses `content:{kind:"markdown",resource:{rootId,path}}` and a
+placement with `presentation:{mode:"panel"}` for a useful canvas document.
+Reader and panel share the safe renderer; the reader adds Contents, source link,
+Reload source and current-version text selection. Source files remain authoritative.
+Text anchors use `{kind:"text",quote,prefix?,suffix?,start?,end?,sourceRevision?}`;
+offsets are UTF-16. Linked Markdown offsets refer to rendered text normalized by
+the shipped `public/markdown-document.js` parser: whitespace runs become one space
+and outer whitespace is trimmed; markup and images are excluded. Inline content
+keeps its exact stored-text offsets. `sourceRevision` is `sha256:` plus the raw
+source bytes' SHA-256 (UTF-8 bytes for inline text), not a hash of normalized text.
+Use that shared parser/matcher instead of guessing offsets from Markdown syntax.
+
+`feedback.list` checks local Markdown sources through the registered root, up to
+2 MiB per source, memoized within one query. It returns anchor status without
+returning document bodies: matched, uncertain, stale, unverified or detached.
+Changed revision/context can make a surviving quote uncertain; duplicate or
+missing quotes are never silently retargeted. Unsupported, unsafe or unavailable
+sources remain unverified. Saved anchor facts/replies remain unchanged. Current
+local-document readers can create comments; historical variant relays are declined.
+
+Browser views use the project server's `/api/events` stream instead of routine
+data polling. Existing JSON reads and named tools remain available to agents.
+CLI transactions and local resource edits trigger watcher-driven updates; each
+connection/reconnection resynchronizes from current state. A stream is an
+invalidation/snapshot transport, not a lossless activity log or authentication.
+
+These optional additions require no installation-time conversion. Older app
+versions may reject/ignore newly authored shapes, endpoints, votes or thread files.
+Preserved bytes/schema number alone do not establish old-app usability; retain a
+complete backup and use a compatible app when restoring such work.
+
 ## Schema 2 agent operations
 
 Read [the workspace protocol](PROTOCOL.md#schema-2-workspace) before changing an

@@ -33,6 +33,19 @@ async function fixture(t,{legacy=false}={}){
   return {root,configPath,boards,config,server,base,get,write,op};
 }
 
+test('tool catalog/calls and compact views preserve HTTP guards without automatic body exports',async t=>{
+  const f=await fixture(t);await f.op({type:'createBoard',id:'tool-board',title:'Tool board'});
+  const created=await f.op({type:'createItem',boardId:'tool-board',item:{title:'Live design doc',content:{kind:'note',text:'Private inline body sentinel'}}});
+  const catalog=await f.get('/api/tools');assert.ok(catalog.tools.find(tool=>tool.name==='decoration.create').inputSchema.properties.decoration.properties.from);
+  const graph=await f.get('/api/workspace?view=graph&covers=0');assert.equal(graph.items.find(item=>item.id===created.result.itemId).content,undefined);assert.ok(!JSON.stringify(graph).includes('Private inline body sentinel'));
+  const home=await f.get('/api/workspace?view=home');assert.equal(home.boards[0].itemCount,1);assert.equal(home.boards[0].placements,undefined);
+  assert.equal((await f.get('/api/workspace?view=header')).revision,graph.revision);
+  const called=await f.write('/api/tools/call',{name:'item.get',arguments:{itemId:created.result.itemId}});assert.equal(called.status,200);assert.equal((await called.json()).content.text,'Private inline body sentinel');
+  assert.equal((await f.write('/api/tools/call',{name:'item.get',arguments:{itemId:created.result.itemId}},{headers:{'x-tinka-workspace':'wrong'}})).status,403);
+  assert.equal((await f.write('/api/tools/call',{name:'files.import',arguments:{workspaceId:graph.workspaceId,targetBoardId:'tool-board',targetPosition:{x:0,y:0},paths:['/etc/hosts'],expectedRevision:graph.revision,operationId:'http-import'}})).status,400);
+  const cli=JSON.parse(await main(['tools','call','workspace.view','--config',f.configPath,'--json','{"view":"graph"}']));assert.deepEqual(cli,graph);
+});
+
 test('shutdown drains accepted GET and incomplete write bodies before closing their keepalive sockets',async t=>{
   const f=await fixture(t);
   await f.op({type:'createBoard',id:'drain',title:'Drain'});
