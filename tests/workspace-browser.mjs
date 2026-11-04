@@ -431,14 +431,13 @@ try {
     } else await route.continue();
   });
   await (await cardNote()).fill("Network failure draft");
-  await page
-    .getByRole("heading", { name: "Change not saved", exact: true })
-    .waitFor();
+  // An outage reports without stealing focus; the draft stays and Retry appears.
+  await page.waitForFunction(() => document.getElementById("save-status").textContent.startsWith("Feedback saved in this browser"));
+  await page.locator("#workspace-toast").filter({ hasText: "Notes remain in this browser" }).waitFor();
   assert.equal(
     await (await cardNote()).inputValue(),
     "Network failure draft",
   );
-  await page.getByRole("button", { name: "Close dialog", exact: true }).click();
   await boardTool("#workspace-retry-drafts");
   await page.waitForFunction(
     () => document.getElementById("workspace-retry-drafts").hidden,
@@ -552,9 +551,10 @@ try {
   );
   await boardTool("#workspace-add");
   await page.getByRole("menuitem", { name: "Text", exact: true }).click();
-  const canvasText = page.locator('.workspace-decoration [contenteditable]');
+  // Canvas text is a native textarea session: plain Enter is a newline, ⌘/Ctrl-Enter finishes.
+  const canvasText = page.locator('.workspace-decoration textarea');
   await canvasText.fill("Making this week");
-  await canvasText.press("Enter");
+  await canvasText.press("ControlOrMeta+Enter");
   await page.locator(".workspace-decoration").waitFor();
   await page.waitForFunction(() => document.querySelector(".workspace-decoration [data-decoration-label]")?.textContent === "Making this week");
   assert.equal(await page.locator('dialog.workspace-dialog[open]').count(), 0, "Canvas text edits in place");
@@ -622,8 +622,12 @@ try {
       .map((c) => c.dataset.placement),
   );
   assert(oldPlacements.length);
-  for (const oldPlacement of oldPlacements)
-    await page.locator(`[data-placement-select="${oldPlacement}"]`).click();
+  // These placements overlap other tiles at this saved geometry; use the
+  // selection circle from the keyboard, which never depends on stacking.
+  for (const oldPlacement of oldPlacements) {
+    await page.locator(`[data-placement-select="${oldPlacement}"]`).focus();
+    await page.keyboard.press("Space");
+  }
   await page.getByRole("button", { name: "Move…", exact: true }).click();
   await page.locator("[name=target]").selectOption(second.boardId);
   await page.getByRole("button", { name: "Move items", exact: true }).click();
@@ -728,8 +732,9 @@ try {
     },
   });
   await page.reload();
+  // New HTML items default to Full preview, whose title lives in the caption.
   await page
-    .getByRole("heading", { name: "Offline settings app", exact: true })
+    .getByRole("button", { name: "Offline settings app", exact: true })
     .waitFor();
   await page
     .getByRole("button", { name: "Offline settings app", exact: true })
@@ -996,6 +1001,8 @@ try {
       "One body drag produces one placement write",
     );
     assert.equal(await page.locator("#reader-dialog").isVisible(), false);
+    // Let the first write's pushed snapshot settle before the next gesture begins.
+    await page.waitForTimeout(1200);
     writes = placementWrites;
     const prior = p;
     await dragPointer(
@@ -1051,6 +1058,8 @@ try {
         "Item notes saved on this Mac",
     );
     const beforeControls = await inputPlacement();
+    // The Inspector sits over the right of the canvas; close it before using the tile's own toolbar.
+    await page.locator("#workspace-item-controls [data-context-close]").click();
     await page.locator("[data-star]").first().click();
     await page.locator('[data-controls-focus="notes"]').first().click();
     await page.getByRole("button", { name: "Edit item…", exact: true }).click();
@@ -1177,8 +1186,9 @@ try {
     assert.equal(await page.locator("#canvas-header .brand").getAttribute("href"), "/");
     assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
     assert.equal(await page.locator("#board-title").evaluate(el => el.scrollWidth <= el.clientWidth + 1 && getComputedStyle(el).textOverflow !== "ellipsis"), true, "Complete current title wraps at " + width);
-    assert.equal(await page.locator(".workspace-item-footer [data-item-controls]").count(), 2);
-    assert.equal(await page.locator(".workspace-item-footer").filter({ hasText: "Notes" }).count(), 0, "Only one details trigger per footer");
+    // Item actions moved from the footer to each tile's floating toolbar.
+    assert.equal(await page.locator(".workspace-tile-toolbar [data-item-controls]").count(), 2);
+    assert.equal(await page.locator(".workspace-tile-toolbar").filter({ hasText: "Notes" }).count(), 0, "Only one details trigger per tile");
     await page.screenshot({ path: path.join(evidence, `quiet-header-${width}.png`) });
     await page.locator("#board-info-toggle").focus();
     await page.keyboard.press("Enter");
@@ -1341,9 +1351,9 @@ try {
   }
   const imageRequests = [0, 0];
   page.on("request", request => { for (const index of [0,1]) if (request.url().includes(`/static-image-${index}/cover.svg`)) imageRequests[index]++; });
-  const initialImageLive=page.waitForResponse(response=>response.url()===base+`/api/boards/${imageBoard.result.boardId}/live`&&response.ok());
+  // Open views receive server push; wait for this board's live stream instead of a poll.
   await page.goto(base + `/boards/${imageBoard.result.boardId}/`);
-  await initialImageLive;
+  await page.waitForFunction(()=>document.getElementById('live-status').textContent.startsWith('Live'));
   await page.waitForFunction(() => [...document.querySelectorAll(".workspace-card img")].length === 2 && [...document.querySelectorAll(".workspace-card img")].every(img => img.complete && img.naturalWidth === 20));
   await page.evaluate(() => { window.stableImages = [...document.querySelectorAll(".workspace-card img")]; });
   const imageBaseline = [...imageRequests];
@@ -1523,9 +1533,9 @@ try {
       await beginDrag(source,card);
       await page.locator(".workspace-drop-target").waitFor();
       const liveBefore=await (await fetch(base+`/api/boards/${parent.boardId}/live`)).json();
-      const changedDuringDrag=page.waitForResponse(async response=>response.url()===base+`/api/boards/${parent.boardId}/live`&&response.ok()&&(await response.json()).manifestRevision!==liveBefore.manifestRevision);
       await post("/api/operations",{type:"updateBoard",boardId:parent.boardId,patch:{title:"Updated while dragging"}});
-      await changedDuringDrag;
+      // The change reaches the server, then its pushed snapshot is delivered (850 ms coalescing).
+      await (async()=>{for(let i=0;i<200;i++){const l=await (await fetch(base+`/api/boards/${parent.boardId}/live`)).json();if(l.manifestRevision!==liveBefore.manifestRevision){await new Promise(r=>setTimeout(r,1400));return l;}await new Promise(r=>setTimeout(r,50));}throw new Error('Live change not observed');})();
       await page.waitForTimeout(50);
       await page.keyboard.press("Escape");await page.mouse.up();
       await page.waitForFunction(()=>document.getElementById("board-title").textContent==="Updated while dragging");
@@ -1774,12 +1784,12 @@ try {
   // Clip rectangle to the viewport even when the pointer leaves its edges.
   let vp=await page.locator("#viewport").boundingBox(),bounds=await boxBounds(ids.slice(0,2));await startBox({a:bounds.a,b:{x:vp.x+vp.width+60,y:vp.y+vp.height+60}});const rectangle=await page.locator("#workspace-marquee").boundingBox();assert(rectangle.x>=vp.x-1&&rectangle.y>=vp.y-1&&rectangle.x+rectangle.width<=vp.x+vp.width+1&&rectangle.y+rectangle.height<=vp.y+vp.height+1,"Selection rectangle is clipped to Canvas viewport");await page.keyboard.press("Escape");await page.mouse.up();
   // Live metadata waits until cancellation and does not alter the selection gesture.
-  start=writes.length;const liveBefore=await(await fetch(base+`/api/boards/${f.board.boardId}/live`)).json();await startBox(await boxBounds(ids.slice(0,2)));const changed=page.waitForResponse(async response=>response.url()===base+`/api/boards/${f.board.boardId}/live`&&response.ok()&&(await response.json()).manifestRevision!==liveBefore.manifestRevision);await post("/api/operations",{type:"updateBoard",boardId:f.board.boardId,patch:{title:"Updated during marquee"}});await changed;assert.equal(await page.locator("#board-title").textContent(),"Marquee controls","Metadata does not rebuild an active marquee");await page.keyboard.press("Escape");await page.mouse.up();await page.waitForFunction(()=>document.getElementById("board-title").textContent==="Updated during marquee");assert.deepEqual(await selectedIds(),[ids[2]]);assert.equal(writes.length,start,"Deferred metadata and cancelled selection never flush pending review");assert.equal(await page.evaluate(key=>localStorage.getItem(key),draftKey),drafts);
+  start=writes.length;const liveBefore=await(await fetch(base+`/api/boards/${f.board.boardId}/live`)).json();await startBox(await boxBounds(ids.slice(0,2)));await post("/api/operations",{type:"updateBoard",boardId:f.board.boardId,patch:{title:"Updated during marquee"}});await (async()=>{for(let i=0;i<200;i++){const l=await (await fetch(base+`/api/boards/${f.board.boardId}/live`)).json();if(l.manifestRevision!==liveBefore.manifestRevision){await new Promise(r=>setTimeout(r,1400));return l;}await new Promise(r=>setTimeout(r,50));}throw new Error('Live change not observed');})();assert.equal(await page.locator("#board-title").textContent(),"Marquee controls","Metadata does not rebuild an active marquee");await page.keyboard.press("Escape");await page.mouse.up();await page.waitForFunction(()=>document.getElementById("board-title").textContent==="Updated during marquee");assert.deepEqual(await selectedIds(),[ids[2]]);assert.equal(writes.length,start,"Deferred metadata and cancelled selection never flush pending review");assert.equal(await page.evaluate(key=>localStorage.getItem(key),draftKey),drafts);
   // Isolate ordinary decoration writes from this test-owned pending review.
   await page.addInitScript(key=>{if(sessionStorage.getItem(key+"/qa-reset")==="clear"){localStorage.removeItem(key);sessionStorage.removeItem(key+"/qa-reset");}},draftKey);await page.evaluate(key=>sessionStorage.setItem(key+"/qa-reset","clear"),draftKey);await page.reload();await cardFor(ids[0]).waitFor();
   // Region interiors select; the label band and screen-space border retain direct editing.
   revision=(await snapshot()).revision;await op("updateBoard",{boardId:f.board.boardId,patch:{decorations:[{id:"marquee-region",type:"region",x:-200,y:-180,width:850,height:650,text:"Group region",color:"#dfe7ce"},{id:"marquee-text",type:"text",x:-160,y:350,width:250,height:65,text:"A note",color:"#333333"},{id:"marquee-arrow",type:"line",x:200,y:350,width:200,height:30,text:"Arrow",color:"#333333",endArrow:true}]}});await showBoard(f.board.boardId,1440,100);await nativeReady(ids);bounds=await boxBounds(ids.slice(0,2));assert.equal(await page.evaluate(p=>document.elementFromPoint(p.x,p.y)?.closest('.workspace-decoration')?.dataset.decoration,bounds.a),"marquee-region");start=writes.length;await startBox(bounds);await endBox();assert.deepEqual(await selectedIds(),ids.slice(0,2).sort(),"Blank colored region interior starts selection");assert.equal(writes.length,start);
-  for(const kind of ["label","border"]){const region=page.locator('[data-decoration="marquee-region"]'),box=await region.boundingBox(),p=kind==="label"?{x:box.x+box.width/2,y:box.y+15}:{x:box.x+box.width-2,y:box.y+box.height/2};const before=await snapshot();start=writes.length;await page.mouse.move(p.x,p.y);await page.mouse.down();await page.mouse.move(p.x+18,p.y+12,{steps:8});assert.equal(await page.locator("#workspace-marquee").isVisible(),false);await page.mouse.up();await waitGraph(ws=>ws.revision>before.revision);assert.deepEqual(writes.slice(start).map(w=>w?.type),["updateBoard"],`Region ${kind} still moves its decoration`);}
+  for(const kind of ["label","border"]){const region=page.locator('[data-decoration="marquee-region"]'),box=await region.boundingBox(),p=kind==="label"?{x:box.x+box.width/2,y:box.y+15}:{x:box.x+box.width-2,y:box.y+box.height/2};const before=await snapshot();start=writes.length;await page.mouse.move(p.x,p.y);await page.mouse.down();await page.mouse.move(p.x+18,p.y+12,{steps:8});assert.equal(await page.locator("#workspace-marquee").isVisible(),false);await page.mouse.up();await waitGraph(ws=>ws.revision>before.revision);assert.deepEqual(writes.slice(start).map(w=>w?.type),["updateDecoration"],`Region ${kind} still moves its decoration (scoped decoration operation)`);}
   for(const id of ["marquee-text","marquee-arrow"]){const box=await page.locator(`[data-decoration="${id}"]`).boundingBox();start=writes.length;await page.mouse.move(box.x+box.width/2,box.y+box.height/2);await page.mouse.down();await page.mouse.move(box.x+box.width/2+15,box.y+box.height/2+10,{steps:6});assert.equal(await page.locator("#workspace-marquee").isVisible(),false,"Text and arrow surfaces do not start a selection box");await page.keyboard.press("Escape");await page.mouse.up();assert.equal(writes.length,start);}
   // Persisted local drafts are neither flushed nor removed by a box gesture.
   await page.addInitScript(({key,value})=>{if(sessionStorage.getItem(key+"/qa-inject")){localStorage.setItem(key,value);sessionStorage.removeItem(key+"/qa-inject");}},{key:draftKey,value:drafts});await page.evaluate(key=>sessionStorage.setItem(key+"/qa-inject","1"),draftKey);await page.reload();await cardFor(ids[0]).waitFor();start=writes.length;await startBox(await boxBounds(ids.slice(0,2)));await endBox();assert.equal(writes.length,start);assert.equal(await page.evaluate(key=>localStorage.getItem(key),draftKey),drafts);
@@ -1818,7 +1828,7 @@ try {
     // A real empty footer strip carries the selected group, while title click still opens.
     const footer=await hcard(ids[0]).locator("footer").boundingBox(),blank={x:footer.x+1,y:footer.y+footer.height/2};assert.equal(await hp.evaluate(p=>!!document.elementFromPoint(p.x,p.y)?.closest("button"),blank),false);await hcommit(async()=>{await hp.mouse.move(blank.x,blank.y);await hp.mouse.down();await hp.mouse.move(blank.x+15,blank.y+10,{steps:8});await hp.mouse.up();},"translatePlacements");await hreplay(false);
     const geometry=await hsnapshot(),count=hwrites.length;await hcard(ids[0]).locator(".workspace-panel-title").click();await hp.locator("#reader-dialog[open]").waitFor();await hp.locator("#close-reader").click();await hp.locator("#reader-dialog").waitFor({state:"hidden"});assert.equal(hwrites.length,count);assert.deepEqual(arrangement(await hsnapshot(),[bid]),arrangement(geometry,[bid]));
-    for(const mode of ["canvas","grid"]){if(mode==="grid"){await hp.locator("#board-info-toggle").click();await hp.locator('[data-mode="grid"]').click();await hp.locator("#board-info-toggle").click();}const start=hwrites.length;await hcard(ids[0]).locator(".workspace-panel-title").click({button:"right"});await hp.locator("#workspace-item-controls").waitFor();assert.equal(await hp.locator('#workspace-item-controls [data-presentation="panel"]').getAttribute("aria-pressed"),"true");await hcard(ids[0]).locator(".workspace-panel-title").click({button:"right"});assert.equal(await hp.locator("#workspace-item-controls").count(),1);assert.equal(hwrites.length,start);await hp.screenshot({path:path.join(evidence,`history-rightclick-${mode}-1440.png`)});await hp.keyboard.press("Escape");}
+    for(const mode of ["canvas","grid"]){if(mode==="grid"){await hp.locator("#board-info-toggle").click();await hp.locator('[data-mode="grid"]').click();await hp.locator("#board-info-toggle").click();}const start=hwrites.length;await hcard(ids[0]).locator(".workspace-panel-title").click({button:"right"});await hp.locator(".workspace-tile-menu").waitFor();await hp.locator('.workspace-tile-menu [data-tile-menu="details"]').click();await hp.locator("#workspace-item-controls").waitFor();assert.equal(await hp.locator('#workspace-item-controls [data-presentation="panel"]').getAttribute("aria-pressed"),"true");await hcard(ids[0]).locator(".workspace-panel-title").click({button:"right"});assert.equal(await hp.locator(".workspace-tile-menu").count(),1);assert.equal(hwrites.length,start);await hp.screenshot({path:path.join(evidence,`history-rightclick-${mode}-1440.png`)});await hp.keyboard.press("Escape");}
     await hshow(bid,1440,125);await hready(ids);await hselect(ids);before=await hsnapshot();const contained=await hcommit(async()=>{await hdrop(ids[0],hcard(f.group.placementIds[0]));await hp.screenshot({path:path.join(evidence,"history-into-hover-1440.png")});await hp.mouse.up();},"move");assert.deepEqual(contained.after.items,before.items);assert.equal(hp.url(),base+`/boards/${bid}/`);
     await hreplay(false);await hready(ids);await hselect(ids);await hreplay(true);await hp.locator("#workspace-selection").waitFor({state:"hidden"});assert.equal(await hp.locator(".workspace-card.selected").count(),0,"Redo prunes restored placements that moved away");
     const inside=ids.map(id=>{const old=hboard(before,bid).placements.find(p=>p.id===id);return hboard(contained.after,gid).placements.find(p=>p.itemId===old.itemId&&!p.removedAt).id;});
@@ -1844,7 +1854,7 @@ try {
     cp.on("request",r=>{if(r.method()==="POST"&&r.url().endsWith("/api/operations"))cwrites.push(r.postDataJSON());});
     const csnapshot=async()=>await(await fetch(base+"/api/workspace")).json(),cboard=(ws,id)=>ws.boards.find(b=>b.id===id),ccard=id=>cp.locator(`[data-placement="${id}"]`);
     const cfixture=async(type,data)=>{revision=(await csnapshot()).revision;return await op(type,data);};
-    const cshow=async(id,width=1440)=>{await cp.setViewportSize({width,height:960});const graph=cp.waitForResponse(r=>r.url()===base+"/api/workspace?covers=0"&&r.ok());await cp.goto(base+`/boards/${id}/`);await cp.locator("#workspace-copy").waitFor({state:"attached"});await graph;if(await cp.locator('[data-mode="canvas"]').getAttribute("aria-pressed")!=="true"){await cp.locator("#board-info-toggle").click();await cp.locator('[data-mode="canvas"]').click();await cp.locator("#board-info-toggle").click();}if(await cp.locator(".workspace-card").count())await cp.locator("#fit").click();};
+    const cshow=async(id,width=1440)=>{await cp.setViewportSize({width,height:960});const graph=cp.waitForResponse(r=>r.url().startsWith(base+"/api/workspace?")&&r.url().includes("covers=0")&&r.ok());await cp.goto(base+`/boards/${id}/`);await cp.locator("#workspace-copy").waitFor({state:"attached"});await graph;if(await cp.locator('[data-mode="canvas"]').getAttribute("aria-pressed")!=="true"){await cp.locator("#board-info-toggle").click();await cp.locator('[data-mode="canvas"]').click();await cp.locator("#board-info-toggle").click();}if(await cp.locator(".workspace-card").count())await cp.locator("#fit").click();};
     const cevent=async(type,data={},target)=>await cp.evaluate(({type,data,target})=>{const transfer=new DataTransfer();for(const [key,value]of Object.entries(data))transfer.setData(key,value);const event=new ClipboardEvent(type,{clipboardData:transfer,bubbles:true,cancelable:true});(target?document.querySelector(target):document.body).dispatchEvent(event);return {prevented:event.defaultPrevented,data:Object.fromEntries([...transfer.types].map(key=>[key,transfer.getData(key)]))};},{type,data,target});
     const cselect=async ids=>{for(const selected of await cp.locator('.workspace-card.selected [data-placement-select]').all())await selected.click();for(const id of [...ids].reverse())await ccard(id).locator("[data-placement-select]").click();assert.deepEqual(await cp.locator(".workspace-card.selected").evaluateAll(cards=>cards.map(c=>c.dataset.placement).sort()),[...ids].sort());};
     const ccopy=async ids=>{await cselect(ids);const start=cwrites.length,copy=await cevent("copy");assert.equal(copy.prevented,true);assert(copy.data[mime]);assert(copy.data["text/plain"].startsWith(prefix));assert.equal(cwrites.length,start);const payload=JSON.parse(copy.data[mime]);assert.deepEqual(payload.placements.map(p=>p.id).sort(),[...ids].sort());return {data:copy.data,payload};};

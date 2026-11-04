@@ -99,6 +99,15 @@ New workspaces and boards start empty. Reference boards and starter experiments 
 
 Each board can have its own cover image instead of the default paper artwork. Use **Change cover…** for an agent prompt, or set `"cover": "assets/cover.svg"` in that board's `board.json`. A **1200 × 600** image is recommended; see [cover images](docs/PROTOCOL.md#board-cover-image) for the file and design guidance.
 
+On a schema-2 nested board, select representative items and choose **Show on
+parent…** to place the same work beside its round on a parent board. The source
+items, notes and stars remain shared; the original placements stay in place.
+Position and resize the parent placements independently, and open their source
+link to return to the round. Tinka's Appearance control offers System, Light and
+Dark; it changes Tinka's surfaces without recoloring the work inside previews.
+The installed [agent guide](docs/AGENT.md#make-the-work-visible) explains how to
+build boards that show their work at a useful scale.
+
 Stop only this instance with `node /absolute/project/tinka/app/cli.mjs stop --config /absolute/project/tinka/local/config.json`. Use `serve` for a foreground process and Ctrl-C to stop it. PID and log files live beside the config. Managed stop checks the recorded PID, CLI path, config path, and unique process token before signaling anything.
 
 ## Initialize the flexible workspace
@@ -129,7 +138,55 @@ files. An external URL can open in a separate tab. A stopped local app retains i
 preview and start instructions, with retry when its independently managed server
 returns. Tinka does not run commands from item metadata.
 
-The header keeps Home, a parent return when applicable, the current title and Tools. Open Tools for + Add (Text, Colored region, Arrow, items and boards), Grid/Canvas, search, filters, details, notes export and help. Item details and appearance are in the card’s ⋯ menu. The reader keeps its containing-board return beside Home, with comparison settings and item actions in View.
+Numbers carry through: when a tile shows a number (for example 07 from the board's manifest or an item's `number`), the reader, browser title and a child board's top bar show it too, and it follows Previous/Next. Leaving an item or child board by any route lands back on its tile with a short pan and a green pulse (no movement with reduced motion).
+
+Version 0.7.0 uses one calm visual language: a single green (the Tinka mark's)
+means on, selected or primary; neutrals are warm, dark mode is a softer warm
+graphite, and tiles sit on the canvas with real elevation. The top bar has
+**where** on the left — Navigator, Home, a parent return when applicable and the
+current title — and **what** on the right: Find (⌘K), Undo/Redo, the Inspector and
+the single primary **+ Add** (Text, Colored region, Arrow, shapes, items and
+boards). The Inspector opens on demand at the right edge: with nothing chosen it
+holds Grid/Canvas, the canvas background, Appearance, filters, editing, comments,
+details, help, shortcuts and notes export; a tile's ⋯ (or ⌘/Ctrl-I with one tile
+selected) shows that item's notes, feedback, appearance and paper, created/edited
+dates and actions. Click-away or Escape closes any temporary panel or menu. Zoom
+lives in one floating pill at the lower right: −, the zoom percentage (a menu with
+50/100/125%, a precise slider, Fit board, Fit selection and Dots / Grid / Plain),
++ and Fit. The background choice is a per-board view preference kept in this
+browser; it never changes board data. The reader keeps its containing-board return
+beside Home, with comparison settings and item actions in View.
+
+Tiles rest quietly, showing only state badges (favorite, notes, your vote). On
+hover, keyboard focus or a single selection a small floating toolbar offers Open,
+Comments, Vote, Favorite and ⋯ Details, and a selection circle appears at the
+top-left corner. Board-tiles are places: stacked sheets, a recessed window onto
+their contents, a serif name, "Board · N items · edited …" and an **Open board**
+cue on hover. Dates everywhere use one readable format — "just now", "5 min ago",
+"2 hours ago", "Yesterday, 3:40 PM", "Sat, 9:12 AM", "Oct 21", "Oct 28, 2025" —
+with the exact time on hover.
+
+Open **Navigator** (⌘/Ctrl-K, /, the left top-bar button or Find) from Home or any
+board to explore the project’s board tree and find named items. It floats beside
+the work at the left without locking the board; click-away or Escape closes it,
+and **Keep open** docks it (remembered in this browser). Search comes first, then
+recently visited boards, the board tree and an outline of the current board's
+items grouped by region. Current ancestors expand automatically and the current
+board is marked once. Boards and On this board are separate, collapsible sections; selecting tiles on
+the board lights their rows in the outline and scrolls the first into view. Shared boards retain their separate parent references. Search names
+and descriptions across **Whole project**, **This board**, or **This board and
+descendants**. Results show the item type and board path; choose a location to
+open that exact board and reveal its placement at a useful zoom. Search does not
+hide cards on the canvas. The Inspector's Filter remains a separate view filter.
+Legacy boards appear in the tree and can be found by board name; legacy experiment
+contents are not included in project search. Escape clears the search, then closes
+Navigator and returns focus.
+
+New visual items use Full preview automatically, with a 720 × 560 placement;
+title-only ideas use Compact card. Agents and the Add form use the same defaults.
+Compact cards keep clear titles above uncropped images and readable build status.
+Saved layouts and explicit appearance choices stay as authored; use an item's
+Inspector → Appearance → Full when you want to change an existing placement.
 
 New graph boards open in Canvas unless you have already chosen Grid. Scroll with
 a mouse or trackpad to pan; Shift-scroll moves sideways. On a touch screen, swipe
@@ -157,15 +214,21 @@ board, or when dropping onto Parent. Dragging an unselected card, resizing a car
 or deliberately holding a cover child still acts on that one item. Group drags
 save together; a rejected move leaves the entire selection in place.
 The card’s bottom name bar also drags; clicking its title still opens the item.
-Checkboxes, stars, ⋯ and resize controls keep their separate actions. Right-click
-a native card to open the same notes-and-appearance popup as its ⋯ button.
+Select without checkboxes: Shift-, ⌘- or Ctrl-click a tile (a plain click still
+opens it), click its corner selection circle, or drag a box. Selected tiles get a
+green ring and check, and one floating selection bar at the bottom acts on them.
+The toolbar, selection circle and resize controls keep their separate actions.
+Right-click a native card for a short menu: Open, Details…, Favorite, Move to
+board…, Duplicate and Remove from board.
 
 Use ⌘D / Ctrl-D to duplicate the visible selection without changing the clipboard.
 The independent copies retain arrangement, dimensions, appearance and feedback,
 share existing resource files, and appear 32 canvas units diagonally from the
 originals. They become selected and are one Undo/Redo step. ⌘A / Ctrl-A selects
-all rendered cards; Enter opens the sole selected item; / opens Tools search;
-Shift-1 fits the board. ? or Tools → Keyboard shortcuts shows the shortcut sheet.
+all rendered cards; Enter opens the sole selected item; ⌘/Ctrl-K or / opens
+Navigator; ⌘/Ctrl-I opens the Inspector; Shift-1 fits the board, Shift-2 fits the
+selection and Shift-0 zooms to 100%. ? or Inspector → Keyboard shortcuts shows the
+shortcut sheet.
 Editing fields, readers, iframes and dialogs keep their native keys.
 
 Press Delete or Backspace to remove selected Tinkas from this board immediately.
@@ -175,7 +238,7 @@ stay available. The toolbar’s Remove from board action is also undoable and
 retains its confirmation. Editing fields, readers, dialogs and active gestures
 keep their normal keys. A successful removal cancels any pending Cut intent.
 
-Use ⌘Z / Ctrl-Z to undo a move and ⇧⌘Z / Ctrl-Shift-Z to redo it. Tools also has
+Use ⌘Z / Ctrl-Z to undo a move and ⇧⌘Z / Ctrl-Shift-Z to redo it. The top bar and Inspector also have
 Undo and Redo. This tab remembers up to 50 successful movement, paste or board-removal steps for this
 workspace, including across Parent/child navigation: card positioning, resizing,
 selected-card nudges, and moves into or out of existing boards. A selection moves
@@ -189,7 +252,7 @@ Select Tinkas and use ⌘C / Ctrl-C, then ⌘V / Ctrl-V on the same board or ano
 board in this workspace. Copies keep their relative arrangement, size, appearance,
 notes and stars. They have independent identities but use the same resource files.
 A copied board keeps its layout and references its existing children. Originals
-stay in place. Tools also offers Copy selection and a Paste shortcut reminder.
+stay in place. The Inspector also offers Copy selection and a Paste shortcut reminder.
 The clipboard carries the selection itself, including across tabs; unrelated text
 never pastes a stale selection. Another workspace's Tinkas are rejected.
 
@@ -233,7 +296,7 @@ content examples, shared references, conflicts and migration rollback.
 
 ## Draw, read and discuss
 
-Tools → Add includes Sticky note, Process (rounded box), Decision (diamond)
++ Add includes Sticky note, Process (rounded box), Decision (diamond)
 and Start / end (ellipse) alongside text, colored regions and arrows. Select an object to move, resize, recolor or
 edit its text. Drag between the connection ports on cards and shapes to attach
 an arrow; its endpoints follow the targets during movement and resizing. Drag an
@@ -377,3 +440,9 @@ each retained round, sorting only among board-card slots. Other items, Canvas
 geometry, saved review order and reader comparison order stay intact. Renames,
 notes and edits do not change this display order. Equal dates retain source order;
 boards with missing or invalid dates follow dated boards in source order.
+Each Home card's window is a miniature of the board — its regions and tiles at their real positions, with saved images and a few live HTML thumbnails — or, for boards too sprawling to read that small, a collage of four items; the same window appears on board-tiles inside boards. Select Home cards the same way as tiles: the corner circle, Shift/⌘/Ctrl-click or a drag box on empty space, then act from the floating selection bar. Every Home card shows when the board was created ("Created 2 hours ago"), a
+quieter "edited …" line when it changed later, and a neutral **New** marker for
+boards created in the last 24 hours. Find filters the cards by name or
+description (/ focuses it), and the sort control offers **Newest** (the default),
+**Recently edited** and **A–Z**; the choice is remembered in this browser and the
+primary date always matches it.

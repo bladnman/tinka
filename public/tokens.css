@@ -1,0 +1,182 @@
+/* Tinka foundation: calm objects, one green.
+   One accent (the Tinka mark's green) means on, selected or primary. Warm
+   neutrals carry no blue cast; dark mode is a softer warm graphite. Elevation
+   has a hairline, an ambient and a key shadow. Load this file after the page's
+   own styles: it defines the tokens and maps the older variable names onto them. */
+:root, html[data-appearance="light"] {
+  color-scheme: light;
+  --bg-canvas: #efeee8;
+  --bg-chrome: #f8f7f3;
+  --surface-1: #fdfdfb;
+  --surface-2: #ffffff;
+  --surface-sunken: #e7e6df;
+  --field: #f4f3ee;
+  --field-line: #868a7c;
+  --line: #dfddd4;
+  --line-strong: #c8c6bb;
+  --ink: #23271f;
+  --ink-2: #4c5145;
+  --ink-3: #64685b;
+  --hover: rgba(35, 39, 31, .06);
+  --press: rgba(35, 39, 31, .10);
+  --accent: #536044;
+  --accent-hover: #46512f;
+  --accent-text: #4a5838;
+  --accent-soft: #e4e9da;
+  --accent-soft-2: #d5dec6;
+  --accent-ring: #62754a;
+  --on-accent: #ffffff;
+  --sage: #899477;
+  --danger: #a4462f;
+  --warn: #8a6314;
+  --dot: rgba(35, 39, 31, .17);
+  --grid-minor: rgba(35, 39, 31, .055);
+  --grid-major: rgba(35, 39, 31, .09);
+  --scrim: rgba(35, 39, 31, .16);
+  --e1: 0 0 0 1px rgba(35, 39, 31, .075), 0 1px 2px rgba(35, 39, 31, .06), 0 3px 8px rgba(35, 39, 31, .045);
+  --e2: 0 0 0 1px rgba(35, 39, 31, .08), 0 4px 10px rgba(35, 39, 31, .08), 0 14px 30px rgba(35, 39, 31, .08);
+  --e3: 0 0 0 1px rgba(35, 39, 31, .09), 0 8px 18px rgba(35, 39, 31, .11), 0 22px 50px rgba(35, 39, 31, .11);
+  --e4: 0 0 0 1px rgba(35, 39, 31, .09), 0 16px 36px rgba(35, 39, 31, .14), 0 36px 90px rgba(35, 39, 31, .14);
+  --e-chrome: 0 1px 0 rgba(35, 39, 31, .07);
+  --r-xs: 4px; --r-sm: 6px; --r-md: 8px; --r-lg: 12px; --r-xl: 16px; --r-pill: 999px;
+  --font-ui: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", system-ui, sans-serif;
+  --font-display: ui-serif, "New York", "Iowan Old Style", Georgia, serif;
+  --font-mono: ui-monospace, "SF Mono", Menlo, monospace;
+  --t-xs: 11px; --t-sm: 12px; --t-md: 13px; --t-lg: 15px; --t-xl: 18px; --t-2xl: 24px; --t-3xl: 32px;
+  --control-h: 32px; --control-h-sm: 28px;
+  --chrome-h: 52px;
+  --ease: cubic-bezier(.2, .7, .2, 1);
+  /* Older names used across the app's stylesheets. */
+  --canvas: var(--bg-canvas);
+  --paper: var(--surface-1);
+  --card: var(--surface-1);
+  --muted: var(--ink-3);
+  --green: var(--accent);
+  --olive: var(--accent);
+  --soft: var(--surface-sunken);
+  --wash: var(--surface-sunken);
+  --focus: var(--accent-ring);
+  --control-line: var(--field-line);
+  --night: var(--field);
+  --white: var(--surface-2);
+  --serif: var(--font-display);
+  --sans: var(--font-ui);
+}
+html[data-appearance="dark"] {
+  color-scheme: dark;
+  --bg-canvas: #2b2c29;
+  --bg-chrome: #323430;
+  --surface-1: #3a3c37;
+  --surface-2: #43453f;
+  --surface-sunken: #262724;
+  --field: #2a2b28;
+  --field-line: #85877d;
+  --line: #4a4c46;
+  --line-strong: #5f615a;
+  --ink: #ecece5;
+  --ink-2: #c8c9bf;
+  --ink-3: #b4b5aa;
+  --hover: rgba(236, 236, 229, .07);
+  --press: rgba(236, 236, 229, .12);
+  --accent: #a9bb8a;
+  --accent-hover: #bccb9f;
+  --accent-text: #b6c697;
+  --accent-soft: #3d4535;
+  --accent-soft-2: #4a5440;
+  --accent-ring: #a9bb8a;
+  --on-accent: #1d2218;
+  --sage: #8c9a76;
+  --danger: #eb9d86;
+  --warn: #d9b25a;
+  --dot: rgba(236, 236, 229, .13);
+  --grid-minor: rgba(236, 236, 229, .045);
+  --grid-major: rgba(236, 236, 229, .08);
+  --scrim: rgba(10, 10, 8, .35);
+  --e1: 0 0 0 1px rgba(0, 0, 0, .32), inset 0 1px 0 rgba(255, 255, 255, .045), 0 2px 6px rgba(0, 0, 0, .22);
+  --e2: 0 0 0 1px rgba(0, 0, 0, .34), inset 0 1px 0 rgba(255, 255, 255, .06), 0 8px 22px rgba(0, 0, 0, .30);
+  --e3: 0 0 0 1px rgba(0, 0, 0, .38), inset 0 1px 0 rgba(255, 255, 255, .07), 0 14px 36px rgba(0, 0, 0, .38);
+  --e4: 0 0 0 1px rgba(0, 0, 0, .40), inset 0 1px 0 rgba(255, 255, 255, .07), 0 24px 70px rgba(0, 0, 0, .45);
+  --e-chrome: 0 1px 0 rgba(0, 0, 0, .35);
+  --canvas: var(--bg-canvas);
+  --paper: var(--surface-1);
+  --card: var(--surface-1);
+  --muted: var(--ink-3);
+  --green: var(--accent);
+  --olive: var(--accent);
+  --soft: var(--surface-sunken);
+  --wash: var(--surface-sunken);
+  --focus: var(--accent-ring);
+  --control-line: var(--field-line);
+  --night: var(--field);
+  --white: var(--surface-2);
+}
+
+/* One visible green focus ring everywhere. */
+:is(button, a, input, textarea, select, summary, [tabindex]):focus-visible { outline: 2px solid var(--accent-ring); outline-offset: 2px; }
+html[data-appearance] :is(button, a, input, textarea, select, summary, [tabindex]):focus-visible { outline: 2px solid var(--accent-ring); outline-offset: 2px; }
+
+/* ---------- One control family ----------
+   1  In chrome every command is a quiet button: no container at rest.
+   2  A container appears only for a toggle that is on, the single primary
+      action, a field you type into, or a segmented choice.
+   3  Green means on, selected or primary; nothing else is green. */
+.tk-btn {
+  display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+  height: var(--control-h); min-width: var(--control-h); padding: 0 10px; margin: 0;
+  border: 0; border-radius: var(--r-md); background: transparent; color: var(--ink-2);
+  font: 500 var(--t-md)/1 var(--font-ui); white-space: nowrap; cursor: pointer; text-decoration: none;
+  transition: background .12s, color .12s, box-shadow .12s;
+}
+.tk-btn:hover { background: var(--hover); color: var(--ink); }
+.tk-btn:active { background: var(--press); }
+.tk-btn:disabled { opacity: .5; cursor: default; background: transparent; }
+.tk-btn[aria-pressed="true"], .tk-btn[aria-expanded="true"] { background: var(--accent-soft); color: var(--accent-text); }
+.tk-btn.tk-icon { padding: 0; width: var(--control-h); }
+.tk-btn.tk-sm { height: var(--control-h-sm); min-width: var(--control-h-sm); padding: 0 8px; font-size: var(--t-sm); border-radius: var(--r-sm); }
+.tk-btn.tk-sm.tk-icon { width: var(--control-h-sm); padding: 0; }
+.tk-btn.tk-tonal { background: var(--hover); color: var(--ink); }
+.tk-btn.tk-tonal:hover { background: var(--press); }
+.tk-btn.tk-primary { background: var(--accent); color: var(--on-accent); }
+.tk-btn.tk-primary:hover { background: var(--accent-hover); color: var(--on-accent); }
+.tk-btn.tk-danger { color: var(--danger); }
+.tk-btn svg, .tk-glyph { width: 16px; height: 16px; flex: none; fill: none; stroke: currentColor; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; }
+.tk-kbd { font: 500 var(--t-xs)/1 var(--font-ui); color: var(--ink-3); border: 1px solid var(--line); border-radius: 4px; padding: 2px 4px; background: var(--field); }
+.tk-seg { display: inline-flex; padding: 2px; gap: 2px; border-radius: 9px; background: var(--hover); }
+.tk-seg > button { height: 28px; padding: 0 10px; border: 0; border-radius: 7px; background: transparent; color: var(--ink-2); font: 500 var(--t-sm)/1 var(--font-ui); cursor: pointer; display: inline-flex; align-items: center; justify-content: center; gap: 6px; }
+.tk-seg > button:hover { color: var(--ink); background: transparent; }
+.tk-seg > button[aria-pressed="true"] { background: var(--surface-2); color: var(--ink); box-shadow: var(--e1); }
+.tk-field { height: var(--control-h); padding: 0 10px; border: 1px solid var(--field-line); border-radius: var(--r-md); background: var(--field); color: var(--ink); font: var(--t-md)/1.3 var(--font-ui); }
+.tk-field::placeholder { color: var(--ink-3); opacity: 1; }
+.tk-field:focus { outline: none; border-color: var(--accent-ring); box-shadow: 0 0 0 3px var(--accent-soft); }
+.tk-eyebrow { font: 600 var(--t-xs)/1.3 var(--font-ui); letter-spacing: .08em; text-transform: uppercase; color: var(--ink-3); }
+.tk-divider { width: 1px; height: 20px; background: var(--line); flex: none; }
+.tk-menu { min-width: 220px; padding: 6px; background: var(--surface-2); color: var(--ink); border-radius: var(--r-lg); box-shadow: var(--e3); }
+.tk-menu .tk-mi { display: flex; align-items: center; gap: 10px; width: 100%; min-height: 32px; padding: 0 10px; border: 0; border-radius: var(--r-sm); background: transparent; color: var(--ink); font: var(--t-md)/1.2 var(--font-ui); text-align: left; cursor: pointer; }
+.tk-menu .tk-mi:hover, .tk-menu .tk-mi:focus-visible { background: var(--hover); outline: none; }
+.tk-menu .tk-mi .tk-kbd { margin-left: auto; }
+.tk-menu .tk-mi.tk-danger { color: var(--danger); }
+.tk-menu .tk-msep { height: 1px; background: var(--line); margin: 6px 4px; }
+.tk-menu .tk-mlabel { font: 600 var(--t-xs)/1.3 var(--font-ui); letter-spacing: .06em; text-transform: uppercase; color: var(--ink-3); padding: 8px 10px 4px; }
+
+/* Readable dates: exact time on hover or focus (see relative-dates.js). */
+time[data-rel] { text-decoration: underline dotted transparent; text-underline-offset: 3px; transition: text-decoration-color .12s; }
+time[data-rel]:hover, time[data-rel]:focus-visible { text-decoration-color: var(--line-strong); }
+.tk-date-tip { position: fixed; z-index: 1000; pointer-events: none; padding: 6px 9px; border-radius: 8px; background: var(--surface-2); color: var(--ink); box-shadow: var(--e3); font: 500 12px/1.3 var(--font-ui); white-space: nowrap; opacity: 0; transform: translateY(3px); transition: opacity .12s, transform .15s; }
+.tk-date-tip.on { opacity: 1; transform: none; }
+
+/* A neutral marker: green is reserved for on, selected and primary. */
+.tk-new { display: inline-flex; align-items: center; font: 600 var(--t-xs)/1 var(--font-ui); letter-spacing: .02em; color: var(--ink-2); background: var(--surface-sunken); box-shadow: inset 0 0 0 1px var(--line-strong); border-radius: var(--r-pill); padding: 4px 7px; }
+
+/* The Tinka mark follows the theme: green and sage on light, lifted on dark. */
+.brand-mark { display: block; flex: 0 0 auto; }
+.brand-mark-a { fill: #536044; }
+.brand-mark-b { fill: #899477; }
+html[data-appearance="dark"] .brand-mark-a { fill: var(--accent); }
+html[data-appearance="dark"] .brand-mark-b { fill: #c9d3b5; }
+
+/* Docked side panels make room beside the work. */
+body.navigator-docked > main { margin-left: var(--navigator-dock-width, 340px); }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { transition-duration: 0s !important; animation-duration: 0s !important; animation-iteration-count: 1 !important; scroll-behavior: auto !important; }
+}

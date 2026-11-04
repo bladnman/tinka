@@ -22,7 +22,7 @@ a{color:inherit}
 /* In the reader the experiment name is the page; the board name gives way first. */
 .board-link{text-decoration:none;flex:0 12 auto;padding-block:11px;margin-block:-11px}
 .board-link:hover{text-decoration:underline}
-.info-toggle{flex:none;display:inline-flex;align-items:center;justify-content:center;width:44px;height:44px;padding:0;margin:-6px 0;border-color:transparent;background:transparent;color:#65744f;border-radius:7px}
+.info-toggle{flex:none;display:inline-flex;align-items:center;justify-content:center;width:44px;height:44px;padding:0;margin:-6px 0;border-color:transparent;background:transparent;color:var(--accent-text);border-radius:7px}
 .info-toggle svg,.icon-button svg,.size-trigger svg{width:18px;height:18px;fill:none;stroke:currentColor;stroke-width:1.5;stroke-linecap:round;stroke-linejoin:round}
 .info-toggle:hover,.info-toggle[aria-expanded="true"]{background:var(--soft);color:var(--ink)}
 .board-info{position:absolute;left:16px;top:calc(100% + 8px);z-index:20;width:min(540px,calc(100vw - 32px));max-height:calc(100dvh - 160px);overflow:auto;padding:18px 20px;background:var(--paper);border:1px solid #b7c4a7;border-radius:10px;box-shadow:0 8px 30px #25301822;font-size:13px;line-height:1.55}
@@ -91,7 +91,7 @@ a{color:inherit}
 /* Small status buttons keep a 44px hit area. */
 #live-refresh::after,#reader-update::after{content:'';position:absolute;inset:-12px -4px}
 .view-tools{display:flex;align-items:center;gap:4px;justify-content:flex-end;min-width:0;flex:none}
-.view-tools input[type=range]{width:200px;min-width:56px;height:44px;margin:0;accent-color:#657b4e;cursor:pointer}
+.view-tools input[type=range]{width:200px;min-width:56px;height:44px;margin:0;accent-color:var(--accent);cursor:pointer}
 .view-tools button{min-height:44px;min-width:44px;background:transparent;border-color:transparent;padding:8px 12px;font-size:12px;white-space:nowrap}
 .view-tools button:hover{background:var(--hover)}
 .view-tools .fit,.window-fit{border-left:1px solid var(--line);border-radius:0;padding-left:14px;margin-left:4px}
@@ -104,11 +104,11 @@ a{color:inherit}
 .experiment-crumb{font:400 20px/1.15 Georgia,serif;color:#405036;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .item-line{display:flex;align-items:center;gap:4px;min-width:0;flex:0 1 auto}
 .item-actions{display:flex;align-items:center;gap:2px;flex:none;margin:-9px 0 -9px 4px}
-.item-star{min-width:44px;min-height:44px;padding:0;font-size:20px;line-height:1;background:transparent;border-color:transparent;color:#65744f;border-radius:7px}
+.item-star{min-width:44px;min-height:44px;padding:0;font-size:20px;line-height:1;background:transparent;border-color:transparent;color:var(--accent-text);border-radius:7px}
 .item-star[aria-pressed="true"]{color:#4a602c;background:var(--soft)}
 .notes-toggle{min-height:44px;padding:8px 12px;font-size:12px;background:transparent;border-color:transparent;color:#4d5a42;border-radius:7px;white-space:nowrap}
 .notes-toggle[aria-expanded="true"]{background:var(--soft);color:var(--ink)}
-.note-dot{display:inline-block;width:6px;height:6px;border-radius:50%;background:#657b4e;margin-left:6px;vertical-align:2px}
+.note-dot{display:inline-block;width:6px;height:6px;border-radius:50%;background:var(--accent);margin-left:6px;vertical-align:2px}
 #reader-update{position:relative;min-height:34px;margin-left:6px;padding:4px 10px;border-color:#a9bd93;background:#e4ecd8;color:#465c32;font-size:10px;font-weight:700;white-space:nowrap}
 .reader-area{flex:1;min-height:0;display:flex;position:relative}
 .reader-stage{flex:1;min-width:0;min-height:0;position:relative;display:flex;align-items:center;justify-content:center;padding:22px 24px;overflow:auto;background-image:radial-gradient(#c2c9b9 .8px,transparent .8px);background-size:20px 20px}

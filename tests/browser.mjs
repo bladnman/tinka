@@ -159,7 +159,8 @@ try{
   assert.equal(await readFile(path.join(a.boards,'first-steps/.state/notes.json'),'utf8'),notesBefore);
   // The header is identity only; board details, export and help live behind the quiet info control.
   await a.page.screenshot({path:path.join(evidence,'board-wide.png')});
-  assert.equal(await a.page.locator('#canvas-header button:visible').count(),1);
+  // Navigator (left, where), Find, and the Inspector toggle (right, what).
+  assert.equal(await a.page.locator('#canvas-header button:visible').count(),3);
   await a.page.locator('#board-info-toggle').click();
   assert.equal(await a.page.locator('#board-info').isVisible(),true);
   assert.equal(await a.page.locator('#board-info-toggle').getAttribute('aria-expanded'),'true');
@@ -193,6 +194,8 @@ try{
   // Card markup appears before the asynchronous server-note hydration completes.
   await a.page.waitForFunction(()=>document.querySelector('#save-status').textContent==='Notes saved on this Mac');
   assert.equal(await a.page.locator('[data-note="first/one-step"]').inputValue(),'Glade only');
+  // Establish the initial resource revision before editing a mounted reader.
+  await a.page.waitForFunction(()=>document.querySelector('#live-status').textContent.startsWith('Live')&&Boolean(document.querySelector('[data-key="first/one-step"]').dataset.liveRevision));
   await a.page.locator('.card-actions [data-open="first/one-step"]').click();
   const frame=a.page.frameLocator('#active-reader');
   await frame.locator('input').fill('A new thought');
@@ -349,6 +352,8 @@ try{
   await a.page.screenshot({path:path.join(evidence,'reader-navigation-narrow.png')});
   await a.page.locator('#close-reader').click();
   await a.page.setViewportSize({width:1440,height:1200});
+  // Let the short return-to-tile flight finish before navigating to another round.
+  await a.page.waitForTimeout(500);
   // Simulate a shell update only in this browser; the user's running app is untouched.
   await showRound('third');
   await settledRound(2);
@@ -403,6 +408,8 @@ try{
   const waitBoard=()=>h.waitForFunction(()=>!document.querySelector('#reader-dialog').open&&document.querySelectorAll('.concept-card').length===3&&document.querySelector('#save-status').dataset.state);
   const frameData=()=>h.locator('#active-reader').evaluate(frame=>({...frame.contentDocument.body.dataset}));
   const boardView=()=>h.evaluate(()=>({pan:document.querySelector('#plane').style.transform,transform:document.querySelector('#world').style.transform}));
+  // Leaving a reader keeps the view when its tile is comfortably visible; otherwise it lands on that tile.
+  const landedOn=async(key,view)=>{await h.waitForTimeout(500);const now=await boardView();if(JSON.stringify(now)===JSON.stringify(view))return;assert.equal(await h.locator(`[data-key="${key}"]`).evaluate(el=>{const v=document.querySelector('#viewport').getBoundingClientRect(),r=el.getBoundingClientRect();return r.left>=v.left&&r.right<=v.right&&r.top>=v.top&&r.bottom<=v.bottom;}),true,`Returned to ${key}`);};
   // The pan, zoom and board content edges (inside the world's padding) relative to the canvas, in pixels.
   const canvasState=()=>h.evaluate(()=>{
     const v=document.querySelector('#viewport');const vr=v.getBoundingClientRect();
@@ -436,10 +443,13 @@ try{
   const base=await length();
   const baseHistoryLength=await historyLength();
   // Removed chrome stays removed; the board footer carries the view controls.
-  assert.equal(await h.locator('select').count(),0);
+  assert.equal(await h.locator('select:not(#navigator-scope):not([aria-label="Appearance"])').count(),0);
+  assert.equal(await h.getByRole('combobox',{name:'Appearance',includeHidden:true}).count(),1);
   assert.equal(await h.locator('#round-picker, #concept-nav, [data-jump], #zoom-in, #zoom-out, #zoom-level, #overview, #reset-view, #toggle-header, .toolbar, .intro, .reader-bar, .reader-bottom, #reader-size').count(),0);
-  assert.equal(await h.locator('#canvas-header button:visible').count(),1);
-  assert.equal(await h.locator('.canvas-footer #zoom-slider').isVisible(),true);
+  assert.equal(await h.locator('#canvas-header button:visible').count(),3);
+  // One floating view pill: − · percent menu (with the precise slider) · + · Fit.
+  assert.equal(await h.locator('.canvas-footer .zoom-pill #zoom-menu-toggle').isVisible(),true);
+  assert.equal(await h.locator('.canvas-footer #zoom-slider').count(),1);
   assert.equal(await h.locator('.canvas-footer #fit').isVisible(),true);
   assert.equal(await h.locator('#dot-track').isVisible(),false);
   assert.equal(await h.locator('#zoom-slider').inputValue(),'50');
@@ -553,7 +563,8 @@ try{
   assert.equal(await hashNow(),'#alpha/one');
   assert.equal(await length(),base+1);
   const readerHistoryLength=await historyLength();
-  assert.equal(await h.title(),'Tinka / Glade / History / One');
+  // The concept's authored number continues inside the item's name.
+  assert.equal(await h.title(),'Tinka / Glade / History / 01 · One');
   assert.equal(await h.locator('#reader-dialog .reader-header #reader-board-link').textContent(),'← Board');
   assert.equal(await h.locator('#reader-hint').textContent(),'Try the first thing.');
   assert((await h.locator('#reader-name').getAttribute('title')).includes('Try the first thing.'));
@@ -718,12 +729,12 @@ try{
   await waitReader('Three');
   await h.goBack();
   await waitBoard();
-  assert.deepEqual(await boardView(),leftView);
+  await landedOn('beta/three',leftView);
   await h.goForward();
   await waitReader('Three');
   await h.locator('#close-reader').click();
   await waitBoard();
-  assert.deepEqual(await boardView(),leftView);
+  await landedOn('beta/three',leftView);
   // Dots: click, keyboard and drag-scrub each add one entry; re-selecting the current experiment adds none.
   await h.locator('.card-actions [data-open="alpha/one"]:not([data-revision])').evaluate(button=>button.click());
   await waitReader('One');

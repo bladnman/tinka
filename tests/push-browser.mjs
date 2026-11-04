@@ -40,7 +40,7 @@ try{
  // Local canonical-review drafts remain unsaved through remote reconciliation.
  let reviewAttempts=0;
  await page.route('**/api/operations',route=>{if(route.request().postDataJSON()?.type==='review'){reviewAttempts++;return route.abort();}return route.continue();});
- await card.locator('[data-item-controls]').click();const note=page.locator('#workspace-item-controls [data-note]');await note.fill('Retain local review draft');await note.focus();await page.waitForTimeout(500);await page.locator('dialog.workspace-dialog .workspace-close').click();await card.locator('[data-item-controls]').click();await note.focus();const attemptsBeforePush=reviewAttempts;
+ await card.locator('[data-item-controls]').click();const note=page.locator('#workspace-item-controls [data-note]');await note.fill('Retain local review draft');await note.focus();await page.waitForTimeout(500);await page.locator('#workspace-item-controls [data-context-close]').click();await card.locator('[data-item-controls]').click();await note.focus();const attemptsBeforePush=reviewAttempts;
  await cli({type:'updateBoard',boardId:'live',patch:{title:'Review draft retained'}});await page.waitForTimeout(1200);assert.equal(await note.inputValue(),'Retain local review draft');
  await page.locator('#workspace-item-controls [data-context-close]').click();await page.waitForFunction(()=>document.querySelector('#board-title').textContent==='Review draft retained');
  await card.locator('[data-item-controls]').click();assert.equal(await page.locator('#workspace-item-controls [data-note]').inputValue(),'Retain local review draft');assert.equal(reviewAttempts,attemptsBeforePush,'remote refresh does not save local draft');

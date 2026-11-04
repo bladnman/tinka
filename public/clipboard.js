@@ -42,6 +42,6 @@ export function externalClipboard(workspaceId, source, metadata = {}) {
     revisions:[],review:{note:"",star:false,updatedAt:now},build:{state:"ready",message:"",updatedAt:now}};
   const image = clipboardURL(metadata.image);
   if (link && image) item.preview = {url:image};
-  return {version:1,workspaceId,placements:[{id,itemId,x:0,y:0,width:link ? 360 : 380,height:link ? 340 : 440,z:0}],
+  return {version:1,workspaceId,placements:[{id,itemId,x:0,y:0,width:link && image ? 720 : link ? 360 : 380,height:link && image ? 560 : link ? 340 : 440,z:0,...(link && image ? {presentation:{mode:"panel"}} : {})}],
     items:{[itemId]:item},boards:{},reviewOrder:[id]};
 }

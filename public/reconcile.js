@@ -19,10 +19,15 @@ export function reconcileChildren(parent, fresh) {
       if (before.nodeType === Node.ELEMENT_NODE) {
         // An in-progress decoration edit owns its text and selection until blur.
         if (!before.isContentEditable) {
+          // A rendered cover frame keeps its activated source and ready state.
+          const keep = name => name === "data-cover-ready" ||
+            (name === "src" && before.tagName === "IFRAME" && before.dataset.miniSrc && before.dataset.miniSrc === after.dataset.miniSrc);
           for (const attr of [...before.attributes])
-            if (!after.hasAttribute(attr.name)) before.removeAttribute(attr.name);
-          for (const attr of after.attributes)
+            if (!after.hasAttribute(attr.name) && !keep(attr.name)) before.removeAttribute(attr.name);
+          for (const attr of after.attributes) {
+            if (attr.name === "data-cover-pending" && before.hasAttribute("data-cover-ready")) continue;
             if (before.getAttribute(attr.name) !== attr.value) before.setAttribute(attr.name, attr.value);
+          }
           reconcileChildren(before, after);
         }
       } else if (before.nodeValue !== after.nodeValue) before.nodeValue = after.nodeValue;

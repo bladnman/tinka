@@ -8,6 +8,7 @@ import {coverMarkup, observeCovers} from "./board-covers.js";
 import {eventFiles,hasFileDrag,validateImportFiles,importLayout,pdfSupported,pdfPreviewURL} from "./file-import.js";
 import {CutIntent} from "./cut-intent.js";
 import {MovementHistory} from "./movement-history.js";
+import {timeHTML} from "./relative-dates.js";
 import {CLIPBOARD_MIME,CLIPBOARD_PREFIX,clipboardBytes,readClipboard,externalClipboard} from "./clipboard.js";
 import {
   WorkspaceClient,
@@ -15,12 +16,36 @@ import {
   resourceURL,
   remoteURL,
   destinationDialog,
+  featureOnParentDialog,
   itemForm,
   makeDialog,
   toast,
   showFailure,
 } from "./workspace.js";
 const $ = (id) => document.getElementById(id);
+// Authored paper keeps appropriate ink in either app appearance, including
+// translucent colors. The two backing papers are the light/dark theme tokens.
+function paperColors(paper) {
+  if (!/^#(?:[0-9a-f]{3}|[0-9a-f]{4}|[0-9a-f]{6}|[0-9a-f]{8})$/i.test(paper)) return "";
+  let hex = paper.slice(1);
+  if (hex.length < 5) hex = [...hex].map(c => c + c).join("");
+  const rgb = [0,2,4].map(i => parseInt(hex.slice(i,i+2),16));
+  const alpha = hex.length === 8 ? parseInt(hex.slice(6),16)/255 : 1;
+  return [["light",[253,253,251]],["dark",[58,60,55]]].map(([theme,base]) => {
+    const linear = rgb.map((c,i) => (c*alpha+base[i]*(1-alpha))/255).map(c => c <= .04045 ? c/12.92 : ((c+.055)/1.055)**2.4);
+    const luminance = linear[0]*.2126 + linear[1]*.7152 + linear[2]*.0722;
+    const contrast = color => {
+      const channels = color.match(/[a-f0-9]{2}/gi).map(c => parseInt(c,16)/255).map(c => c <= .04045 ? c/12.92 : ((c+.055)/1.055)**2.4);
+      const ink = channels[0]*.2126 + channels[1]*.7152 + channels[2]*.0722;
+      return (Math.max(luminance,ink)+.05)/(Math.min(luminance,ink)+.05);
+    };
+    let ink = ["#23271f", "#ecece5"].sort((a,b) => contrast(b)-contrast(a))[0];
+    if (contrast(ink) < 4.5) ink = ["#000000", "#ffffff"].sort((a,b) => contrast(b)-contrast(a))[0];
+    const muted = contrast("#4c5145") >= contrast("#c8c9bf") ? "#4c5145" : "#c8c9bf";
+    return `--item-ink-${theme}:${ink};--item-muted-${theme}:${contrast(muted) >= 4.5 ? muted : ink};`;
+  }).join("");
+}
+
 export class WorkspaceBoard {
   constructor(config, snapshot, hooks) {
     this.config = config;
@@ -122,6 +147,7 @@ export class WorkspaceBoard {
           item.number ||
           item.legacy?.number ||
           String(roundMap.get(roundId).concepts.length + 1).padStart(2, "0"),
+        shownNumber: item.number ?? item.legacy?.number ?? "",
         graphItem: item,
         placement: p,
         kind: item.content?.kind || "text",
@@ -166,27 +192,38 @@ export class WorkspaceBoard {
     $("help-panel").append(" Copy selected Tinkas with ⌘/Ctrl-C, then paste here or in another board with ⌘/Ctrl-V. Copies retain their arrangement and use the same files. A pasted link gets a saved representation; pasted text becomes a document. Undo also reverses paste. Text fields keep their normal clipboard.");
     $("help-panel").append(" Select several cards and drag a selected card to carry them together, into a board or onto Parent. An unselected card, resize or held cover child still acts alone.");
     $("help-panel").append(" With a mouse or pen, drag a box on empty Canvas space to select cards. Hold Shift when starting to add to your selection; Escape cancels. An empty click clears selection. Unused colored-region interiors also work; use a region’s label or border to move it. Touch keeps swiping and pinching.");
-    $("help-panel").append(" The bottom name bar also drags; a title click opens the item. Right-click a card for its notes and appearance. Use ⌘/Ctrl-Z to undo movement and Shift-⌘/Ctrl-Z to redo, or find Undo/Redo in Tools. This tab remembers movements across boards; text fields keep their own undo. Delete or Backspace removes the visible selection from this board; ⌘/Ctrl-Z restores it. New-board creation and canonical deletion are outside movement history.");
+    $("help-panel").append(" The bottom name bar also drags; a title click opens the item. Hover a card for its toolbar and selection circle; Shift- or ⌘/Ctrl-click adds it to the selection. Right-click a card for a short menu; Details… (⌘/Ctrl-I) opens the Inspector with notes and appearance. Use ⌘/Ctrl-Z to undo movement and Shift-⌘/Ctrl-Z to redo, or use Undo/Redo in the top bar or Inspector. This tab remembers movements across boards; text fields keep their own undo. Delete or Backspace removes the visible selection from this board; ⌘/Ctrl-Z restores it. New-board creation and canonical deletion are outside movement history.");
     bar.id = "workspace-toolbar";
     bar.className = "workspace-toolbar";
     bar.setAttribute("aria-label", "Organize this board");
-    bar.innerHTML = `<div class="workspace-segments"><button data-mode="grid">Grid</button><button data-mode="canvas">Canvas</button></div><label class="workspace-search"><span class="sr-only">Search items</span><input type="search" placeholder="Find a title or text…" id="workspace-search"></label><button id="workspace-favorites" aria-pressed="false">☆ Favorites</button><button id="workspace-recent" aria-pressed="false">Last 6 weeks</button><button id="workspace-archive" aria-pressed="false">Archive</button><button id="workspace-owner" hidden>Open primary content</button><button id="workspace-retry-drafts" hidden>Retry unsaved feedback</button>`;
+    bar.innerHTML = `<div class="workspace-segments"><button data-mode="grid">Grid</button><button data-mode="canvas">Canvas</button></div><label class="workspace-search"><span class="sr-only">Filter visible canvas items</span><input type="search" placeholder="Filter this canvas…" id="workspace-search"></label><button id="workspace-favorites" aria-pressed="false">☆ Favorites</button><button id="workspace-recent" aria-pressed="false">Last 6 weeks</button><button id="workspace-archive" aria-pressed="false">Archive</button><button id="workspace-owner" hidden>Open primary content</button><button id="workspace-retry-drafts" hidden>Retry unsaved feedback</button>`;
     $("board-info").prepend(bar);
     const add = document.createElement("button");
     add.id = "workspace-add";
     add.type = "button";
-    add.textContent = "+ Add";
+    add.className = "tk-btn tk-primary chrome-add";
+    add.innerHTML = '<svg viewBox="0 0 20 20" aria-hidden="true"><path d="M10 4.5v11M4.5 10h11"/></svg><span class="chrome-add-label">Add</span>';
+    add.setAttribute("aria-label", "Add");
+    add.title = "Add text, shapes, arrows, items and boards";
     add.setAttribute("aria-haspopup", "menu");
     add.setAttribute("aria-expanded", "false");
-    bar.prepend(add);
+    const actions = $("chrome-actions");
+    const quick = document.createElement("span");
+    quick.className = "chrome-history";
+    quick.innerHTML = '<button type="button" id="chrome-undo" class="tk-btn tk-icon" aria-label="Undo" title="Undo (⌘Z)" disabled><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M7.5 5 4 8.5 7.5 12"/><path d="M4.5 8.5H12a4 4 0 0 1 0 8H9"/></svg></button><button type="button" id="chrome-redo" class="tk-btn tk-icon" aria-label="Redo" title="Redo (⇧⌘Z)" disabled><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M12.5 5 16 8.5 12.5 12"/><path d="M15.5 8.5H8a4 4 0 0 0 0 8h3"/></svg></button>';
+    actions.insertBefore(quick, $("board-info-toggle"));
+    actions.append(add);
     const history = document.createElement("div");
     history.className = "workspace-history-actions";
     history.innerHTML = '<button type="button" id="workspace-undo" disabled>Undo</button><button type="button" id="workspace-redo" disabled>Redo</button>';
     bar.append(history);
     this.installClipboard(bar);
     this.installFileDrop();
-    $("workspace-undo").onclick = () => this.replayMovement("undo");
-    $("workspace-redo").onclick = () => this.replayMovement("redo");
+    // Clicked controls are explicit commands: focus inside the Inspector never blocks them.
+    $("workspace-undo").onclick = () => this.replayMovement("undo", {explicit:true});
+    $("workspace-redo").onclick = () => this.replayMovement("redo", {explicit:true});
+    $("chrome-undo").onclick = () => this.replayMovement("undo", {explicit:true});
+    $("chrome-redo").onclick = () => this.replayMovement("redo", {explicit:true});
     this.updateHistoryControls();
     this.installBoardCommands(bar);
     document.addEventListener("keydown", e => {
@@ -200,10 +237,12 @@ export class WorkspaceBoard {
       this.replayMovement(e.shiftKey ? "redo" : "undo");
     }, true);
     add.onclick = () => {
-      // Anchor the creation menu to the still-visible Tools control before closing its drawer.
-      this.addMenu($("board-info-toggle"));
+      if (this.addPopup) { this.closeAddMenu(); return; }
       $("board-info").hidden = true;
       $("board-info-toggle").setAttribute("aria-expanded", "false");
+      this.closeContext();
+      this.addMenu(add);
+      add.setAttribute("aria-expanded", String(!!this.addPopup));
     };
     document.addEventListener("keydown", e => {
       if (e.key === "Escape" && this.addPopup) {
@@ -244,6 +283,18 @@ export class WorkspaceBoard {
         this.selection.clear();
         this.rebuild();
       };
+    // Shift-, ⌘- or Ctrl-click adds or removes a tile from the selection, like a
+    // canvas tool; a plain click still opens it.
+    document.addEventListener("click", e => {
+      if (!(e.shiftKey || e.metaKey || e.ctrlKey) || e.altKey || e.button !== 0) return;
+      const card = e.target.closest("#world .workspace-card[data-placement]");
+      if (!card || e.target.closest("input,textarea,select,a[href],[contenteditable],[data-placement-select],.workspace-tile-toolbar,.workspace-resize")) return;
+      e.preventDefault(); e.stopImmediatePropagation();
+      const id = card.dataset.placement;
+      this.whiteboard?.clearSelection({finishEdit:true,focus:false});
+      this.selection.has(id) ? this.selection.delete(id) : this.selection.add(id);
+      this.syncSelection(); this.selectionMenu();
+    }, true);
     document.addEventListener("click", (e) => {
       const select = e.target.closest("[data-placement-select]"),
         context = e.target.closest("[data-item-controls]"),
@@ -267,7 +318,7 @@ export class WorkspaceBoard {
           item: this.snapshot.items[edit.dataset.editItem],
           refresh: () => this.refresh(),
         });
-      if (child) this.navigate(child.dataset.childBoard);
+      if (child) this.navigate(child.dataset.childBoard, child.closest("[data-placement]")?.dataset.placement);
     });
     surfaces.querySelector("[data-surface=content]").onclick = () => {
       this.surface = "content";
@@ -306,11 +357,42 @@ export class WorkspaceBoard {
       getMode:()=>this.mode,refresh:()=>this.refresh({saveReview:false})});
     this.feedback.mount({toolbar:bar,world:$("world"),viewport:$("viewport")});
     this.feedback.reload().catch(error=>console.warn("Feedback unavailable:",error.message));
+    this.arrangeInspector(bar);
     this.setMode(this.mode, false);
     this.loadCrumb();
     $("workspace-owner").hidden =
       !this.snapshot.items[this.snapshot.ownerItemId]?.content;
     $("workspace-owner").onclick = () => this.hooks.openOwner();
+  }
+  // The board Inspector groups the former Tools drawer into labelled sections.
+  arrangeInspector(bar) {
+    const section = (title, note, nodes, cls = "") => {
+      const el = document.createElement("section");
+      el.className = `inspector-sec ${cls}`.trim();
+      el.innerHTML = `<h3>${esc(title)}${note ? ` <span>${esc(note)}</span>` : ""}</h3>`;
+      const row = document.createElement("div"); row.className = "inspector-row";
+      nodes.filter(Boolean).forEach(node => row.append(node));
+      el.append(row);
+      return el;
+    };
+    const pick = selector => bar.querySelector(selector);
+    const pattern = document.createElement("div");
+    pattern.className = "tk-seg canvas-pattern"; pattern.setAttribute("role", "group"); pattern.setAttribute("aria-label", "Canvas background");
+    pattern.innerHTML = '<button type="button" data-canvas-pattern="dots" aria-pressed="true">Dots</button><button type="button" data-canvas-pattern="grid" aria-pressed="false">Grid</button><button type="button" data-canvas-pattern="plain" aria-pressed="false">Plain</button>';
+    const segments = pick(".workspace-segments"); segments?.classList.add("tk-seg");
+    const view = section("View", "this board, this browser", [segments, pattern], "inspector-view");
+    const filter = section("Filter", "", [pick(".workspace-search"), pick("#workspace-favorites"), pick("#workspace-recent"), pick("#workspace-archive")], "inspector-filter");
+    const edit = section("Edit", "", [pick(".workspace-history-actions"), pick(".workspace-clipboard-actions"), pick("#workspace-owner"), pick("#workspace-retry-drafts")], "inspector-edit");
+    const discuss = section("Discuss", "", [pick("[data-feedback-toggle]"), ...[...bar.children].filter(node => !node.matches?.(".inspector-sec,#workspace-keyboard-shortcuts"))], "inspector-discuss");
+    const guide = pick("#workspace-keyboard-shortcuts");
+    bar.replaceChildren(view, filter, edit, discuss);
+    bar.querySelectorAll(".inspector-row button:not(.tk-btn):not(.tk-seg > button):not(.workspace-segments button)").forEach(button => button.classList.add("tk-btn", "tk-sm"));
+    bar.querySelectorAll(".workspace-history-actions button, .workspace-clipboard-actions button").forEach(button => button.classList.add("tk-btn", "tk-sm"));
+    if (guide) { guide.classList.add("tk-btn", "tk-sm"); $("board-info").querySelector(".info-actions")?.prepend(guide); }
+    const head = $("board-info").querySelector(".calm-side-head");
+    if (head) $("board-info").prepend(head);
+    const appearance = $("board-info").querySelector(".appearance-control");
+    if (appearance) view.querySelector(".inspector-row").append(appearance);
   }
   revisionsFor(item) {
     return (item.revisions || []).map((v, i) => ({
@@ -408,13 +490,35 @@ export class WorkspaceBoard {
 
     } catch {}
   }
-  async navigate(id) {
+  async navigate(id, placementId) {
     await this.saveReview([], {});
+    // Remember the tile this board was entered from, so returning lands on it.
+    const from = placementId || this.snapshot.placements.find(p => !p.removedAt && !p.archivedAt && this.snapshot.items[p.itemId]?.childBoardId === id)?.id;
+    if (from && id !== this.snapshot.id) try { sessionStorage.setItem(`tinka/${this.config.workspaceId}/return-to-tile`, JSON.stringify({ parentBoardId: this.snapshot.id, placementId: from, childBoardId: id, at: Date.now() })); } catch {}
     if (id === this.snapshot.id) {
       this.hooks.closeReader();
       return;
     }
     location.href = `/boards/${encodeURIComponent(id)}/?from=${encodeURIComponent(this.snapshot.id)}`;
+  }
+  async revealPlacement(id) {
+    const placement=this.snapshot.placements.find(p=>p.id===id&&!p.removedAt&&!p.archivedAt&&!p.deletedAt);
+    const item=this.snapshot.items[placement?.itemId];
+    if(!placement||!item||item.archivedAt||item.deletedAt){toast('This item is no longer visible on this board. Open Navigator to find its current location.');return;}
+    this.filters={search:'',favorites:false,recent:false,archive:false};
+    $('workspace-search').value='';
+    for(const name of ['favorites','recent','archive'])$(`workspace-${name}`).setAttribute('aria-pressed','false');
+    this.revealedPlacement=id;
+    this.hooks.closeReader();this.selection=new Set([id]);this.rebuild();
+    await new Promise(resolve=>requestAnimationFrame(resolve));
+    const card=$('world').querySelector(`[data-placement="${CSS.escape(id)}"]`);
+    if(this.mode==='canvas')this.recenterRevealed();else card?.scrollIntoView({block:'center'});
+    toast(`Found ${item.title} on ${this.snapshot.title}.`);
+    if(card){this.revealFlash=id;card.classList.add('navigator-revealed');card.querySelector('[data-open]')?.focus({preventScroll:true});clearTimeout(this.revealTimer);this.revealTimer=setTimeout(()=>{if(this.revealFlash===id)this.revealFlash=null;$('world').querySelector(`[data-placement="${CSS.escape(id)}"]`)?.classList.remove('navigator-revealed');},5000);}
+  }
+  recenterRevealed() {
+    const placement=this.snapshot.placements.find(p=>p.id===this.revealedPlacement&&!p.removedAt&&!p.archivedAt);
+    if(this.mode==='canvas'&&placement)this.hooks.revealTarget(placement);
   }
   rebuild() {
     this.hooks.data(this.adapt());
@@ -467,7 +571,7 @@ export class WorkspaceBoard {
     guide.type = "button";
     guide.id = "workspace-keyboard-shortcuts";
     guide.textContent = "Keyboard shortcuts";
-    guide.onclick = () => { if (!this.boardCommandBlocked()) this.keyboardShortcuts(); };
+    guide.onclick = () => this.keyboardShortcuts();
     bar.append(guide);
     document.addEventListener("keydown", event => {
       if (event.isComposing || event.keyCode === 229 || event.altKey) return;
@@ -500,9 +604,7 @@ export class WorkspaceBoard {
         const open = card?.querySelector("[data-open]:not(:disabled)");
         if (open) action = () => open.click();
       } else if (!command && !event.shiftKey && key === "/") action = () => {
-        $("board-info").hidden = false;
-        $("board-info-toggle").setAttribute("aria-expanded","true");
-        $("workspace-search").focus({preventScroll:true});
+        document.dispatchEvent(new CustomEvent("tinka:navigator-open"));
       };
       else if (!command && event.shiftKey && (key === "!" || key === "1") && this.mode === "canvas")
         action = () => $("fit").click();
@@ -521,22 +623,29 @@ export class WorkspaceBoard {
       <dl><dt>⌘/Ctrl-A</dt><dd>Select all visible Tinkas</dd>
       <dt>⌘/Ctrl-D</dt><dd>Duplicate selection</dd>
       <dt>Enter</dt><dd>Open one selected Tinka</dd>
-      <dt>/</dt><dd>Search this board</dd>
-      <dt>Shift-1</dt><dd>Fit the canvas</dd>
+      <dt>⌘/Ctrl-K or /</dt><dd>Find across this project (Navigator)</dd>
+      <dt>⌘/Ctrl-I</dt><dd>Inspector for the selected Tinka or this board</dd>
+      <dt>Shift-click · ⌘/Ctrl-click</dt><dd>Add a Tinka to the selection</dd>
+      <dt>Shift-1 · Shift-2 · Shift-0</dt><dd>Fit the canvas · Fit the selection · Zoom to 100%</dd>
       <dt>?</dt><dd>Show keyboard shortcuts</dd>
       <dt>⌘/Ctrl-C · X · V</dt><dd>Copy · Cut · Paste</dd>
       <dt>Delete / Backspace</dt><dd>Remove selection from this board</dd>
       <dt>⌘/Ctrl-Z · Shift-⌘/Ctrl-Z</dt><dd>Undo · Redo</dd>
       <dt>Arrow keys · Shift-Arrow</dt><dd>Move selection 1 · 10 units</dd>
-      <dt>Escape</dt><dd>Cancel a gesture, pending Cut or selection</dd></dl>`);
+      <dt>Escape</dt><dd>Close the newest panel or menu, then cancel a gesture, pending Cut or selection</dd></dl>`);
     dialog.addEventListener("close", () => {
       if (returnFocus?.isConnected) returnFocus.focus({preventScroll:true});
     });
     return dialog;
   }
-  clipboardBlocked() {
+  // Work in progress blocks every board command, clicked or typed.
+  commandBusy() {
     return this.pointerGesture || this.decorationGesture || this.movePending || this.historyBusy || this.pasteBusy ||
-      this.client.pendingWrites || this.saving || document.querySelector("dialog[open]") ||
+      this.client.pendingWrites || this.saving || document.querySelector("dialog[open]");
+  }
+  // Keyboard and native clipboard events also yield to focused fields and panels.
+  clipboardBlocked() {
+    return this.commandBusy() ||
       document.activeElement?.closest("input,textarea,select,[contenteditable],[role=dialog]") ||
       document.activeElement?.tagName === "IFRAME";
   }
@@ -568,7 +677,13 @@ export class WorkspaceBoard {
     controls.innerHTML = '<button type="button" id="workspace-copy" disabled>Copy selection</button><button type="button" id="workspace-paste">Paste…</button>';
     bar.append(controls);
     $("workspace-copy").onclick = () => {
-      if (!document.execCommand("copy")) toast("Use ⌘/Ctrl-C to copy the selected Tinkas.");
+      // An explicit command: the copy event below skips its focus guard for this call only.
+      if (this.commandBusy()) { toast("Finish the current action, then copy."); return; }
+      this.explicitCopy = true;
+      let copied = false;
+      try { copied = document.execCommand("copy") && this.explicitCopied; }
+      finally { this.explicitCopy = false; this.explicitCopied = false; }
+      if (!copied) toast("Use ⌘/Ctrl-C to copy the selected Tinkas.");
     };
     $("workspace-paste").onclick = () => {
       $("board-info").hidden = true;
@@ -577,7 +692,7 @@ export class WorkspaceBoard {
       toast("Press ⌘/Ctrl-V here to paste Tinkas, a link, or text.");
     };
     document.addEventListener("copy", e => {
-      if (this.clipboardBlocked() || e.target.closest?.("input,textarea,select,[contenteditable],[role=dialog]")) return;
+      if (!this.explicitCopy && (this.clipboardBlocked() || e.target.closest?.("input,textarea,select,[contenteditable],[role=dialog]"))) return;
       this.cutIntent.clear();
       try {
         const clipboard = this.copySnapshot();
@@ -587,6 +702,7 @@ export class WorkspaceBoard {
         try { e.clipboardData.setData(CLIPBOARD_MIME,json); } catch {}
         e.clipboardData.setData("text/plain",CLIPBOARD_PREFIX + json);
         e.preventDefault();
+        if (this.explicitCopy) this.explicitCopied = true;
         toast(`Copied ${clipboard.placements.length} ${clipboard.placements.length === 1 ? "Tinka" : "Tinkas"}.`);
       } catch (error) { toast(error.message); }
     });
@@ -814,8 +930,8 @@ export class WorkspaceBoard {
     if (next && next.x < bottom.x - 40 && next.y < bottom.y - 40) return next;
     return {x:Math.max(top.x,Math.min(center.x,bottom.x - width)),y:Math.max(top.y,Math.min(center.y,bottom.y - height))};
   }
-  duplicateSelection() {
-    if (this.clipboardBlocked() || this.history?.busy) return;
+  duplicateSelection({explicit = false} = {}) {
+    if ((explicit ? this.commandBusy() : this.clipboardBlocked()) || this.history?.busy) return;
     try {
       const clipboard = this.copySnapshot();
       if (!clipboard) return;
@@ -897,14 +1013,16 @@ export class WorkspaceBoard {
       button.textContent = label ? `${verb} ${label.toLowerCase()}` : verb;
       button.disabled = !!busy || !this.history?.available(direction);
       button.title = direction === "undo" ? "Undo movement, paste or removal (⌘/Ctrl Z)" : "Redo movement, paste or removal (⌘/Ctrl Shift Z)";
+      const quick = $("chrome-" + direction);
+      if (quick) { quick.disabled = button.disabled; quick.title = `${label ? `${verb} ${label.toLowerCase()}` : verb} (${direction === "undo" ? "⌘Z" : "⇧⌘Z"})`; }
     }
     const copy = $("workspace-copy"), paste = $("workspace-paste");
     if (copy) copy.disabled = !!busy || !this.clipboardCandidates().length;
     if (paste) paste.disabled = !!busy;
   }
-  async replayMovement(direction) {
+  async replayMovement(direction, {explicit = false} = {}) {
     if (this.pointerGesture || this.decorationGesture || this.movePending || this.historyBusy || this.pasteBusy || this.history?.busy || this.client.pendingWrites || this.saving ||
-        document.activeElement?.closest("input,textarea,select,[contenteditable],[role=dialog]") || document.querySelector("dialog[open]") ||
+        (!explicit && document.activeElement?.closest("input,textarea,select,[contenteditable],[role=dialog]")) || document.querySelector("dialog[open]") ||
         !this.history.available(direction)) return;
     this.historyBusy = true;
     this.movePending = true;
@@ -981,7 +1099,7 @@ export class WorkspaceBoard {
       const selected = this.selection.has(p.id),
         unavailable = ["reserved", "building"].includes(item.build?.state),
         live = !icon && !unavailable && !img && (documentContent ||
-          (this.mode === "grid" || panel) && item.content?.kind === "html" && item.content?.resource && !item.content?.url);
+          item.content?.kind === "html" && item.content?.resource && !item.content?.url);
       const excerpt = !!documentContent && !panel;
       const review = { ...item.review, ...this.pendingReview.get(item.id) };
       const handoff = resourceURL(item.resources?.find(r => r.role === "handoff")?.resource);
@@ -999,20 +1117,32 @@ export class WorkspaceBoard {
       const pdfURL = previous?.pdf?.dataset.previewSource === pdfSource ? previous.pdf.getAttribute("src") : pdf && pdfPreviewURL(pdf);
       const voteState = this.feedback?.voteState?.(item.id) || {mine:null};
       const choice = voteState.mine ? voteState.mine[0].toUpperCase() + voteState.mine.slice(1) : "Vote";
-      const footer = `<footer class="workspace-item-footer workspace-panel-caption"><button type="button" data-placement-select="${esc(p.id)}" aria-pressed="${selected}" aria-label="${selected ? "Deselect" : "Select"} ${esc(item.title)}" title="${selected ? "Deselect" : "Select"}">${selected ? "✓" : "□"}</button>${panel ? `<button type="button" class="workspace-panel-title" ${unavailable ? "disabled" : ""} data-open="${esc(c.key)}" title="${esc(item.title)}">${esc(item.title)}</button>` : '<span class="workspace-item-spacer" aria-hidden="true"></span>'}<button type="button" data-item-feedback="${esc(item.id)}" aria-label="Comments on ${esc(item.title)}" title="Comments"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 4h14a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H9l-5 3v-3a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2Z"/><path d="M7 9h10M7 13h7"/></svg></button><button type="button" class="workspace-vote-trigger" data-item-vote="${esc(item.id)}" data-vote-value="${esc(voteState.mine || "")}" aria-haspopup="dialog" aria-pressed="${!!voteState.mine}" aria-label="Vote on ${esc(item.title)}${voteState.mine ? `. Your vote: ${esc(choice)}` : ""}" title="${voteState.mine ? `Your vote: ${esc(choice)}` : "Vote"}"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 10H3v10h18V10h-2M3 14h18M8 3h8v9H8z"/><path d="m10 7 2 2 3-3"/></svg><span data-vote-summary>${esc(choice)}</span></button><button type="button" class="shortlist" data-star="${esc(c.key)}" aria-label="Favorite ${esc(item.title)}" aria-pressed="${!!review.star}" title="Favorite"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m12 3 2.8 5.7 6.3.9-4.6 4.4 1.1 6.3-5.6-3-5.6 3 1.1-6.3L3 9.6l6.2-.9Z"/></svg></button><button type="button" data-item-controls="${esc(p.id)}" data-controls-focus="actions" aria-label="More actions for ${esc(item.title)}" aria-haspopup="dialog" aria-expanded="${this.contextPlacement === p.id}" title="More actions">⋯${review.note ? '<span class="workspace-note-dot" aria-hidden="true"></span>' : ""}</button>${this.mode === "canvas" ? `<button type="button" class="workspace-resize" data-resize="${esc(p.id)}" aria-label="Resize ${esc(item.title)}" title="Resize">◢</button>` : ""}</footer>`;
+      const featuredBoard = p.presentation?.featuredFrom && this.snapshot.childBoards?.[p.presentation.featuredFrom];
+      const featuredMissing = featuredBoard && !featuredBoard.placements.some(entry => entry.itemId === item.id && !entry.removedAt && !entry.deletedAt && !entry.archivedAt);
+      const sourceLine = p.presentation?.featuredFrom ? `<div class="workspace-feature-source"><a href="/boards/${encodeURIComponent(p.presentation.featuredFrom)}/?from=${encodeURIComponent(this.snapshot.id)}" aria-label="Open source board ${esc(featuredBoard?.title || '')}">From ${esc(featuredBoard?.title || 'source board')} ↗</a>${featuredMissing ? '<span>Not currently in source</span>' : ''}</div>` : '';
+      const boardTile = !!item.childBoardId, placeOnly = boardTile && !item.content;
+      const childBoard = boardTile ? this.snapshot.childBoards?.[item.childBoardId] : null;
+      const childCount = childBoard ? childBoard.placements.filter(entry => !entry.removedAt && !entry.deletedAt && !entry.archivedAt).length : this.snapshot.boardCovers?.[item.childBoardId]?.count;
+      const placeMeta = boardTile ? `<span class="workspace-place-meta">Board${Number.isFinite(childCount) ? ` · ${childCount} ${childCount === 1 ? "item" : "items"}` : ""}${childBoard?.updatedAt ? ` · ${timeHTML(childBoard.updatedAt, { prefix: "edited ", verb: "Edited" })}` : ""}</span>` : "";
+      const badges = `<span class="workspace-badges" aria-hidden="true">${review.star ? '<span class="workspace-badge workspace-badge-star" title="Favorite"><svg viewBox="0 0 24 24"><path d="m12 3 2.8 5.7 6.3.9-4.6 4.4 1.1 6.3-5.6-3-5.6 3 1.1-6.3L3 9.6l6.2-.9Z"/></svg></span>' : ""}${review.note ? '<span class="workspace-badge workspace-badge-note" title="Has notes"><svg viewBox="0 0 24 24"><path d="M6 3.5h9l3.5 3.5v13.5H6z"/><path d="M9 11h6M9 15h4"/></svg></span>' : ""}${voteState.mine ? `<span class="workspace-badge workspace-badge-vote" title="Your vote">${esc(choice)}</span>` : ""}</span>`;
+      const tileNumber = String(c.shownNumber ?? "").trim().slice(0, 8);
+      const titleButton = `${tileNumber ? `<span class="workspace-concept-number workspace-caption-number">${esc(tileNumber)}</span>` : ""}<button type="button" class="workspace-panel-title" ${unavailable ? "disabled" : ""} data-open="${esc(c.key)}" title="${esc(item.title)}">${esc(item.title)}</button>`;
+      const select = `<button type="button" class="workspace-select-dot" data-placement-select="${esc(p.id)}" aria-pressed="${selected}" aria-label="${selected ? "Deselect" : "Select"} ${esc(item.title)}" title="${selected ? "Deselect" : "Select"} (or Shift-click the item)"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="m5.5 10.2 3 3 6-6.4"/></svg></button>`;
+      const footer = `<footer class="workspace-item-footer workspace-panel-caption">${p.presentation?.featuredFrom ? `<div class="workspace-feature-caption">${panel ? titleButton : ''}${sourceLine}</div>` : panel ? titleButton : placeMeta || '<span class="workspace-item-spacer" aria-hidden="true"></span>'}${badges}${this.mode === "canvas" ? `<button type="button" class="workspace-resize" data-resize="${esc(p.id)}" aria-label="Resize ${esc(item.title)}" title="Resize">◢</button>` : ""}</footer>`;
+      const toolbar = `<div class="workspace-tile-toolbar" role="toolbar" aria-label="Actions for ${esc(item.title)}"><button type="button" class="workspace-tool-open" ${unavailable ? "disabled" : ""} data-open="${esc(c.key)}" aria-label="${placeOnly ? "Open board" : "Open"} ${esc(item.title)}">${placeOnly ? "Open board" : "Open"}</button><button type="button" data-item-feedback="${esc(item.id)}" aria-label="Comments on ${esc(item.title)}" title="Comments"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 4h14a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H9l-5 3v-3a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2Z"/><path d="M7 9h10M7 13h7"/></svg></button><button type="button" class="workspace-vote-trigger" data-item-vote="${esc(item.id)}" data-vote-value="${esc(voteState.mine || "")}" aria-haspopup="dialog" aria-pressed="${!!voteState.mine}" aria-label="Vote on ${esc(item.title)}${voteState.mine ? `. Your vote: ${esc(choice)}` : ""}" title="${voteState.mine ? `Your vote: ${esc(choice)}` : "Vote"}"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 10H3v10h18V10h-2M3 14h18M8 3h8v9H8z"/><path d="m10 7 2 2 3-3"/></svg><span data-vote-summary>${esc(choice)}</span></button><button type="button" class="shortlist" data-star="${esc(c.key)}" aria-label="Favorite ${esc(item.title)}" aria-pressed="${!!review.star}" title="Favorite"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m12 3 2.8 5.7 6.3.9-4.6 4.4 1.1 6.3-5.6-3-5.6 3 1.1-6.3L3 9.6l6.2-.9Z"/></svg></button><button type="button" data-item-controls="${esc(p.id)}" data-controls-focus="notes" aria-label="Details for ${esc(item.title)}" aria-haspopup="dialog" aria-expanded="${this.contextPlacement === p.id}" title="Details (⌘I)"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="6" cy="12" r="1.3"/><circle cx="12" cy="12" r="1.3"/><circle cx="18" cy="12" r="1.3"/></svg>${review.note ? '<span class="workspace-note-dot" aria-hidden="true"></span>' : ""}</button></div>`;
       const visual = unavailable
-        ? `<div class="workspace-build-placeholder"><strong>${item.build.state === "building" ? "Taking shape." : "A place for a new idea."}</strong><span>${esc(item.build.message || "This slot will open when it is ready for review.")}</span></div>`
+        ? `<div class="workspace-build-placeholder"><strong>${item.build.state === "building" ? "In progress" : "Reserved"}</strong><span>${esc(item.build.message || "The preview will appear when this work is ready for review.")}</span></div>`
         : live ? `<iframe ${excerpt ? 'class="workspace-document-excerpt"' : ""} src="${esc(preview)}" data-preview-source="${esc(previewSource)}" title="${esc(item.title)} ${panel ? "design" : "live"} preview" tabindex="-1" loading="lazy" inert></iframe>`
         : img || (url && item.content.kind === "image") ? `<img src="${esc(image)}" data-preview-source="${esc(imageSource)}" referrerpolicy="no-referrer" alt="${esc(item.title)} preview">`
         : pdf ? `<div class="workspace-pdf-fallback"><strong>${esc(item.title)}</strong><span>PDF · ${pdfSupported() ? "Page 1 preview" : "Preview unavailable in this browser"}</span><small>Open to read all pages or download the original.</small></div>${pdfSupported() ? `<iframe class="workspace-pdf-preview" src="${esc(pdfURL)}" data-preview-source="${esc(pdfSource)}" title="${esc(item.title)} first page" loading="lazy" tabindex="-1" inert></iframe>` : ""}`
         : item.childBoardId && !item.content ? coverMarkup(this.snapshot.boardCovers?.[item.childBoardId],item.childBoardId)
         : item.content?.text ? `<div class="workspace-document-preview">${esc(item.content.text.slice(0,2400))}</div>`
         : `<span class="workspace-title-art">${esc(item.preview?.text || item.title)}</span>`;
-      const paper = /^#[0-9a-f]{3,8}$/i.test(p.presentation?.paper || "") ? p.presentation.paper : "#f6f7f1";
+      const paper = /^#[0-9a-f]{3,8}$/i.test(p.presentation?.paper || "") ? p.presentation.paper : "var(--paper)";
       const dimensions = this.mode === "canvas"
         ? `left:${p.x + this.origin.x}px;top:${p.y + this.origin.y}px;width:${p.width}px;height:${p.height}px;z-index:${p.z};`
         : panel || icon ? `width:${p.width}px;height:${p.height}px;` : "";
-      return `<article tabindex="-1" class="workspace-card ${panel ? "workspace-panel" : icon ? "workspace-icon" : "workspace-compact"} ${selected ? "selected" : ""}" data-key="${esc(c.key)}" data-placement="${esc(p.id)}" data-build-state="${esc(item.build?.state || "ready")}" style="${dimensions}--item-paper:${paper};--panel-viewport-width:${viewport.width}px;--panel-viewport-height:${viewport.height}px;"><div class="workspace-card-body">${icon ? `<button type="button" class="workspace-icon-entry" ${unavailable ? "disabled" : ""} data-open="${esc(c.key)}" aria-label="Open ${esc(item.title)}"><span aria-hidden="true">${item.childBoardId ? "▱" : item.content?.kind === "image" ? "▧" : item.content?.kind === "html" ? "▤" : "◇"}</span><strong>${esc(item.title)}</strong></button>` : `<div class="workspace-card-preview ${panel ? "workspace-panel-preview" : ""} ${live ? "workspace-live-preview" : ""} ${excerpt ? "workspace-document-excerpt-preview" : ""}" ${panel ? `data-preview-width="${viewport.width}" data-preview-height="${viewport.height}"` : ""}>${visual}<button type="button" class="workspace-preview-launch" ${unavailable ? "disabled" : ""} data-open="${esc(c.key)}" aria-label="Open ${esc(item.title)}"><span>Open ${esc(item.title)} ↗</span></button></div>${!panel ? `<div class="workspace-card-copy"><div class="workspace-compact-meta"><span class="workspace-concept-number">${esc(c.number)}</span><span>${esc(item.category || item.content?.kind || (item.childBoardId ? "Board" : "Idea"))}</span></div><h3><button type="button" ${unavailable ? "disabled" : ""} data-open="${esc(c.key)}">${esc(item.title)}</button></h3>${item.description ? `<p>${esc(item.description)}</p>` : ""}${item.question ? `<p class="workspace-question">${esc(item.question)}</p>` : ""}${handoff ? `<a class="workspace-handoff" href="${esc(handoff)}" target="_blank" rel="noopener noreferrer">Handoff ↗</a>` : ""}${item.childBoardId && item.content ? `<button type="button" class="workspace-child" data-child-board="${esc(item.childBoardId)}">Open board ↗</button>` : ""}</div>` : ""}`}</div>${footer}</article>`;
+      return `<article tabindex="-1" class="workspace-card ${panel ? "workspace-panel" : icon ? "workspace-icon" : "workspace-compact"} ${selected ? "selected" : ""} ${selected && this.selection.size === 1 ? "solo" : ""} ${boardTile ? "workspace-board-tile" : ""} ${placeOnly ? "workspace-place-only" : ""} ${this.revealFlash === p.id ? "navigator-revealed" : ""} ${this.pulsePlacement === p.id ? "return-pulse" : ""}" data-key="${esc(c.key)}" data-placement="${esc(p.id)}" data-build-state="${esc(item.build?.state || "ready")}" style="${dimensions}--item-paper:${paper};${paperColors(paper)}--panel-viewport-width:${viewport.width}px;--panel-viewport-height:${viewport.height}px;">${select}<div class="workspace-card-body">${icon ? `<button type="button" class="workspace-icon-entry" ${unavailable ? "disabled" : ""} data-open="${esc(c.key)}" aria-label="Open ${esc(item.title)}"><span aria-hidden="true">${item.childBoardId ? "▱" : item.content?.kind === "image" ? "▧" : item.content?.kind === "html" ? "▤" : "◇"}</span><strong>${esc(item.title)}</strong></button>` : `<div class="workspace-card-preview ${panel ? "workspace-panel-preview" : ""} ${live ? "workspace-live-preview" : ""} ${excerpt ? "workspace-document-excerpt-preview" : ""}" ${live && !documentContent || panel ? `data-preview-width="${viewport.width}" data-preview-height="${viewport.height}"` : ""}>${visual}<button type="button" class="workspace-preview-launch" ${unavailable ? "disabled" : ""} data-open="${esc(c.key)}" aria-label="${placeOnly ? "Open board" : "Open"} ${esc(item.title)}"><span>${placeOnly ? 'Open board <kbd aria-hidden="true">↵</kbd>' : `Open ${esc(item.title)} ↗`}</span></button></div>${!panel ? `<div class="workspace-card-copy"><div class="workspace-compact-meta">${tileNumber ? `<span class="workspace-concept-number">${esc(tileNumber)}</span>` : ""}<span>${esc(item.category || (item.childBoardId ? "Board" : ({html:"Prototype",image:"Image",markdown:"Document",pdf:"PDF",video:"Video",note:"Note",text:"Text"}[item.content?.kind] || "Idea")))}</span>${unavailable ? `<span class="workspace-build-label">${item.build.state === "building" ? "In progress" : "Reserved"}</span>` : ""}</div><h3><button type="button" ${unavailable ? "disabled" : ""} data-open="${esc(c.key)}">${esc(item.title)}</button></h3>${item.description ? `<p>${esc(item.description)}</p>` : ""}${item.question ? `<p class="workspace-question">${esc(item.question)}</p>` : ""}${handoff ? `<a class="workspace-handoff" href="${esc(handoff)}" target="_blank" rel="noopener noreferrer">Handoff ↗</a>` : ""}${item.childBoardId && item.content ? `<button type="button" class="workspace-child" data-child-board="${esc(item.childBoardId)}">Open board ↗</button>` : ""}</div>` : ""}`}</div>${footer}${toolbar}</article>`;
     };
     const cards = concepts.map(renderCard).join("");
     const groups = new Map();
@@ -1095,7 +1225,7 @@ export class WorkspaceBoard {
   sizePreview(el) {
     const width = Number(el.dataset.previewWidth) || 1000,
       height = Number(el.dataset.previewHeight) || 720;
-    const scale = el.classList.contains("workspace-panel-preview")
+    const scale = !el.classList.contains("workspace-document-excerpt-preview")
       ? Math.min(el.clientWidth / width, el.clientHeight / height)
       : el.clientWidth / width;
     el.style.setProperty("--preview-scale", String(scale));
@@ -1103,32 +1233,64 @@ export class WorkspaceBoard {
   selectionMenu() {
     const el = $("workspace-selection");
     el.hidden = !this.selection.size;
-    el.innerHTML = `<strong role="status">${this.selection.size} selected</strong><button data-bulk="move">Move…</button><button data-bulk="reference">Add reference…</button><button data-bulk="group">New board around selection…</button><button data-bulk="archive">${this.filters.archive ? "Restore here" : "Archive here"}</button><button data-bulk="remove">Remove from board…</button><button data-bulk="clear" aria-label="Clear selection">×</button>`;
+    el.setAttribute("role", "toolbar");
+    el.innerHTML = `<strong role="status">${this.selection.size} selected</strong><button class="tk-btn tk-sm" data-bulk="feature">Show on parent…</button><button class="tk-btn tk-sm" data-bulk="move">Move…</button><button class="tk-btn tk-sm selection-wide" data-bulk="reference">Add reference…</button><button class="tk-btn tk-sm" data-bulk="group">New board around selection…</button><button class="tk-btn tk-sm selection-wide" data-bulk="archive">${this.filters.archive ? "Restore here" : "Archive here"}</button><button class="tk-btn tk-sm tk-danger" data-bulk="remove">Remove from board…</button><span class="tk-divider" aria-hidden="true"></span><button class="tk-btn tk-sm tk-icon" data-bulk="clear" aria-label="Clear selection" title="Clear selection (Esc)"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="m5.5 5.5 9 9m0-9-9 9"/></svg></button>`;
     el.querySelectorAll("[data-bulk]").forEach(
       (b) => (b.onclick = () => this.bulk(b.dataset.bulk)),
     );
     if (this.selection.size === 1) {
       const id = [...this.selection][0];
-      const controls = document.createElement('button'); controls.type='button'; controls.textContent='Item actions…';
-      controls.onclick=()=>this.itemControls(id,'actions'); el.insertBefore(controls,el.querySelector('[data-bulk]'));
+      const controls = document.createElement('button'); controls.type='button'; controls.className='tk-btn tk-sm'; controls.textContent='Details…'; controls.setAttribute('aria-label','Item details'); controls.title='Item details (⌘I)';
+      controls.onclick=()=>this.itemControls(id,'notes'); el.insertBefore(controls,el.querySelector('[data-bulk]'));
     }
     this.updateHistoryControls();
+    this.emitSelection();
+  }
+  // The board's items and regions, for Navigator's "On this board" outline.
+  // A brief green pulse that survives keyed reconciliation while it plays.
+  pulse(id) {
+    clearTimeout(this.pulseTimer);
+    this.pulsePlacement = id;
+    const card = $("world").querySelector(`[data-placement="${CSS.escape(id)}"]`);
+    if (card) { card.classList.remove("return-pulse"); void card.offsetWidth; card.classList.add("return-pulse"); }
+    this.pulseTimer = setTimeout(() => { this.pulsePlacement = null; $("world").querySelector(`[data-placement="${CSS.escape(id)}"]`)?.classList.remove("return-pulse"); }, 1800);
+  }
+  outline() {
+    if (!this.snapshot?.placements) return [];
+    const regions = (this.snapshot.decorations || []).filter(d => d.type === "region" && String(d.text || "").trim()).map(d => ({ label: String(d.text).trim().split("\n")[0].slice(0, 80), x: d.x, y: d.y, width: d.width, height: d.height }));
+    const kinds = {html:"Prototype",image:"Image",markdown:"Document",pdf:"PDF",video:"Video",note:"Note",text:"Text",url:"Link"};
+    return this.renderedPlacements().map(p => {
+      const item = this.snapshot.items[p.itemId] || {};
+      const cx = p.x + p.width / 2, cy = p.y + p.height / 2;
+      const region = regions.find(r => cx >= r.x && cx <= r.x + r.width && cy >= r.y && cy <= r.y + r.height)?.label;
+      return { placementId: p.id, title: item.title || "Untitled", kind: item.childBoardId && !item.content ? "Board" : kinds[item.content?.kind] || "Idea", region, y: p.y, x: p.x };
+    }).sort((a, b) => a.y - b.y || a.x - b.x).map(({x, y, ...entry}) => entry);
   }
   syncSelection() {
     for (const card of $("world").querySelectorAll(".workspace-card[data-placement]")) {
       const selected = this.selection.has(card.dataset.placement);
       card.classList.toggle("selected", selected);
+      card.classList.toggle("solo", selected && this.selection.size === 1);
       const button = card.querySelector("[data-placement-select]");
       if (!button) continue;
       const p = this.snapshot.placements.find(p => p.id === card.dataset.placement);
       const title = this.snapshot.items[p?.itemId]?.title || "item";
       button.setAttribute("aria-pressed", String(selected));
       button.setAttribute("aria-label", `${selected ? "Deselect" : "Select"} ${title}`);
-      button.textContent = selected ? "✓" : "□";
+      button.title = `${selected ? "Deselect" : "Select"} (or Shift-click the item)`;
     }
     const count = $("workspace-selection").querySelector("strong");
     if (count) count.textContent = `${this.selection.size} selected`;
     this.updateHistoryControls();
+    this.emitSelection();
+  }
+  // Navigator lights the matching outline rows from this event.
+  emitSelection() {
+    const placementIds = [...this.selection].filter(id => this.snapshot.placements.some(p => p.id === id));
+    const signature = JSON.stringify(placementIds);
+    if (signature === this.selectionSignature) return;
+    this.selectionSignature = signature;
+    document.dispatchEvent(new CustomEvent("tinka:selection", { detail: { boardId: this.snapshot.id, placementIds } }));
   }
   async bulk(type) {
     const ids = type === "remove" ? this.clipboardCandidates().map(p => p.id) : [...this.selection];
@@ -1136,6 +1298,11 @@ export class WorkspaceBoard {
       if (type === "clear") {
         this.selection.clear();
         this.build(this.hooks.concepts());
+        return;
+      }
+      if (type === "feature") {
+        await featureOnParentDialog(this.client, {sourceBoardId:this.snapshot.id, placementIds:ids,
+          refresh:async () => {this.selection.clear(); await this.refresh({saveReview:false});}});
         return;
       }
       if (type === "move" || type === "reference") {
@@ -1279,18 +1446,46 @@ export class WorkspaceBoard {
     const item = this.snapshot.items[p?.itemId];
     if (!item) return;
     this.closeAddMenu();
+    $("board-info").hidden = true;
+    $("board-info-toggle").setAttribute("aria-expanded", "false");
     this.contextPlacement = id;
+    // The Inspector: the right side is "what". It replaces the old attached
+    // popup with labelled sections; notes stay canonical, appearance stays local.
     const popover = document.createElement("section");
     popover.id = "workspace-item-controls";
-    popover.className = "workspace-item-controls";
+    popover.className = "workspace-item-controls calm-side calm-side-right";
     popover.setAttribute("role", "dialog");
-    popover.setAttribute("aria-label", `Notes and appearance of ${item.title}`);
+    popover.setAttribute("aria-modal", "false");
+    popover.setAttribute("aria-label", `Details of ${item.title}`);
     const note = this.pendingReview.get(item.id)?.note ?? item.review?.note ?? "";
-    popover.innerHTML = `<header><strong>${esc(item.title)}</strong><button type="button" data-context-close aria-label="Close item details">×</button></header><label class="workspace-context-note">Notes<textarea data-note="items/${esc(id)}" aria-label="Notes on ${esc(item.title)}" placeholder="A thought to return to…">${esc(note)}</textarea></label><div class="workspace-context-row"><span>Appearance</span><div class="workspace-appearance-buttons" role="group" aria-label="Item appearance">${[["panel", "Full preview", '<rect x="3" y="3" width="18" height="18" rx="1"/><path d="M3 17h18"/>'], ["card", "Compact card", '<rect x="5" y="4" width="14" height="16" rx="1"/><path d="M5 13h14M8 16h8"/>'], ["icon", "Icon", '<rect x="7" y="7" width="10" height="10" rx="2"/>']].map(([mode, label, glyph]) => `<button type="button" data-presentation="${mode}" aria-label="${label}" title="${label}" aria-pressed="${(p.presentation?.mode || "card") === mode}"><svg viewBox="0 0 24 24" aria-hidden="true">${glyph}</svg></button>`).join("")}</div></div><div class="workspace-context-row"><span>Paper</span><div class="workspace-paper-swatches" role="group" aria-label="Paper color">${[["#f6f7f1", "Paper"], ["#e4ebdc", "Sage"], ["#f1e8d5", "Sand"], ["#f1e0dc", "Rose"], ["#dfe8ed", "Blue"]].map(([color,label]) => `<button type="button" data-paper="${color}" aria-label="${label} paper" title="${label}" aria-pressed="${(p.presentation?.paper || "#f6f7f1") === color}" style="--swatch:${color}"></button>`).join("")}</div></div><footer><button type="button" data-context-edit>Edit item…</button><span>${esc(item.build?.state || "ready")}${item.revisions?.length ? ` · ${item.revisions.length} versions` : ""}</span></footer>`;
+    const kinds = {html:"Prototype",image:"Image",markdown:"Document",pdf:"PDF",video:"Video",audio:"Audio",note:"Note",text:"Text",url:"Link",file:"File"};
+    const placeOnly = !!item.childBoardId && !item.content;
+    const kind = item.category || (placeOnly ? "Board" : kinds[item.content?.kind] || "Idea");
+    const child = item.childBoardId ? this.snapshot.childBoards?.[item.childBoardId] : null;
+    const childCount = child?.placements.filter(entry => !entry.removedAt && !entry.deletedAt && !entry.archivedAt).length;
+    const mode = p.presentation?.mode || "card";
+    const paper = p.presentation?.paper || "#f6f7f1";
+    const glyph = '<svg viewBox="0 0 20 20" aria-hidden="true"><path d="m5.5 5.5 9 9m0-9-9 9"/></svg>';
+    const stateLabel = {reserved:"Reserved",building:"In progress",review:"Ready for review",ready:"Ready"}[item.build?.state] || "Ready";
+    popover.innerHTML = `<header class="calm-side-head"><span class="tk-eyebrow">${esc(kind)}</span><button type="button" class="tk-btn tk-sm tk-icon" data-context-close aria-label="Close item details">${glyph}</button></header>
+      <div class="calm-side-body">
+        <div class="inspector-title"><h2 class="${item.childBoardId ? "inspector-place" : ""}">${esc(item.title)}</h2><p>${esc(kind)}${child ? ` · ${childCount} ${childCount === 1 ? "item" : "items"}` : ""} · on ${esc(this.snapshot.title || "this board")}</p></div>
+        ${item.description ? `<p class="inspector-desc">${esc(item.description)}</p>` : ""}
+        <div class="inspector-open"><button type="button" class="tk-btn tk-primary" data-context-open ${["reserved","building"].includes(item.build?.state) && !placeOnly ? "disabled" : ""}>${placeOnly ? "Open board" : "Open"}</button>${item.childBoardId && item.content ? `<button type="button" class="tk-btn tk-tonal" data-context-board>Open board</button>` : ""}<button type="button" class="tk-btn tk-tonal" data-context-edit>Edit item…</button></div>
+        <section class="inspector-sec"><h3>Notes <span>saved as you type</span></h3><label class="workspace-context-note"><span class="inspector-label">Notes</span><textarea data-note="items/${esc(id)}" aria-label="Notes on ${esc(item.title)}" placeholder="A thought to return to…">${esc(note)}</textarea></label></section>
+        <section class="inspector-sec"><h3>Feedback</h3><div class="workspace-context-row workspace-context-actions inspector-feedback"><button type="button" class="tk-btn tk-sm" data-context-star aria-pressed="${!!item.review?.star}">${item.review?.star ? "Unfavorite" : "Favorite"}</button><button type="button" class="tk-btn tk-sm" data-context-comments>Comments</button><button type="button" class="tk-btn tk-sm" data-context-vote>Vote</button></div></section>
+        <section class="inspector-sec"><h3>Appearance <span>this placement</span></h3><div class="workspace-context-row"><span class="inspector-label">Appearance</span><div class="workspace-appearance-buttons tk-seg" role="group" aria-label="Item appearance">${[["panel", "Full preview", '<rect x="3" y="3" width="18" height="18" rx="1"/><path d="M3 17h18"/>'], ["card", "Compact card", '<rect x="5" y="4" width="14" height="16" rx="1"/><path d="M5 13h14M8 16h8"/>'], ["icon", "Icon", '<rect x="7" y="7" width="10" height="10" rx="2"/>']].map(([value, label, art]) => `<button type="button" data-presentation="${value}" aria-label="${label}" title="${label}" aria-pressed="${mode === value}"><svg viewBox="0 0 24 24" aria-hidden="true">${art}</svg><span>${value === "panel" ? "Full" : value === "card" ? "Card" : "Icon"}</span></button>`).join("")}</div></div><div class="workspace-context-row"><span class="inspector-label">Paper</span><div class="workspace-paper-swatches" role="group" aria-label="Paper color">${[["#f6f7f1", "Paper"], ["#e4ebdc", "Sage"], ["#f1e8d5", "Sand"], ["#f1e0dc", "Rose"], ["#e7e4ee", "Lilac"]].map(([color,label]) => `<button type="button" data-paper="${color}" aria-label="${label} paper" title="${label}" aria-pressed="${paper === color}" style="--swatch:${color}"></button>`).join("")}</div></div></section>
+        <section class="inspector-sec"><h3>Details</h3><dl class="inspector-props"><dt>Created</dt><dd>${timeHTML(item.createdAt, { verb: "Created", focusable: true }) || "Unknown"}</dd><dt>Edited</dt><dd>${timeHTML(item.updatedAt, { verb: "Edited", focusable: true }) || "Unknown"}</dd>${child?.updatedAt ? `<dt>Board edited</dt><dd>${timeHTML(child.updatedAt, { verb: "Edited", focusable: true })}</dd>` : ""}<dt>Status</dt><dd>${esc(stateLabel)}${item.revisions?.length ? ` · ${item.revisions.length} versions` : ""}</dd></dl>${item.build?.message ? `<p class="inspector-desc">${esc(item.build.message)}</p>` : ""}</section>
+        <section class="inspector-sec inspector-acts workspace-context-row workspace-context-actions" aria-label="Item actions"><button type="button" class="tk-mi" data-context-select>${this.selection.has(id) ? "Deselect" : "Select"}</button>${this.mode === "canvas" ? '<button type="button" class="tk-mi" data-context-connect>Connect</button><button type="button" class="tk-mi" data-context-geometry>Move / resize…</button>' : ""}<button type="button" class="tk-mi" data-context-move>Move to board…</button><button type="button" class="tk-mi" data-context-duplicate>Duplicate<kbd class="tk-kbd" aria-hidden="true">⌘D</kbd></button><button type="button" class="tk-mi tk-danger" data-context-remove>Remove from board…</button></section>
+      </div>`;
     document.body.append(popover);
     this.context = popover;
+    const invoker = () => document.querySelector(`[data-item-controls="${CSS.escape(id)}"]`);
+    const only = () => { this.whiteboard?.clearSelection({finishEdit:true,focus:false}); this.selection = new Set([id]); this.syncSelection(); this.selectionMenu(); };
     popover.querySelector("[data-context-close]").onclick = () => this.closeContext(true);
     popover.querySelector("[data-context-edit]").onclick = () => { this.closeContext(); itemForm(this.client, { item, refresh: () => this.refresh() }); };
+    popover.querySelector("[data-context-open]").onclick = () => { const open = document.querySelector(`[data-placement="${CSS.escape(id)}"] [data-open]:not(:disabled)`); this.closeContext(); open?.click(); };
+    popover.querySelector("[data-context-board]")?.addEventListener("click", () => { this.closeContext(); this.navigate(item.childBoardId); });
     popover.querySelectorAll("[data-presentation], [data-paper]").forEach(button => button.onclick = async () => {
       const placement = this.snapshot.placements.find(p => p.id === id);
       const presentation = { mode: "card", ...(placement.presentation || {}), ...(button.dataset.presentation ? { mode: button.dataset.presentation } : { paper: button.dataset.paper }) };
@@ -1307,26 +1502,57 @@ export class WorkspaceBoard {
         await this.refresh();
       } catch (error) { showFailure(error); }
     });
-    const actions=document.createElement('div'); actions.className='workspace-context-row workspace-context-actions';
-    actions.innerHTML=`<button type="button" data-context-select>${this.selection.has(id)?'Deselect':'Select'}</button><button type="button" data-context-star aria-pressed="${!!item.review?.star}">${item.review?.star?'Unfavorite':'Favorite'}</button><button type="button" data-context-comments>Comments</button><button type="button" data-context-vote>Vote</button>${this.mode==='canvas'?'<button type="button" data-context-connect>Connect</button><button type="button" data-context-geometry>Move / resize…</button>':''}`;
-    popover.querySelector('header').after(actions);
+    const actions = popover.querySelector(".inspector-acts");
     actions.querySelector('[data-context-select]').onclick=()=>{this.whiteboard?.clearSelection({finishEdit:true,focus:false});this.selection.has(id)?this.selection.delete(id):this.selection.add(id);this.closeContext();this.build(this.hooks.concepts());};
-    actions.querySelector('[data-context-star]').onclick=()=>{const button=document.querySelector(`[data-placement="${CSS.escape(id)}"] [data-star]`);button?.click();actions.querySelector('[data-context-star]').textContent=button?.getAttribute('aria-pressed')==='true'?'Unfavorite':'Favorite';};
-    actions.querySelector('[data-context-comments]').onclick=()=>{this.closeContext();this.feedback.open({itemId:item.id,returnFocus:()=>document.querySelector(`[data-item-controls="${CSS.escape(id)}"]`)?.focus({preventScroll:true})});};
-    actions.querySelector('[data-context-vote]').onclick=event=>{this.closeContext();const trigger=document.querySelector(`[data-item-controls="${CSS.escape(id)}"]`)||event.currentTarget;this.feedback.openVote({itemId:item.id,anchor:trigger,returnFocus:trigger});};
-    actions.querySelector('[data-context-connect]')?.addEventListener('click',event=>{const invoker=document.querySelector(`[data-item-controls="${CSS.escape(id)}"]`);this.closeContext();this.whiteboard?.connectPlacement(id,invoker);this.selectionMenu();});
-    actions.querySelector('[data-context-geometry]')?.addEventListener('click',()=>{this.closeContext();document.querySelector(`[data-item-controls="${CSS.escape(id)}"]`)?.focus({preventScroll:true});this.placementGeometry(id);});
+    popover.querySelector('[data-context-star]').onclick=event=>{const button=document.querySelector(`[data-placement="${CSS.escape(id)}"] [data-star]`);button?.click();const on=button?.getAttribute('aria-pressed')==='true';event.currentTarget.textContent=on?'Unfavorite':'Favorite';event.currentTarget.setAttribute('aria-pressed',String(on));};
+    popover.querySelector('[data-context-comments]').onclick=()=>{this.closeContext();this.feedback.open({itemId:item.id,returnFocus:()=>invoker()?.focus({preventScroll:true})});};
+    popover.querySelector('[data-context-vote]').onclick=event=>{this.closeContext();const trigger=invoker()||event.currentTarget;this.feedback.openVote({itemId:item.id,anchor:trigger,returnFocus:trigger});};
+    actions.querySelector('[data-context-connect]')?.addEventListener('click',()=>{const from=invoker();this.closeContext();this.whiteboard?.connectPlacement(id,from);this.selectionMenu();});
+    actions.querySelector('[data-context-geometry]')?.addEventListener('click',()=>{this.closeContext();invoker()?.focus({preventScroll:true});this.placementGeometry(id);});
+    actions.querySelector('[data-context-move]').onclick=()=>{this.closeContext();only();this.bulk("move");};
+    actions.querySelector('[data-context-duplicate]').onclick=()=>{this.closeContext();only();this.duplicateSelection({explicit:true});};
+    actions.querySelector('[data-context-remove]').onclick=()=>{this.closeContext();only();this.bulk("remove");};
     const noteField=popover.querySelector('textarea');noteField.setAttribute('aria-keyshortcuts','Meta+Enter Control+Enter');
     const hint=document.createElement('small');hint.textContent=`${commitShortcutLabel()} to save`;noteField.after(hint);
     this.contextCommit=bindCommitShortcut(noteField,{commit:async()=>{await this.hooks.flushNotes();},onError:error=>toast(error.message)});
     this.positionContext();
     document.querySelectorAll(`[data-item-controls="${CSS.escape(id)}"]`).forEach(b => b.setAttribute("aria-expanded", "true"));
-    if (focus === "notes") popover.querySelector("textarea").focus({ preventScroll: true });
+    document.querySelector(`[data-placement="${CSS.escape(id)}"]`)?.classList.add("inspected");
+    if (focus === "notes") noteField.focus({ preventScroll: true });
     else if(focus==="actions") actions.querySelector("button").focus({preventScroll:true});
     else popover.querySelector("[data-presentation]").focus({ preventScroll: true });
-    const follow = () => { if (!this.context) return; this.positionContext(); this.contextFrame = requestAnimationFrame(follow); };
-    this.contextFrame = requestAnimationFrame(follow);
   }
+  // Right-click gives a short native-feeling menu; Details… opens the Inspector.
+  tileMenu(id, point) {
+    this.closeTileMenu();
+    const p = this.snapshot.placements.find(p => p.id === id), item = this.snapshot.items[p?.itemId];
+    if (!item) return;
+    if (!this.selection.has(id)) { this.whiteboard?.clearSelection({finishEdit:true,focus:false}); this.selection = new Set([id]); this.syncSelection(); this.selectionMenu(); }
+    const placeOnly = !!item.childBoardId && !item.content, star = !!(this.pendingReview.get(item.id)?.star ?? item.review?.star);
+    const menu = document.createElement("div");
+    menu.className = "tk-menu workspace-tile-menu"; menu.setAttribute("role", "menu"); menu.setAttribute("aria-label", `Actions for ${item.title}`);
+    menu.innerHTML = `<button type="button" class="tk-mi" role="menuitem" data-tile-menu="open">${placeOnly ? "Open board" : "Open"}<kbd class="tk-kbd" aria-hidden="true">↵</kbd></button><button type="button" class="tk-mi" role="menuitem" data-tile-menu="details">Details…<kbd class="tk-kbd" aria-hidden="true">⌘I</kbd></button><div class="tk-msep" role="separator"></div><button type="button" class="tk-mi" role="menuitem" data-tile-menu="star">${star ? "Unfavorite" : "Favorite"}</button><button type="button" class="tk-mi" role="menuitem" data-tile-menu="move">Move to board…</button><button type="button" class="tk-mi" role="menuitem" data-tile-menu="duplicate">Duplicate<kbd class="tk-kbd" aria-hidden="true">⌘D</kbd></button><div class="tk-msep" role="separator"></div><button type="button" class="tk-mi tk-danger" role="menuitem" data-tile-menu="remove">Remove from board…</button>`;
+    document.body.append(menu); this.tilePopup = menu;
+    Object.assign(menu.style, { position: "fixed", zIndex: 80, left: `${Math.max(8, Math.min(innerWidth - menu.offsetWidth - 8, point.x))}px`, top: `${Math.max(8, Math.min(innerHeight - menu.offsetHeight - 8, point.y))}px` });
+    const card = () => document.querySelector(`[data-placement="${CSS.escape(id)}"]`);
+    menu.onclick = e => {
+      const action = e.target.closest("[data-tile-menu]")?.dataset.tileMenu; if (!action) return;
+      this.closeTileMenu();
+      if (action === "open") card()?.querySelector("[data-open]:not(:disabled)")?.click();
+      else if (action === "details") this.itemControls(id, "notes");
+      else if (action === "star") card()?.querySelector("[data-star]")?.click();
+      else if (action === "move") this.bulk("move");
+      else if (action === "duplicate") this.duplicateSelection({explicit:true});
+      else if (action === "remove") this.bulk("remove");
+    };
+    menu.onkeydown = e => {
+      const buttons = [...menu.querySelectorAll("button")], index = buttons.indexOf(document.activeElement);
+      if (e.key === "Escape") { e.preventDefault(); e.stopImmediatePropagation(); this.closeTileMenu(); card()?.querySelector("[data-item-controls]")?.focus({preventScroll:true}); }
+      else if (["ArrowDown", "ArrowUp"].includes(e.key)) { e.preventDefault(); buttons[(index + (e.key === "ArrowDown" ? 1 : -1) + buttons.length) % buttons.length].focus(); }
+    };
+    menu.querySelector("button").focus({ preventScroll: true });
+  }
+  closeTileMenu() { this.tilePopup?.remove(); this.tilePopup = null; }
   placementGeometry(id) {
     const p=this.snapshot.placements.find(p=>p.id===id);if(!p)return;
     makeDialog('Move / resize item',`<p>Position and size in board units.</p>${['x','y','width','height'].map(key=>`<label>${key==='x'?'Left':key==='y'?'Top':key==='width'?'Width':'Height'}<input name="${key}" type="number" step="any" required min="${key==='width'||key==='height'?40:-10000000}" max="${key==='width'||key==='height'?100000:10000000}" value="${p[key]}"></label>`).join('')}<button type="submit" class="workspace-primary">Save geometry</button>`,async form=>{
@@ -1338,15 +1564,9 @@ export class WorkspaceBoard {
     if (!this.context) return;
     const card = document.querySelector(`[data-placement="${CSS.escape(this.contextPlacement)}"]`);
     if (!card) { this.closeContext(); return; }
-    const anchor = card.querySelector(".workspace-item-footer").getBoundingClientRect();
-    const bounds = $("viewport").getBoundingClientRect();
-    if (anchor.right < bounds.left || anchor.left > bounds.right || anchor.bottom < bounds.top || anchor.top > bounds.bottom) { this.closeContext(); return; }
+    // The Inspector stays docked at the right edge; the inspected tile keeps a quiet mark.
+    card.classList.add("inspected");
     this.context.hidden = false;
-    const width = this.context.offsetWidth, height = this.context.offsetHeight;
-    const left = Math.max(8, Math.min(innerWidth - width - 8, anchor.right - width));
-    const above = anchor.top - height - 7;
-    const top = above >= bounds.top + 5 ? above : Math.min(innerHeight - height - 8, anchor.bottom + 7);
-    Object.assign(this.context.style, { left: `${left}px`, top: `${Math.max(8, top)}px` });
   }
   closeContext(focus = false) {
     if (!this.context) return;
@@ -1354,6 +1574,7 @@ export class WorkspaceBoard {
     this.contextCommit?.destroy(); this.contextCommit=null;
     this.context.remove(); this.context = null; this.contextPlacement = null;
     cancelAnimationFrame(this.contextFrame);
+    document.querySelectorAll(".workspace-card.inspected").forEach(card => card.classList.remove("inspected"));
     const buttons = document.querySelectorAll(`[data-item-controls="${CSS.escape(id)}"]`);
     buttons.forEach(b => b.setAttribute("aria-expanded", "false"));
     if (focus) buttons[0]?.focus({ preventScroll: true });
@@ -1638,7 +1859,8 @@ export class WorkspaceBoard {
         const rect = el.getBoundingClientRect();
         return gesture.x > rect.left && gesture.x < rect.right && gesture.y > rect.top && gesture.y < rect.bottom;
       });
-      const represented = this.snapshot.boardCovers?.[owner.childBoardId]?.tiles
+      const derived = this.snapshot.boardCovers?.[owner.childBoardId];
+      const represented = [...(derived?.tiles || []), ...(derived?.layout?.tiles || [])]
         .find(t => t.id === tile?.dataset.coverTile && t.itemId === tile?.dataset.coverItem);
       if (!represented) return;
       gesture.hold = {tile, boardId:owner.childBoardId, placementId:represented.id, itemId:represented.itemId};
@@ -1966,9 +2188,7 @@ export class WorkspaceBoard {
       const card = e.target.closest(".workspace-card[data-placement]");
       if (!card) return;
       e.preventDefault(); e.stopImmediatePropagation();
-      const id = card.dataset.placement;
-      if (this.contextPlacement === id && this.context) this.positionContext();
-      else this.itemControls(id,"appearance");
+      this.tileMenu(card.dataset.placement, { x: e.clientX, y: e.clientY });
     });
     let marqueeFrame;
     const updateMarquee = () => {
@@ -2069,7 +2289,8 @@ export class WorkspaceBoard {
   canvasEditing() {
     const viewport = $("viewport");
     document.addEventListener("pointerdown", e => {
-      if (this.context && !e.target.closest("#workspace-item-controls,[data-item-controls]")) this.closeContext();
+      if (this.tilePopup && !e.target.closest(".workspace-tile-menu")) this.closeTileMenu();
+      if (this.context && !e.target.closest("#workspace-item-controls,[data-item-controls],.workspace-dialog,dialog[open],.feedback-panel,.workspace-popover,.workspace-tile-menu")) this.closeContext();
       if (this.addPopup && !e.target.closest(".workspace-add-menu,#workspace-add")) this.closeAddMenu();
     }, true);
     viewport.addEventListener("contextmenu", e => {
@@ -2242,7 +2463,7 @@ export class WorkspaceBoard {
             this.pendingReview.delete(id);
           this.persistDrafts();
         }
-        this.hooks.saveStatus("Item notes saved", "saved");
+        this.hooks.saveStatus("Item notes saved on this Mac", "saved");
         return true;
       } catch (e) {
         this.inFlightReview.clear();
@@ -2251,7 +2472,10 @@ export class WorkspaceBoard {
           "Feedback saved in this browser · retry unsaved feedback",
           "local",
         );
-        toast(`Notes remain in this browser. ${e.message}`);
+        // A conflict offers the latest board; other failures report quietly
+        // without stealing focus from the note being written.
+        if (e.conflict) showFailure(e);
+        else toast(`Notes remain in this browser. ${e.message}`);
         return false;
       } finally {
         this.saving = false;

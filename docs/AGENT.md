@@ -171,14 +171,120 @@ New boards receive a portable `AGENTS.md`. For an existing board, use
 `node cli.mjs board guide SLUG --config /absolute/config.json` to add it without
 overwriting an existing guide. No board content or notes are changed.
 
-When creating a board, or revisiting a coverless board as part of requested work,
-consider a quick, distinctive cover that represents its subject. It helps the
-owner recognize the board among other boards. Reuse a suitable asset or make a
-simple SVG when enough; generating an image is optional. Save the image inside
-the board and set `board.json`'s optional `cover` to its board-relative path, such
-as `assets/cover.svg`. Follow [Board cover image](PROTOCOL.md#board-cover-image)
-for the full file and design guidance. Covers are optional and should not delay
-the requested work. Preserve an existing custom cover unless asked to change it.
+### Make the work visible
+
+Make a board useful to work from. Put the work a person needs to compare at a
+readable size and keep its title and controls subordinate to the content. Choose
+full-preview placements for substantial visual work and readable documents;
+compact cards remain useful for short ideas. Arrange related work together and
+keep enough context to understand the decision. Check the rendered board at its
+saved geometry and a useful zoom; a registered item or tiny thumbnail alone is
+not evidence that the work can be understood on the board.
+
+For new visual comparisons, `createItem` (including `item.create` and the Add
+form) defaults HTML, images, video, PDF, Markdown and saved-image previews to
+**Full preview**, 720 × 560 board units. Title-only ideas keep Compact card.
+Explicit `placement.presentation.mode` and width/height always win. Existing
+placements are never resized or converted when the app changes.
+
+For detailed designs, declare the actual design viewport and size the placement
+to make its text readable: a 1000 × 720 design can use `width:1002,height:766,
+presentation:{mode:"panel",viewport:{width:1000,height:720}}`. Start related
+comparisons with 40–60 units between their edges (for example x 0, 1060 and 2120),
+then inspect at 100% zoom and at a narrow browser width. Let Canvas scroll to the
+work; do not shrink a whole collection until every preview becomes unreadable.
+Use a saved image when an application cannot render a useful embedded preview.
+While work is building, retain that truthful state; the preview can arrive later.
+Choose `mode:"card"` explicitly for a summary or `mode:"icon"` for navigation.
+Do not restyle or rearrange an existing board without its owner's direction.
+
+When presenting a nested round, choose representative pieces for the actual
+question, rather than automatically selecting the first items or forcing a fixed
+number. Make clear when other work remains in the round. Select items inside the
+round and use **Show on parent…**, or in schema 2 use the corresponding
+`reference` operation with `featureOnParent:true` (see the protocol). These are
+references to the same items; notes and stars are shared, while the parent
+placements have their own positions. Existing user layouts, prior rounds and
+source placements stay intact. Point feedback remains scoped to its own board.
+An item shown on a parent does not automatically track later source-board
+membership or arrangement; revisit the featured selection when the work changes.
+
+A composed cover can help explain a round or recognize a board, but should not
+replace readable work where comparison matters. For schema-2 boards an explicit
+preview belongs to the board's owner item; changing an old `board.json` does not
+update a migrated workspace. Legacy boards use the optional board-relative cover
+in [Board cover image](PROTOCOL.md#board-cover-image). Preserve existing covers.
+For an unavailable or unsupported preview, use an honest fallback or a suitable
+saved image; never invent a result or hide important missing context. Avoid
+silently replacing project-specific guides or rearranging a person's boards.
+
+### What to put in a tile preview
+
+A preview has one job: someone glancing at the board should be able to tell
+*what this is* and *how it differs from its neighbours*. A beautiful preview that
+could belong to any tile has failed at that job.
+
+**The two-second test.** Zoom the board to 25%. Can you name each tile in two
+seconds without reading its title? If two siblings look interchangeable, at least
+one preview is wrong.
+
+Do:
+
+- **Show the work itself**: the screen a person will actually meet, the real
+  photo or the real chart, not a poster *about* the work.
+- **Crop to what makes it this one.** Frame the distinctive region at a readable
+  size rather than the whole page shrunk down. For a form, show the form; for a
+  pricing table, show the prices.
+- **Prefer big type to small text.** One heading readable at 25% beats a
+  paragraph nobody can read. Keep preview text at 24px or more of source pixels.
+- **Capture the meaningful state**: loaded, filled in, the error, the result,
+  step 2 of 3. Never a spinner, a blank shell or a cookie banner.
+- **Frame a comparison set the same way.** Crop every variant (v1–v5, A/B/C)
+  identically so only the difference changes from tile to tile.
+- **Show a board's contents.** A board cover should be a collage of its real
+  children, or the single best child; Tinka adds the item count.
+- **Use the native size.** Capture at the design's own viewport (for example
+  1000 × 720) and let Tinka scale it; use 2× pixel density for large tiles.
+
+Don't:
+
+- Use one decorative template (colour band, eyebrow, slogan, glyph) for every
+  tile. Templates make siblings identical.
+- Repeat the title as tiny text inside the image; Tinka already shows it.
+- Use abstract art, gradients or icons in place of content, unless the work *is*
+  abstract art.
+- Put meaning near the edges; tiles round their corners and may crop slightly.
+- Fake it. If the work isn't built yet, leave the preview empty and keep the
+  build state truthful. An honest placeholder beats an invented result.
+- Put private material (paths, names, tokens) in a preview. Previews travel with
+  the board.
+
+| Kind | Put in the preview |
+|---|---|
+| HTML prototype | The hero or key screen in its meaningful state, cropped to the distinctive region |
+| Image or photo set | The best single image, or a 2–3 image crop; don't letterbox |
+| Markdown or document | The title in large type plus 2–3 key lines, a checklist score or the decision |
+| Data or report | The chart or the headline number, not the table |
+| Video | One telling frame with real content, never the black first frame |
+| Board | A collage of up to 4 real children (or the best one); Tinka shows the count |
+| Note or idea | Nothing. A card with readable text is the preview. |
+
+Before marking work ready: open the board at 100% and at 25%, run the two-second
+test against the tile's neighbours, and check that the preview still matches the
+current revision. Replace it when the work changes.
+
+### Dates
+
+Store timestamps as ISO 8601 instants (the operations do this for you). Tinka
+renders every date with one readable formatter in the viewer's local time zone:
+"just now", "N min ago", "N hours ago" (same calendar day), "Yesterday, 3:40 PM",
+a weekday and time for 2–6 days back ("Sat, 9:12 AM"), then "Oct 21" this year or
+"Oct 28, 2025" for earlier years; future or clock-skewed times read "just now".
+The exact time ("Tuesday, November 3, 2026 at 3:58 PM") is one hover away. Home
+cards show when a board was created (the sort order) plus a quieter "edited" line;
+board-tiles show when their board was last edited; the Inspector shows both. When
+you write about dates in board text or handoffs, prefer the same forms rather
+than "3 days ago", which hides the time and cannot be placed on a calendar.
 
 ## Install and upgrade
 

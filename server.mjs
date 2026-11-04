@@ -152,9 +152,10 @@ export function createAppServer(config){
       if(pathname==='/api/link-preview'&&method==='POST'){await checkWrite(req,server,config);const input=await requestJson(req);sendJson(res,200,await createLinkPreview(input?.url));return;}
       if(pathname==='/api/workspace/migrate'&&method==='POST'){await checkWrite(req,server,config);const input=await requestJson(req);if(!input||typeof input!=='object'||Array.isArray(input)||typeof input.dryRun!=='boolean')throw new HttpError(400,'Provide dryRun: true or false explicitly.');sendJson(res,200,await migrateLegacy(config,{dryRun:input.dryRun}));return;}
       if(pathname==='/api/operations'&&method==='POST'){await checkWrite(req,server,config);const operation=await requestJson(req);if(!operation||typeof operation!=='object'||Array.isArray(operation)||typeof operation.type!=='string')throw new HttpError(400,'Provide an operation object with type.');sendJson(res,200,await applyOperation(config,operation));return;}
-      const thumbnail=/^\/api\/items\/([^/]+)\/cover-thumbnail$/.exec(pathname);
+      // Covers load from a document-like frame path; the older API path stays an alias.
+      const thumbnail=/^\/(?:api\/items\/([^/]+)\/cover-thumbnail|frames\/items\/([^/]+)\/cover\.html)$/.exec(pathname);
       if(thumbnail&&method==='GET'){
-        const item=await getItemSnapshot(config,decodeSegment(thumbnail[1]));
+        const item=await getItemSnapshot(config,decodeSegment(thumbnail[1]||thumbnail[2]));
         if(item?.deletedAt||item?.archivedAt)throw new HttpError(404,'Item not found.');
         if(!item?.content?.resource||item.content.kind!=='html'||item.content.url)throw new HttpError(404,'Local HTML preview not found.');
         const file=await resolveResource(config,item.content.resource);
@@ -164,7 +165,10 @@ export function createAppServer(config){
         // Strip metadata as well so a prototype's refresh cannot navigate a tile.
         const html=(await readFile(file.path,'utf8')).replace(/<meta\b[^>]*>/gi,'').replace(/<base\b[^>]*>/gi,'');
         res.writeHead(200,{...noStore,'Content-Type':'text/html; charset=utf-8','Content-Security-Policy':"default-src 'none'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self' data:; frame-src 'none'; object-src 'none'; form-action 'none'; base-uri 'self'; sandbox allow-scripts"});
-        res.end(/<head\b[^>]*>/i.test(html)?html.replace(/<head\b[^>]*>/i,head=>`${head}<base href="${base}">`):`<!doctype html><head><base href="${base}"></head>${html.replace(/<!doctype[^>]*>/i,'')}`);return;
+        // A fixed ready signal lets the opaque-origin tile reveal itself only after a real load;
+        // blocked, failed or timed-out frames stay invisible above their typed placeholder.
+        const ready=`<script>addEventListener('load',function(){try{parent.postMessage({tinkaCoverReady:${JSON.stringify(item.id).replace(/</g,'\\u003c')}},'*')}catch(e){}})</script>`;
+        res.end(/<head\b[^>]*>/i.test(html)?html.replace(/<head\b[^>]*>/i,head=>`${head}<base href="${base}">${ready}`):`<!doctype html><head><base href="${base}">${ready}</head>${html.replace(/<!doctype[^>]*>/i,'')}`);return;
       }
       const itemApi=/^\/api\/items\/([^/]+)(?:\/(review))?$/.exec(pathname);
       if(itemApi){

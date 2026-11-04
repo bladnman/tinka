@@ -248,6 +248,46 @@ export async function destinationDialog(
     (dialog.querySelector("[data-new-title]").hidden =
       e.target.value !== "new");
 }
+
+export async function featureOnParentDialog(client, {sourceBoardId, placementIds, refresh}) {
+  const ws = await client.get('/api/workspace?view=graph&covers=0');
+  const source = ws.boards.find(board => board.id === sourceBoardId);
+  const owners = new Map(ws.items.map(item => [item.id,item]));
+  const parents = source ? ws.boards.filter(board => board.id !== sourceBoardId &&
+    !owners.get(board.ownerItemId)?.deletedAt && !owners.get(board.ownerItemId)?.archivedAt &&
+    board.placements.some(p => !p.removedAt && !p.deletedAt && !p.archivedAt && p.itemId === source.ownerItemId)) : [];
+  if (!parents.length) {
+    makeDialog('No parent board', '<p>This board is not currently placed on another board. Add it to a parent before featuring its work there.</p>');
+    return;
+  }
+  const from = new URLSearchParams(location.search).get('from');
+  let attempt = null;
+  const dialog = makeDialog('Show on parent board',
+    `<p>Add the selected work beside this board on a parent. The same items, notes and stars stay shared; the original placements remain here.</p><label>Parent board<select name="target">${parents.map(board => `<option value="${escape(board.id)}" ${board.id === from ? 'selected' : ''}>${escape(board.title)}</option>`).join('')}</select></label><p class="workspace-scope">The parent placements can be moved or removed without changing this board.</p><button class="workspace-primary" type="submit">Show on parent</button>`,
+    async (_form, currentDialog) => {
+      const select = currentDialog.querySelector('select[name=target]');
+      const targetBoardId = select.value;
+      if (!attempt || attempt.targetBoardId !== targetBoardId) attempt = {targetBoardId,operationId:crypto.randomUUID()};
+      try {
+        await client.write('reference',{sourceBoardId,placementIds,targetBoardId,featureOnParent:true},{operationId:attempt.operationId});
+      } catch (error) {
+        if (!error.rejected) {
+          select.disabled = true;
+          throw new Error('Could not confirm the save. Try again for this same parent to check the result.');
+        }
+        select.disabled = false;
+        attempt = null;
+        throw error;
+      }
+      try {
+        await refresh();
+        toast('Work added to the parent board. Original placements remain here.');
+      } catch {
+        toast('Work was added to the parent. Reload this board to see the latest state.');
+      }
+    });
+  return dialog;
+}
 export function itemForm(client, { item, boardId, refresh }) {
   const c = item?.content || {},
     p = item?.preview || {};

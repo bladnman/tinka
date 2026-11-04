@@ -7,36 +7,60 @@
   <link rel="stylesheet" href="/app/canvas.css">
   <link rel="stylesheet" href="/app/live.css">
   <link rel="stylesheet" href="/app/agent-prompt.css">
-<link rel="stylesheet" href="/app/workspace.css"></head>
+<link rel="stylesheet" href="/app/workspace.css"><link rel="stylesheet" href="/app/navigator.css"><link rel="stylesheet" href="/app/appearance.css"><link rel="stylesheet" href="/app/tokens.css"><link rel="stylesheet" href="/app/calm.css"><link rel="icon" href="/app/mark.svg" type="image/svg+xml"></head>
 <body>
   <header id="canvas-header" class="canvas-header">
     <nav class="identity" aria-label="Board navigation">
-      <a class="brand" href="/" aria-label="Tinka home"><img class="brand-mark" src="/app/mark.svg" alt="" width="26" height="26"><span id="project-label">Home</span></a>
-      <h1 id="board-title" class="board-name" aria-current="page">Loading board…</h1>
-      <button id="board-info-toggle" class="info-toggle" type="button" aria-expanded="false" aria-controls="board-info" title="Board tools: add, view, search, details and help">Tools</button>
+      <a class="brand" href="/" aria-label="Tinka home"><svg class="brand-mark" viewBox="0 0 48 48" width="22" height="22" aria-hidden="true" focusable="false"><path class="brand-mark-a" d="M7 8h15v15H7zm19 0h15v15H26zM7 27h15v15H7z"/><path class="brand-mark-b" d="m33.5 25 10 10-10 10-10-10z"/></svg><span id="project-label">Home</span></a>
+      <span id="board-number" class="item-number board-number" hidden></span><h1 id="board-title" class="board-name" aria-current="page">Loading board…</h1>
     </nav>
-    <section id="board-info" class="board-info" aria-labelledby="board-info-toggle" hidden>
+    <div id="chrome-actions" class="chrome-actions">
+      <button id="chrome-search" class="tk-btn chrome-search" type="button" aria-label="Find boards and items" title="Find boards and items (⌘K)"><svg viewBox="0 0 20 20" aria-hidden="true"><circle cx="8.6" cy="8.6" r="5.4"/><path d="m12.6 12.6 4.4 4.4"/></svg><span class="chrome-search-label">Find boards and items</span><kbd class="tk-kbd" aria-hidden="true">⌘K</kbd></button>
+      <button id="board-info-toggle" class="info-toggle tk-btn tk-icon" type="button" aria-expanded="false" aria-controls="board-info" aria-label="Inspector" title="Inspector: board view, filters, details and help (⌘I)"><svg viewBox="0 0 20 20" aria-hidden="true"><rect x="2.8" y="3.5" width="14.4" height="13" rx="2.2"/><path d="M12 3.5v13"/></svg></button>
+    </div>
+    <section id="board-info" class="board-info calm-side calm-side-right" role="dialog" aria-modal="false" aria-labelledby="board-info-heading" hidden>
+      <header class="calm-side-head"><span class="tk-eyebrow" id="board-info-title">Board</span><button id="board-info-close" class="tk-btn tk-sm tk-icon" type="button" aria-label="Close inspector"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="m5.5 5.5 9 9m0-9-9 9"/></svg></button></header>
       <p class="eyebrow" id="board-info-heading">ABOUT THIS BOARD</p>
       <p id="board-description"></p>
       <p class="info-meta"><span id="experiment-count">Experiments</span><span id="round-count">Explorations</span><span>Notes saved on this Mac</span></p>
       <details class="board-help"><summary>How to use this board</summary>
-        <div id="help-panel"><strong>Make yourself at home.</strong> Drag or scroll to move anywhere on the canvas, past the edges of the board too. Pinch, or hold Control or ⌘ while scrolling, to zoom; the zoom slider and Fit sit in the footer. With the canvas focused, the arrow keys and Page Up / Page Down pan, Home and End go to the first and last exploration, and + / − zoom. Open an experiment to try it, then step through the others with Previous, Next or the dots. Escape returns here. Stars and notes are saved on this Mac.</div>
+        <div id="help-panel"><strong>Make yourself at home.</strong> Drag or scroll to move anywhere on the canvas, past the edges of the board too. Pinch, or hold Control or ⌘ while scrolling, to zoom; the zoom controls and Fit float at the lower right. With the canvas focused, the arrow keys and Page Up / Page Down pan, Home and End go to the first and last exploration, and + / − zoom. Open an experiment to try it, then step through the others with Previous, Next or the dots. Escape returns here. Stars and notes are saved on this Mac.</div>
       </details>
       <div class="info-actions"><button id="export" type="button">Export notes</button></div>
     </section>
   </header>
   <div id="board-error" class="board-error" role="alert" hidden></div>
-  <main id="viewport" aria-label="Experiments canvas: drag or scroll to pan, pinch or Control-scroll to zoom" tabindex="0"><div id="plane"><div id="world"></div></div></main>
+  <main id="viewport" data-canvas-pattern="dots" aria-label="Experiments canvas: drag or scroll to pan, pinch or Control-scroll to zoom" tabindex="0"><div id="plane"><div id="world"></div></div></main>
   <footer class="control-footer canvas-footer">
     <div class="status-line"><span id="save-status" role="status">Loading notes…</span><span id="live-status" role="status" aria-live="polite"></span><button id="live-refresh" type="button" aria-label="New work available · Refresh" hidden><span class="refresh-detail">New work available · </span>Refresh</button><span id="round-status">Loading board</span></div>
-    <section class="view-tools" aria-label="Board view controls"><input id="zoom-slider" type="range" min="5" max="125" step="1" value="50" aria-label="Board zoom"><button id="fit" class="fit" type="button" title="Fit every exploration in view">Fit</button></section>
+    <section class="view-tools zoom-pill" role="toolbar" aria-label="Board view controls">
+      <button id="zoom-minus" class="tk-btn tk-icon" type="button" aria-label="Zoom out" title="Zoom out (−)"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M5 10h10"/></svg></button>
+      <span class="zoom-menu-wrap">
+        <button id="zoom-menu-toggle" class="tk-btn zoom-percent" type="button" aria-haspopup="true" aria-expanded="false" aria-controls="zoom-menu" title="Zoom and background">50%</button>
+        <div id="zoom-menu" class="tk-menu zoom-menu" role="group" aria-label="Zoom and background" hidden>
+          <button class="tk-mi" type="button" data-zoom-to="0.5">Zoom to 50%</button>
+          <button class="tk-mi" type="button" data-zoom-to="1">Zoom to 100%<kbd class="tk-kbd" aria-hidden="true">⇧0</kbd></button>
+          <button class="tk-mi" type="button" data-zoom-to="1.25">Zoom to 125%</button>
+          <label class="zoom-slider-row"><span>Zoom</span><input id="zoom-slider" type="range" min="5" max="125" step="1" value="50" aria-label="Board zoom"></label>
+          <div class="tk-msep"></div>
+          <button class="tk-mi" type="button" data-zoom-to="fit">Fit board<kbd class="tk-kbd" aria-hidden="true">⇧1</kbd></button>
+          <button class="tk-mi" type="button" data-zoom-to="selection" hidden>Fit selection<kbd class="tk-kbd" aria-hidden="true">⇧2</kbd></button>
+          <div class="tk-msep"></div>
+          <div class="tk-mlabel" id="canvas-pattern-label">Background · this board</div>
+          <div class="tk-seg canvas-pattern" role="group" aria-labelledby="canvas-pattern-label"><button type="button" data-canvas-pattern="dots" aria-pressed="true">Dots</button><button type="button" data-canvas-pattern="grid" aria-pressed="false">Grid</button><button type="button" data-canvas-pattern="plain" aria-pressed="false">Plain</button></div>
+        </div>
+      </span>
+      <button id="zoom-plus" class="tk-btn tk-icon" type="button" aria-label="Zoom in" title="Zoom in (+)"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M5 10h10M10 5v10"/></svg></button>
+      <span class="tk-divider" aria-hidden="true"></span>
+      <button id="fit" class="fit tk-btn" type="button" title="Fit every item in view (⇧1)"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M3.5 7.5v-4h4M16.5 7.5v-4h-4M3.5 12.5v4h4M16.5 12.5v4h-4"/></svg><span class="fit-label">Fit</span></button>
+    </section>
   </footer>
   <dialog id="reader-dialog" aria-labelledby="reader-name">
     <header class="reader-header">
       <nav class="identity" aria-label="Item navigation">
-        <a class="brand" id="reader-home" href="/" aria-label="Tinka home"><img class="brand-mark" src="/app/mark.svg" alt="" width="26" height="26"><span id="reader-project">Home</span></a>
+        <a class="brand" id="reader-home" href="/" aria-label="Tinka home"><svg class="brand-mark" viewBox="0 0 48 48" width="22" height="22" aria-hidden="true" focusable="false"><path class="brand-mark-a" d="M7 8h15v15H7zm19 0h15v15H26zM7 27h15v15H7z"/><path class="brand-mark-b" d="m33.5 25 10 10-10 10-10-10z"/></svg><span id="reader-project">Home</span></a>
         <a id="reader-board-link" class="board-name board-link" href="#">← Board</a>
-        <span class="item-line"><strong id="reader-name" class="experiment-crumb" aria-current="page"></strong><span class="item-actions"><button id="reader-star" class="item-star" type="button" aria-pressed="false" aria-label="Shortlist">☆</button><button id="notes-toggle" class="notes-toggle" type="button" aria-expanded="false" aria-controls="notes-panel">Notes<span class="note-dot" aria-hidden="true" hidden></span></button><button id="reader-update" type="button" hidden>New version available · Reload experiment</button></span></span>
+        <span class="item-line"><span id="reader-number" class="item-number reader-number" hidden></span><strong id="reader-name" class="experiment-crumb" aria-current="page"></strong><span class="item-actions"><button id="reader-star" class="item-star" type="button" aria-pressed="false" aria-label="Shortlist">☆</button><button id="notes-toggle" class="notes-toggle" type="button" aria-expanded="false" aria-controls="notes-panel">Notes<span class="note-dot" aria-hidden="true" hidden></span></button><button id="reader-update" type="button" hidden>New version available · Reload experiment</button></span></span>
       </nav>
     </header>
     <div class="reader-area">

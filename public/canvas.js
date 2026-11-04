@@ -1,3 +1,5 @@
+import {ProjectNavigator} from './navigator.js';
+import {mountAppearance} from './appearance.js';
 import { watchBoard } from './live.js';
 import { reconcileChildren } from './reconcile.js';
 import { openRemovalPrompt } from './agent-prompt.js';
@@ -7,6 +9,7 @@ import { validTextAnchor } from './markdown-document.js';
 import {bindCommitShortcut,commitShortcutLabel} from './interaction.js';
 
 const $ = id => document.getElementById(id);
+mountAppearance($('board-info'));
 const viewport = $('viewport');
 const world = $('world');
 const plane = $('plane');
@@ -28,6 +31,8 @@ const clampZoom = value => Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, value));
 
 let board = null;
 let graph = null;
+let projectNavigator = null;
+function saveNavigatorView(){try{sessionStorage.setItem(viewKey,JSON.stringify({zoom,x:view.x,y:view.y,resting,round:rounds[currentRound]?.id}));}catch{}}
 let appTitle = 'Tinka';
 let appConfig;
 let rounds = [];
@@ -121,7 +126,7 @@ async function fetchBoard() {
   if (!response.ok) throw new Error(`Board metadata unavailable (${response.status})`);
   const data = await response.json();
   if (data.schemaVersion === 2) {
-    if (!graph) graph = new WorkspaceBoard(appConfig, data, { concepts:()=>all, active:()=>active, zoom:()=>zoom, shiftOrigin:(dx,dy)=>{if(dx||dy){view.x-=dx*zoom;view.y-=dy*zoom;resting=false;}}, shiftViewport:(dx,dy)=>{if(dx||dy)moveView(view.x+dx,view.y+dy);}, revealPlacements:revealPlacements, preview:c=>previewHref(c), layout:()=>{ if(resting)rest();else applyView(); }, mode:mode=>{ if(mode==='canvas'){zoom=1;settleCushion();}else{viewport.scrollLeft=0;viewport.scrollTop=0;} }, reloadReader:()=>loadRevision(), saveStatus:setSaveStatus, openOwner:()=>{const c=graph.ownerConcept();if(c)openReader(c.key);}, closeReader:()=>closeReader(), flushNotes:flushNoteEdits, liveReady:()=>{void drainLiveUpdates().catch(()=>{});}, data:acceptGraphData });
+    if (!graph) graph = new WorkspaceBoard(appConfig, data, { concepts:()=>all, active:()=>active, zoom:()=>zoom, shiftOrigin:(dx,dy)=>{if(dx||dy){view.x-=dx*zoom;view.y-=dy*zoom;resting=false;}}, shiftViewport:(dx,dy)=>{if(dx||dy)moveView(view.x+dx,view.y+dy);}, revealPlacements:revealPlacements, revealTarget:placement=>{const fit=Math.min((viewport.clientWidth-80)/placement.width,(viewport.clientHeight-80)/placement.height,1);changeZoom(fit);const rect=world.getBoundingClientRect(),region=viewport.getBoundingClientRect();moveView(view.x+region.left+viewport.clientWidth/2-(rect.left+(placement.x+graph.origin.x+placement.width/2)*zoom),view.y+region.top+viewport.clientHeight/2-(rect.top+(placement.y+graph.origin.y+placement.height/2)*zoom));}, preview:c=>previewHref(c), layout:()=>{ if(resting)rest();else applyView(); }, mode:mode=>{ if(mode==='canvas'){zoom=1;settleCushion();}else{viewport.scrollLeft=0;viewport.scrollTop=0;} }, reloadReader:()=>loadRevision(), saveStatus:setSaveStatus, openOwner:()=>{const c=graph.ownerConcept();if(c)openReader(c.key);}, closeReader:()=>closeReader(), flushNotes:flushNoteEdits, liveReady:()=>{void drainLiveUpdates().catch(()=>{});}, data:acceptGraphData });
     return graph.adapt(data);
   }
   if (!Array.isArray(data.rounds)) throw new Error('The board manifest is invalid.');
@@ -134,11 +139,13 @@ async function loadAppTitle() {
   const config = await response.json();
   if (!config.workspaceId || !config.projectLabel) throw new Error('Workspace identity unavailable.');
   appConfig = config;
+  projectNavigator ||= new ProjectNavigator(config,{boardId,beforeNavigate:async()=>{if(graph){if(await graph.saveReview([], {})===false)throw Error('Save or retry your feedback before leaving.');}else await flushNoteEdits();saveNavigatorView();},reveal:id=>graph?.revealPlacement(id),outline:()=>graph?.outline?.()||[],selection:()=>[...(graph?.selection||[])]}).mount(document.querySelector('#canvas-header .brand'));
   workspaceId = config.workspaceId;
   appTitle = `Tinka / ${config.projectLabel}`;
   const prefix = `tinka/${config.workspaceId}/${boardId}`;
   notesKey = `${prefix}/notes`;
   viewKey = `${prefix}/view`;
+  loadCanvasPattern();
   $('project-label').textContent = 'Home';
   $('reader-project').textContent = 'Home';
   document.querySelectorAll('.brand').forEach(brand => { brand.setAttribute('aria-label', `${appTitle} home`); brand.title = `${appTitle} · all boards`; });
@@ -147,8 +154,14 @@ async function loadAppTitle() {
 
 function updateMetadata() {
   const title = board.title || 'Untitled board';
-  document.title = active && dialog.open ? `${appTitle} / ${title} / ${descriptor(active, currentVariant()).name}` : `${appTitle} / ${title}`;
+  const activeNumber = active && dialog.open ? shownNumber(active) : '';
+  const owner = graph?.snapshot?.items?.[graph.snapshot.ownerItemId];
+  const boardNumber = String(owner?.number ?? owner?.legacy?.number ?? '').trim().slice(0, 8);
+  const boardLabel = boardNumber ? `${boardNumber} · ${title}` : title;
+  document.title = active && dialog.open ? `${appTitle} / ${boardLabel} / ${activeNumber ? `${activeNumber} · ` : ''}${descriptor(active, currentVariant()).name}` : `${appTitle} / ${boardLabel}`;
   $('board-title').textContent = title;
+  $('board-number').textContent = boardNumber;
+  $('board-number').hidden = !boardNumber;
   $('board-title').title = title;
   $('reader-board-link').textContent = '← Board';
   $('reader-board-link').title = `Return to ${title}`;
@@ -159,7 +172,7 @@ function updateMetadata() {
 }
 
 function buildCanvas() {
-  if (graph) { graph.build(all); wireReaderReview(); updateMetadata(); renderNav(); applyNotes(); return; }
+  if (graph) { graph.build(all); wireReaderReview(); updateMetadata(); renderNav(); applyNotes(); projectNavigator?.refresh?.(); if (!landed) { landed = true; requestAnimationFrame(landFromChild); } return; }
   const retainedLegacy=new Map([...world.querySelectorAll(".concept-card")].map(card=>[card.dataset.key,card.querySelector("iframe")]));
   const cards = round => all.filter(concept => concept.round === round.id).map(concept => {
     const versions = revisions[concept.key] || [];
@@ -195,6 +208,7 @@ const view = { x: 0, y: 0 };
 let resting = true;
 let glide = 0;
 let glideTarget = null;
+let flight = 0;
 let roundFrame = 0;
 
 function settleCushion() {
@@ -216,7 +230,7 @@ function clampView({ x, y }) {
 }
 
 function applyView() {
-  if (graph?.mode === 'grid') { plane.style.transform='none'; world.style.transform='none'; return; }
+  if (graph?.mode === 'grid') { plane.style.transform='none'; world.style.transform='none'; syncViewChrome(); return; }
   Object.assign(view, clampView(view));
   plane.style.transform = `translate(${Math.round(view.x)}px, ${Math.round(view.y)}px)`;
   world.style.transform = `scale(${zoom})`;
@@ -224,6 +238,7 @@ function applyView() {
   slider.value = String(percent);
   slider.setAttribute('aria-valuetext', `${percent} percent`);
   slider.title = `Zoom ${percent}%`;
+  syncViewChrome();
 }
 
 // A board rests centred on each axis where it fits, otherwise at its left edge with the given exploration on top.
@@ -237,6 +252,8 @@ function restingView(row = currentRound) {
 }
 
 function stopGlide() {
+  // Any other view change also ends a return-to-tile flight.
+  if (flight) { cancelAnimationFrame(flight); flight = 0; }
   cancelAnimationFrame(glide);
   glide = 0;
   glideTarget = null;
@@ -511,6 +528,9 @@ function renderReaderHeader() {
   const hint = variant?.hint || active.hint || '';
   $('reader-name').textContent = name;
   $('reader-name').title = hint ? `${name} · ${hint}` : name;
+  const number = shownNumber(active);
+  $('reader-number').textContent = number;
+  $('reader-number').hidden = !number;
   $('reader-star').dataset.star = active.key;
   $('reader-star').setAttribute('aria-label', `Shortlist ${active.name}`);
   $('reader-note').setAttribute('aria-label', `Notes on ${active.name}`);
@@ -708,6 +728,7 @@ function closeReader({ history: mode = 'push' } = {}) {
   if (!active && !dialog.open) return;
   // Returning focus to the board must not move it: the board comes back exactly as it was left.
   const left = { ...view };
+  const returnKey = active?.key;
   if (graph?.feedback?.mode === 'reader') graph.feedback.close({restoreFocus:false});
   graph?.feedback?.closeVote?.({restoreFocus:false});
   closeSizeMenu(false);
@@ -724,7 +745,76 @@ function closeReader({ history: mode = 'push' } = {}) {
   settleCushion();
   Object.assign(view, left);
   applyView();
+  // Land on the tile last viewed (after any arrowing between siblings).
+  if (returnKey) requestAnimationFrame(() => returnToTile(returnKey));
 }
+
+// The displayed number of a concept: authored manifest numbers for legacy boards,
+// an authored item or migrated number for graph boards; never an invented ordinal.
+function shownNumber(concept) {
+  const value = concept?.graphItem ? concept.shownNumber : concept?.number;
+  return typeof value === 'string' || typeof value === 'number' ? String(value).trim().slice(0, 8) : '';
+}
+
+// Return to origin: if the tile is not comfortably in view, a short pan/zoom brings
+// it to the centre (instantly with reduced motion); then it pulses green once.
+// This changes only the in-memory view, never saved geometry or data.
+function flyTo(targetZoom, targetX, targetY) {
+  stopGlide(); resting = false;
+  const from = { zoom, x: view.x, y: view.y };
+  const reduced = matchMedia('(prefers-reduced-motion: reduce)').matches;
+  const start = performance.now();
+  const step = now => {
+    const t = reduced ? 1 : Math.min(1, (now - start) / 320), e = 1 - (1 - t) ** 3;
+    zoom = from.zoom + (targetZoom - from.zoom) * e;
+    view.x = from.x + (targetX - from.x) * e; view.y = from.y + (targetY - from.y) * e;
+    applyView();
+    if (t < 1) flight = requestAnimationFrame(step); else { flight = 0; trackRound(); }
+    if (t >= 1) return;
+  };
+  if (reduced) step(start); else flight = requestAnimationFrame(step);
+}
+function returnToTile(key, { placementId } = {}) {
+  const tile = placementId ? world.querySelector(`.workspace-card[data-placement="${CSS.escape(placementId)}"]`) : world.querySelector(`[data-key="${CSS.escape(key)}"]`);
+  if (!tile || dialog.open) return false;
+  const vr = viewport.getBoundingClientRect(), r = tile.getBoundingClientRect();
+  const visibleArea = Math.max(0, Math.min(r.right, vr.right) - Math.max(r.left, vr.left)) * Math.max(0, Math.min(r.bottom, vr.bottom) - Math.max(r.top, vr.top));
+  const comfortable = visibleArea >= r.width * r.height * .85 && r.width >= 48 && r.height >= 36;
+  if (!comfortable) {
+    if (graph?.mode === 'grid') tile.scrollIntoView({ block: 'center', inline: 'center', behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth' });
+    else {
+      const w = r.width / zoom, h = r.height / zoom;
+      const fit = Math.min((viewport.clientWidth - 120) / w, (viewport.clientHeight - 140) / h);
+      const target = clampZoom(Math.min(Math.max(zoom, Math.min(fit, .6)), fit, 1));
+      const worldRect = world.getBoundingClientRect();
+      const cx = (r.left + r.width / 2 - worldRect.left) / zoom, cy = (r.top + r.height / 2 - worldRect.top) / zoom;
+      const x0 = worldRect.left - view.x, y0 = worldRect.top - view.y;
+      flyTo(target, vr.left + viewport.clientWidth / 2 - x0 - cx * target, vr.top + viewport.clientHeight / 2 - y0 - cy * target);
+    }
+  }
+  if (graph && tile.dataset.placement) graph.pulse(tile.dataset.placement);
+  else {
+    tile.classList.remove('return-pulse'); void tile.offsetWidth; tile.classList.add('return-pulse');
+    clearTimeout(tile.returnPulseTimer); tile.returnPulseTimer = setTimeout(() => tile.classList.remove('return-pulse'), 1800);
+  }
+  return true;
+}
+// Entering a child board from its tile records where to land on the way back (see WorkspaceBoard.navigate).
+const RETURN_KEY = () => workspaceId ? `tinka/${workspaceId}/return-to-tile` : null;
+let landed = false;
+function landFromChild() {
+  let entry = null;
+  try { entry = JSON.parse(sessionStorage.getItem(RETURN_KEY()) || 'null'); } catch {}
+  if (!entry || entry.parentBoardId !== boardId || Date.now() - entry.at > 6 * 60 * 60 * 1000) return;
+  if (new URLSearchParams(location.search).has('reveal')) return;
+  const tries = { n: 0 };
+  const attempt = () => {
+    if (returnToTile(null, { placementId: entry.placementId })) { try { sessionStorage.removeItem(RETURN_KEY()); } catch {} return; }
+    if (++tries.n < 40) setTimeout(attempt, 100);
+  };
+  attempt();
+}
+addEventListener('pageshow', event => { if (event.persisted) landFromChild(); });
 
 // Escape closes the size panel first, then the notes panel while typing in it, otherwise returns to the board.
 function handleEscape(event) {
@@ -1014,6 +1104,7 @@ function showError(message) {
 }
 
 function setInfoOpen(open, { focus = false } = {}) {
+  if (open) graph?.closeContext?.();
   $('board-info').hidden = !open;
   $('board-info-toggle').setAttribute('aria-expanded', String(open));
   if (focus) (open ? $('board-info').querySelector('button,input,a') : $('board-info-toggle'))?.focus({ preventScroll: true });
@@ -1025,8 +1116,11 @@ document.addEventListener('pointerdown', event => {
   if (remove && event.button === 0) { event.preventDefault(); remove.focus({ preventScroll: true }); }
   if (!sizeMenu.hidden && !event.target.closest('.size-wrap')) closeSizeMenu(false);
   if (viewControls.classList.contains('open') && !event.target.closest('.reader-tools')) setViewOpen(false, { focus: false });
-  if (!$('board-info').hidden && !event.target.closest('#board-info, #board-info-toggle')) setInfoOpen(false);
 });
+document.addEventListener('pointerdown', event => {
+  if (!$('board-info').hidden && !event.target.closest('#board-info, #board-info-toggle, .workspace-dialog, dialog[open], .workspace-add-menu, .workspace-popover, .feedback-panel')) setInfoOpen(false);
+  if (!$('zoom-menu').hidden && !event.target.closest('.zoom-menu-wrap')) setZoomMenuOpen(false);
+}, true);
 document.addEventListener('click', event => {
   const open = event.target.closest('[data-open]');
   const star = event.target.closest('[data-star]');
@@ -1038,7 +1132,7 @@ document.addEventListener('click', event => {
   if (open && !open.disabled) {
     const concept = graph && (all.find(item => item.key === open.dataset.open) || graph.aliasConcept(open.dataset.open));
     if (concept?.graphItem.childBoardId && !concept.graphItem.content)
-      graph.navigate(concept.graphItem.childBoardId);
+      graph.navigate(concept.graphItem.childBoardId, concept.placement?.id);
     else openReader(open.dataset.open, open.dataset.revision);
   }
   if (star?.dataset.star) {
@@ -1067,12 +1161,106 @@ const readerNoteHint=document.createElement('small');readerNoteHint.className='w
 document.addEventListener('keydown', event => {
   if (event.key !== 'Escape' || event.defaultPrevented || event.isComposing || event.keyCode===229 || event.repeat || document.querySelector('dialog.workspace-dialog[open]')) return;
   if (dialog.open) { handleEscape(event); event.preventDefault(); return; }
+  if (!$('zoom-menu').hidden) { event.preventDefault(); setZoomMenuOpen(false, { focus: true }); return; }
   if (!$('board-info').hidden) { event.preventDefault(); setInfoOpen(false, { focus: true }); }
 }, true);
 
-slider.addEventListener('input', () => changeZoom(Number(slider.value) / 100));
+slider.addEventListener('input', () => {if(graph)graph.revealedPlacement=null;changeZoom(Number(slider.value) / 100);});
 $('fit').onclick = fitBoard;
 $('board-info-toggle').onclick = () => setInfoOpen($('board-info').hidden, { focus: true });
+$('board-info-close').onclick = () => setInfoOpen(false, { focus: true });
+$('chrome-search').onclick = () => document.dispatchEvent(new CustomEvent('tinka:navigator-open'));
+// ⌘I / Ctrl-I opens the Inspector: the selected item when there is exactly one, otherwise the board.
+document.addEventListener('keydown', event => {
+  if (!(event.metaKey || event.ctrlKey) || event.altKey || event.shiftKey || event.key.toLowerCase() !== 'i' || event.repeat) return;
+  if (dialog.open || event.target.closest?.('input,textarea,select,[contenteditable]') || document.querySelector('dialog[open]')) return;
+  event.preventDefault();
+  const sole = graph?.selection?.size === 1 ? [...graph.selection][0] : null;
+  if (sole && graph.contextPlacement !== sole) { setInfoOpen(false); graph.itemControls(sole, 'notes'); return; }
+  if (graph?.context) { graph.closeContext(true); return; }
+  setInfoOpen($('board-info').hidden, { focus: true });
+}, true);
+// The floating view pill: − · percent menu · + · Fit.
+function setZoomMenuOpen(open, { focus = false } = {}) {
+  $('zoom-menu').hidden = !open;
+  $('zoom-menu-toggle').setAttribute('aria-expanded', String(open));
+  $('zoom-menu').querySelector('[data-zoom-to="selection"]').hidden = !graph || graph.mode !== 'canvas';
+  if (open) $('zoom-menu').querySelector('button:not([hidden])')?.focus({ preventScroll: true });
+  else if (focus) $('zoom-menu-toggle').focus({ preventScroll: true });
+}
+$('zoom-menu-toggle').onclick = () => setZoomMenuOpen($('zoom-menu').hidden);
+$('zoom-minus').onclick = () => { if (graph) graph.revealedPlacement = null; changeZoom(zoom / 1.25); };
+$('zoom-plus').onclick = () => { if (graph) graph.revealedPlacement = null; changeZoom(zoom * 1.25); };
+$('zoom-menu').addEventListener('click', event => {
+  const choice = event.target.closest('[data-zoom-to]');
+  if (!choice) return;
+  if (graph) graph.revealedPlacement = null;
+  const to = choice.dataset.zoomTo;
+  setZoomMenuOpen(false, { focus: true });
+  if (to === 'fit') fitBoard();
+  else if (to === 'selection') fitSelection();
+  else changeZoom(Number(to));
+});
+$('zoom-menu').addEventListener('keydown', event => {
+  if (!['ArrowDown', 'ArrowUp'].includes(event.key)) return;
+  const items = [...$('zoom-menu').querySelectorAll('button:not([hidden]),input')];
+  const index = items.indexOf(document.activeElement);
+  if (index < 0 || document.activeElement.type === 'range') return;
+  event.preventDefault();
+  items[(index + (event.key === 'ArrowDown' ? 1 : -1) + items.length) % items.length].focus();
+});
+document.addEventListener('click', event => {
+  const pattern = event.target.closest('[data-canvas-pattern]');
+  if (pattern) setCanvasPattern(pattern.dataset.canvasPattern);
+});
+function fitSelection() {
+  if (!graph || graph.mode !== 'canvas') return;
+  const ids = graph.selection.size ? graph.selection : null;
+  const placements = (graph.snapshot.placements || []).filter(p => ids?.has(p.id) && !p.removedAt);
+  if (!placements.length) { fitBoard(); return; }
+  const x = Math.min(...placements.map(p => p.x)), y = Math.min(...placements.map(p => p.y));
+  const width = Math.max(...placements.map(p => p.x + p.width)) - x, height = Math.max(...placements.map(p => p.y + p.height)) - y;
+  const margin = 48;
+  changeZoom(Math.min((viewport.clientWidth - margin * 2) / width, (viewport.clientHeight - margin * 2) / height));
+  const rect = world.getBoundingClientRect(), region = viewport.getBoundingClientRect();
+  moveView(view.x + region.left + viewport.clientWidth / 2 - (rect.left + (x + graph.origin.x + width / 2) * zoom), view.y + region.top + viewport.clientHeight / 2 - (rect.top + (y + graph.origin.y + height / 2) * zoom));
+}
+// Dots, Grid or Plain: a per-board view preference kept in this browser.
+const PATTERNS = ['dots', 'grid', 'plain'];
+let canvasPattern = 'dots';
+function patternKey() { return workspaceId && boardId ? `tinka/${workspaceId}/${boardId}/canvas-pattern` : null; }
+function loadCanvasPattern() {
+  try { const saved = patternKey() && localStorage.getItem(patternKey()); if (PATTERNS.includes(saved)) canvasPattern = saved; } catch {}
+  setCanvasPattern(canvasPattern, { save: false });
+}
+function setCanvasPattern(pattern, { save = true } = {}) {
+  if (!PATTERNS.includes(pattern)) return;
+  canvasPattern = pattern;
+  viewport.dataset.canvasPattern = pattern;
+  document.querySelectorAll('[data-canvas-pattern]').forEach(button => button.setAttribute('aria-pressed', String(button.dataset.canvasPattern === pattern)));
+  if (save) try { if (patternKey()) localStorage.setItem(patternKey(), pattern); } catch {}
+  syncViewChrome();
+}
+// Patterns scale with the board and coarsen as it zooms out, so they never turn into noise.
+function syncViewChrome() {
+  const percent = Math.round(zoom * 100);
+  const readout = $('zoom-menu-toggle');
+  if (readout && readout.textContent !== `${percent}%`) { readout.textContent = `${percent}%`; readout.setAttribute('aria-label', `Zoom ${percent}%, zoom and background options`); }
+  const canvasMode = graph?.mode !== 'grid';
+  viewport.style.setProperty('--canvas-zoom', String(canvasMode ? zoom : 1));
+  viewport.style.setProperty('--chrome-scale', String(canvasMode ? Math.min(2.4, Math.max(.8, 1 / zoom)) : 1));
+  // Tile chrome steps back on tiles too small on screen to carry it, so it never covers the drag surface.
+  const bucket = !canvasMode ? '100' : zoom >= .85 ? '100' : zoom >= .6 ? '60' : zoom >= .4 ? '40' : zoom >= .25 ? '25' : '0';
+  if (viewport.dataset.zoomBucket !== bucket) viewport.dataset.zoomBucket = bucket;
+  let step = 22 * (canvasMode ? zoom : 1), major = 110 * (canvasMode ? zoom : 1);
+  while (step < 9) { step *= 2; major *= 2; }
+  viewport.style.setProperty('--pattern-step', `${step}px`);
+  viewport.style.setProperty('--pattern-major', `${major}px`);
+  viewport.style.setProperty('--pattern-fade', String(canvasMode ? Math.max(.45, Math.min(1, .55 + zoom * .6)) : 1));
+  const ox = canvasMode ? view.x + (graph?.origin?.x || 0) * zoom : 0, oy = canvasMode ? view.y + (graph?.origin?.y || 0) * zoom : 0;
+  viewport.style.setProperty('--pattern-x', `${Math.round(ox)}px`);
+  viewport.style.setProperty('--pattern-y', `${Math.round(oy)}px`);
+}
 $('close-reader').onclick = () => closeReader();
 $('reader-board-link').addEventListener('click', event => {
   if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
@@ -1288,6 +1476,8 @@ viewport.addEventListener('keydown', event => {
   const page = viewport.clientHeight * .875;
   const key = event.key === ' ' && onCanvas ? (event.shiftKey ? 'PageUp' : 'PageDown') : event.key;
   const step = { ArrowLeft: [80, 0], ArrowRight: [-80, 0], ArrowUp: [0, 80], ArrowDown: [0, -80], PageUp: [0, page], PageDown: [0, -page] }[key];
+  if (event.shiftKey && (key === ')' || key === '0')) { changeZoom(1); event.preventDefault(); return; }
+  if (graph && event.shiftKey && (key === '@' || key === '2')) { fitSelection(); event.preventDefault(); return; }
   if (onCanvas && (key === '+' || key === '=')) changeZoom(zoom * 1.15);
   else if (onCanvas && (key === '-' || key === '_')) changeZoom(zoom / 1.15);
   else if (key.startsWith('Arrow') && step) moveView(view.x + step[0], view.y + step[1]);
@@ -1301,7 +1491,9 @@ new ResizeObserver(() => {
   // A new size label can change the footer layout, which resizes this window; lay out on the next frame to avoid a resize loop.
   if (dialog.open) { renderSizeControls(false); requestAnimationFrame(layoutReaderFooter); }
 }).observe($('reader-window'));
-new ResizeObserver(() => { if (resting) rest(); else applyView(); }).observe(viewport);
+new ResizeObserver(() => { if(graph?.revealedPlacement&&!dialog.open)graph.recenterRevealed();else if (resting) rest(); else applyView(); }).observe(viewport);
+// A found target follows responsive canvas changes until the user resumes navigation.
+for(const type of ['pointerdown','wheel','keydown'])viewport.addEventListener(type,()=>{if(graph)graph.revealedPlacement=null;},{capture:true,passive:true});
 // The dialog fills the window, so this fires on window resizes but never because the footer re-laid itself out.
 new ResizeObserver(layoutReaderChrome).observe(dialog);
 // The browser scrolls the canvas to reveal keyboard focus or a find-in-page match; carry that over as a pan.
@@ -1366,6 +1558,8 @@ else {
         else { resting = false; Object.assign(view, { x: saved.x, y: saved.y }); applyView(); }
       }
     } catch {}
+    const revealId=new URLSearchParams(location.search).get('reveal');
+    if(revealId&&graph)await graph.revealPlacement(revealId);
     if (!dialog.open && document.activeElement === document.body) viewport.focus({ preventScroll: true });
     $('live-status').classList.add('live-indicator');
     watchBoard(boardId, {

@@ -1,0 +1,37 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import {mkdtemp,mkdir,rm} from 'node:fs/promises';
+import path from 'node:path';
+import os from 'node:os';
+import {applyOperation,getBoardSnapshot} from '../lib/workspace.mjs';
+
+test('featuring on a parent creates grouped references, preserves source, and supports guarded undo',async t=>{
+  const root=await mkdtemp(path.join(os.tmpdir(),'tinka-feature-parent-'));t.after(()=>rm(root,{recursive:true,force:true}));
+  const config={boardsRoot:path.join(root,'boards')};await mkdir(config.boardsRoot);
+  const op=(type,data={})=>applyOperation(config,{type,...data});
+  const parent=(await op('createBoard',{id:'parent',title:'Parent'})).result;
+  const child=(await op('createBoard',{id:'round',title:'Round',parentBoardId:parent.boardId})).result;
+  const other=(await op('createBoard',{id:'other',title:'Other'})).result;
+  const a=(await op('createItem',{boardId:child.boardId,item:{id:'a',title:'A',review:{note:'Shared',star:true}},placement:{x:20,y:50,width:442,height:856,presentation:{mode:'panel',viewport:{width:440,height:810}}}})).result;
+  const b=(await op('createItem',{boardId:child.boardId,item:{id:'b',title:'B'},placement:{x:490,y:50,width:442,height:856,presentation:{mode:'panel',viewport:{width:440,height:810}}}})).result;
+  const sourceBefore=await getBoardSnapshot(config,child.boardId), parentBefore=await getBoardSnapshot(config,parent.boardId);
+  const feature={sourceBoardId:child.boardId,targetBoardId:parent.boardId,placementIds:[...a.placementIds,...b.placementIds],featureOnParent:true};
+  await assert.rejects(op('reference',{...feature,targetBoardId:other.boardId}),/no longer on that parent/);
+  const result=await op('reference',feature);assert.ok(result.history);
+  const after=await getBoardSnapshot(config,parent.boardId);
+  const featured=result.result.placementIds.map(id=>after.placements.find(p=>p.id===id));
+  assert.deepEqual(featured.map(p=>p.itemId),['a','b']);
+  assert.equal(featured[0].presentation.featuredFrom,child.boardId);
+  assert.deepEqual(featured[0].presentation.viewport,{width:440,height:810});
+  assert.equal(featured[1].x-featured[0].x,470);assert.equal(featured[1].y-featured[0].y,0);
+  assert.equal(after.items.a.review.note,'Shared');assert.equal(after.items.a.review.star,true);
+  assert.deepEqual((await getBoardSnapshot(config,child.boardId)).placements,sourceBefore.placements);
+  await assert.rejects(op('reference',feature),/already featured/);
+  const undone=await op('restoreMovement',{history:result.history});
+  assert.deepEqual((await getBoardSnapshot(config,parent.boardId)).placements,parentBefore.placements);
+  await op('restoreMovement',{history:undone.history});
+  assert.deepEqual((await getBoardSnapshot(config,parent.boardId)).placements,after.placements);
+  const pasted=await op('pastePlacements',{targetBoardId:parent.boardId,targetPosition:{x:4000,y:0},clipboard:{version:1,workspaceId:after.workspaceId,placements:[featured[0]],items:{a:after.items.a},boards:{},reviewOrder:[featured[0].id]}});
+  const copied=(await getBoardSnapshot(config,parent.boardId)).placements.find(p=>p.id===pasted.result.placementIds[0]);
+  assert.notEqual(copied.itemId,'a');assert.equal(copied.presentation.featuredFrom,undefined);
+});

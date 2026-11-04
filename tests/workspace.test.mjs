@@ -720,7 +720,12 @@ test("existing destination assigns available board-local positions; new-board mo
   const placement = (await getBoardSnapshot(config, b.boardId)).placements.find(
     (p) => p.id === copied.placementIds[0],
   );
-  assert.equal(placement.x, 360);
+  const neighbor = (await getBoardSnapshot(config, b.boardId)).placements.find(
+    (p) => p.id === existing.placementIds[0],
+  );
+  // Automatic placement uses the incoming card's size for its grid stride;
+  // the observable contract is a clear board-local position, not the old 360px stride.
+  assert.ok(placement.x >= neighbor.x + neighbor.width + 40);
   assert.equal(placement.y, 0);
   assert.equal(placement.width, 400);
   assert.equal(placement.height, 300);

@@ -28,6 +28,7 @@ try {
   await main(['start','--config',config]);
   const local=JSON.parse(await readFile(config,'utf8')),base=`http://127.0.0.1:${local.port}`;
   const cfg=await(await fetch(base+'/api/config')).json();
+  // Complete export: graph view omits bodies, so item snapshots compare against it.
   const snapshot=async()=>await(await fetch(base+'/api/workspace?covers=0')).json();
   const op=async(type,data)=>{
     const before=await snapshot();
@@ -70,7 +71,7 @@ try {
   const history=async()=>await page.evaluate(key=>JSON.parse(sessionStorage.getItem(key)||'{"undo":[],"redo":[]}'),historyKey);
   const selected=async()=>await page.locator('.workspace-card.selected').evaluateAll(nodes=>nodes.map(n=>n.dataset.placement).sort());
   const settle=async()=>{await page.waitForFunction(()=>!document.getElementById('workspace-paste')?.disabled);await page.evaluate(()=>new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve))));};
-  const show=async()=>{const graph=page.waitForResponse(r=>r.url()===base+'/api/workspace?covers=0'&&r.ok());await page.goto(base+`/boards/${bid}/`);await page.locator('#workspace-copy').waitFor({state:'attached'});await graph;await page.locator('#fit').click();await settle();};
+  const show=async()=>{const graph=page.waitForResponse(r=>r.url()===base+'/api/workspace?view=graph&covers=0'&&r.ok());await page.goto(base+`/boards/${bid}/`);await page.locator('#workspace-copy').waitFor({state:'attached'});await graph;await page.locator('#fit').click();await settle();};
   const select=async wanted=>{
     // Clones deliberately overlap: activate their native selection controls by
     // keyboard so pointer occlusion is not confused with command correctness.
@@ -155,19 +156,19 @@ try {
   const repeated=await mutation(async()=>{await page.keyboard.down('Meta');await page.keyboard.down('d');await page.keyboard.down('d');await page.keyboard.up('d');await page.keyboard.up('Meta');});assert.equal(repeated.body.result.placementIds.length,1);
   console.log(JSON.stringify({stage:'cut success, denial, cross-tab cut race, repeat and busy defaults',assertions}));
   // The five new affordances make zero graph writes.
-  await zero(()=>page.keyboard.press('/'),async()=>{assert.equal(await page.locator('#workspace-search').evaluate(el=>el===document.activeElement),true);assert.equal(await page.locator('#board-info').isVisible(),true);});
-  await page.locator('#workspace-search').fill('Reading two');await page.keyboard.press('Escape');await page.locator('#viewport').focus();
+  await zero(()=>page.keyboard.press('/'),async()=>{assert.equal(await page.locator('#navigator-query').evaluate(el=>el===document.activeElement),true);assert.equal(await page.locator('#project-navigator').isVisible(),true);});
+  await page.keyboard.press('Escape');await page.locator('#board-info-toggle').click();await page.locator('#workspace-search').fill('Reading two');await page.keyboard.press('Escape');await page.locator('#viewport').focus();
   const rendered=await page.locator('.workspace-card').evaluateAll(cards=>cards.map(c=>c.dataset.placement).sort());assert.ok(rendered.length>0);assert.ok(rendered.length<board(await snapshot()).placements.length);
   await zero(()=>page.keyboard.press('Meta+a'),async()=>assert.deepEqual(await selected(),rendered));
-  await page.keyboard.press('/');await page.locator('#workspace-search').fill('Nothing matches this search');await page.locator('#board-info-toggle').click();await page.locator('#viewport').focus();
+  await page.locator('#board-info-toggle').click();await page.locator('#workspace-search').fill('Nothing matches this search');await page.locator('#board-info-toggle').click();await page.locator('#viewport').focus();
   await zero(()=>page.keyboard.press('Meta+a'),async()=>{assert.deepEqual(await selected(),[]);assert.equal(await page.evaluate(()=>String(window.getSelection())), '');});
-  await page.keyboard.press('/');await page.locator('#workspace-search').fill('Reading two');await page.keyboard.press('Escape');await page.locator('#viewport').focus();await page.keyboard.press('Meta+a');
+  await page.locator('#board-info-toggle').click();await page.locator('#workspace-search').fill('Reading two');await page.keyboard.press('Escape');await page.locator('#viewport').focus();await page.keyboard.press('Meta+a');
   await zero(()=>page.keyboard.press('Enter'),async()=>assert.equal(await page.locator('#reader-dialog').isVisible(),false));
   await select([ids[1]]);await zero(()=>page.keyboard.press('Enter'),async()=>{await page.locator('#reader-dialog[open]').waitFor();assert.equal(await page.locator('#reader-name').textContent(),'Reading two');});
   // The active prototype owns its keys, including the text-editing case.
   const input=page.locator('#active-reader').contentFrame().locator('.item-full-frame').contentFrame().getByRole('textbox',{name:'Prototype input'});
   await input.focus();await zero(async()=>{for(const key of ['Meta+d','Meta+a','/','Shift+1','?'])await page.keyboard.press(key);},async()=>assert.equal(await page.locator('dialog.workspace-dialog[open]').count(),0));
-  await page.locator('#close-reader').click();await page.locator('#viewport').focus();await page.keyboard.press('/');await page.locator('#workspace-search').fill('');await page.keyboard.press('Escape');await page.locator('#viewport').focus();
+  await page.locator('#close-reader').click();await page.locator('#viewport').focus();await page.locator('#board-info-toggle').click();await page.locator('#workspace-search').fill('');await page.keyboard.press('Escape');await page.locator('#viewport').focus();
   await page.locator('#zoom-slider').evaluate(el=>{el.value='5';el.dispatchEvent(new Event('input',{bubbles:true}));});const zoomBefore=await page.locator('#zoom-slider').inputValue();
   await zero(()=>page.keyboard.press('Shift+1'),async()=>assert.notEqual(await page.locator('#zoom-slider').inputValue(),zoomBefore));
   await zero(()=>page.keyboard.press('?'),async()=>{await page.getByRole('dialog',{name:'Keyboard shortcuts'}).waitFor();assert.match(await page.getByRole('dialog',{name:'Keyboard shortcuts'}).textContent(),/Duplicate/);});
@@ -175,7 +176,7 @@ try {
   await page.locator('#board-info-toggle').click();await zero(()=>page.getByRole('button',{name:'Keyboard shortcuts',exact:true}).click(),async()=>page.getByRole('dialog',{name:'Keyboard shortcuts'}).waitFor());await page.keyboard.press('Escape');assert.equal(await page.locator('#board-info-toggle').evaluate(el=>document.activeElement===el),true);
   // Native editing, dialog, composing and modifier ownership. Ordinary menus
   // retain normal accelerator behavior when their focus is not an editor.
-  await page.keyboard.press('/');await page.locator('#workspace-search').fill('native text');
+  await page.locator('#board-info-toggle').click();await page.locator('#workspace-search').fill('native text');
   await zero(async()=>{await page.keyboard.press('Meta+a');assert.equal(await page.locator('#workspace-search').evaluate(el=>el.selectionEnd-el.selectionStart),11);for(const key of ['Meta+d','?','/','Shift+1'])await page.keyboard.press(key);});
   await page.locator('#workspace-search').fill('');await page.keyboard.press('Escape');await page.locator('#viewport').focus();await select([ids[0]]);
   await page.evaluate(()=>{const input=document.createElement('div');input.id='qa-editable';input.contentEditable='true';input.textContent='Native editable';document.body.append(input);input.focus();});

@@ -52,10 +52,10 @@ a:focus-visible,button:focus-visible { outline:2px solid var(--accent); outline-
 .document-paint-layer span { position:absolute; border-radius:1px; }
 .document-range-highlight { background:#f3df8580; }
 .document-range-comment { background:#bfcfa030; box-shadow:inset 0 -2px #71845a; }
-.document-range-selection { background:#96b3ca45; box-shadow:inset 0 -1px #486d8a; }
+.document-range-selection { background:#89947745; box-shadow:inset 0 -1px #536044; }
 ::highlight(tinka-document-highlights) { background:#f3df8599; color:inherit; }
 ::highlight(tinka-document-comments) { background:#bfcfa044; text-decoration:underline; text-decoration-color:#71845a; }
-::highlight(tinka-document-selection) { background:#96b3ca66; color:inherit; }
+::highlight(tinka-document-selection) { background:#89947766; color:inherit; }
 .document-annotations { position:fixed; z-index:8; top:52px; right:16px; width:min(340px,calc(100% - 32px)); max-height:calc(100dvh - 72px); overflow:auto; padding:14px; border:1px solid var(--line); border-radius:8px; background:var(--paper); box-shadow:0 5px 24px #0002; font:13px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif; }
 .document-annotations header { display:flex; justify-content:space-between; align-items:center; gap:10px; }
 .document-annotations h2 { margin:18px 0 8px; font:600 13px/1.4 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif; }

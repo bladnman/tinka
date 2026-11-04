@@ -89,8 +89,7 @@ the pending Cut captured before the command, allowing the next Cmd/Ctrl-Z to und
 duplication; failure or a newer cross-tab Cut leaves that intent intact.
 
 Cmd/Ctrl-A selects all valid rendered placements under the current filters. Enter
-opens one selected Tinka through its existing open action. Slash opens Tools and
-focuses board search. Shift-1 fits the Canvas. Question mark or Tools → Keyboard
+opens one selected Tinka through its existing open action. Cmd/Ctrl-K or slash opens Navigator and focuses project search; Cmd/Ctrl-I opens the Inspector. Shift-1 fits the Canvas, Shift-2 fits the selection and Shift-0 zooms to 100%. Shift-, Cmd- or Ctrl-click toggles one Tinka's selection. Question mark or Inspector → Keyboard
 shortcuts opens a concise key guide. Native editing fields, readers, dialogs,
 iframe focus, held key repeat, gestures and pending writes/history block these
 commands. Browser defaults are prevented only when a command is handled.
@@ -318,19 +317,48 @@ Unused region interiors are empty space for this gesture. The region label band
 retain decoration move/edit behavior. Text/arrow decorations, card contents,
 controls, editable text, menus and scrollbars do not start a selection box.
 Touch retains background navigation, and Grid/reader/modal views are excluded.
-Card outlines, selection checkboxes and counts update directly; the toolbar keeps
+Card outlines, selection circles and counts update directly; the toolbar keeps
 its original visibility until completion, then local pan compensates its layout
 change. Live metadata refresh defers until the gesture ends, preserving drafts.
 
-`updatePlacement` patches `x,y,width,height,z,presentation`. Presentation is local to a placement: omit it or use `{"mode":"card"}` for the original card; use `{"mode":"icon"}` for a compact icon, or `{"mode":"panel","viewport":{"width":360,"height":650}}` to show a full HTML/image design viewport, fitted without cropping. Viewport dimensions are integers from 40 to 10000; the default is 1000×720. Placement width/height include the compact caption. For a 360×650 design at natural size, use width 362 and height 696 (borders plus caption). Canvas starts at 100% and scrolls naturally; Grid retains panel dimensions for comparison. The item footer’s ⋯ (Item details) control opens an attached, nonmodal popup with canonical notes, Full preview / Compact card / Icon appearance choices and paper swatches. Appearance is placement-local. The optional `presentation.paper` is a hexadecimal color (`#rgb`, `#rgba`, `#rrggbb` or `#rrggbbaa`); omission retains the default paper. When changing appearance, preserve existing `viewport` and `paper` values as appropriate: `updatePlacement` replaces the supplied presentation object. The popup does not expose geometry fields. Full preview uses a supplied preview image when available, with the same uncropped sizing as an HTML fallback; the primary content and canonical identity stay unchanged. The same canonical item may have a card reference elsewhere; notes, stars, revisions and reader behavior stay shared. `createItem.placement` accepts the same presentation field. `updateBoard` patches `title,description,reviewOrder,decorations,background`; `background.resource` is a named-root reference. Decorations are board-local presentation metadata. Text, region and line decorations retain `id,type,x,y,width,height,color,text`. A line may additionally set boolean `endArrow`, `flipX` and `flipY`: `endArrow:true` adds the arrowhead at its end, while the flips reverse the horizontal and vertical start/end orientation within its positive-size bounding box. Absent flags preserve ordinary lines. The Add menu offers Text, Colored region and Arrow, with direct on-board editing controls. Ordinary lines remain supported decoration metadata. `updateItem` changes title, description, content, preview, revisions or build metadata. Review is `{"type":"review","itemId":"opening-idea","patch":{"note":"Try a shorter introduction.","star":true}}`. `status --board BOARD ITEM_ID reserved|building|review|ready [MESSAGE]` also updates canonical build state; migrated `ROUND/CONCEPT` keys remain accepted.
+New `createItem` placements default visual content (`html`, `image`, `video`,
+`pdf`, `markdown`) or a saved preview image to `presentation:{mode:"panel"}`
+(Full preview), width 720 and height 560. Title-only and other ideas default to
+Compact card. Explicit presentation modes and geometry override those defaults;
+an explicit Icon without geometry uses 218×112. CLI, named tools, HTTP and the
+browser Add form share these creation defaults. This applies only to new items:
+existing placements without presentation still render as Compact card, and
+updates, references, moves and copies preserve saved appearance and geometry.
+For detailed visual comparisons, supply the actual viewport and readable placement
+size rather than squeezing a design into a 320-wide card. Leave 40–60 board units
+between adjacent previews and check the saved layout at natural zoom.
+
+`updatePlacement` patches `x,y,width,height,z,presentation`. Presentation is local to a placement: omit it or use `{"mode":"card"}` for the original card; use `{"mode":"icon"}` for a compact icon, or `{"mode":"panel","viewport":{"width":360,"height":650}}` to show a full HTML/image design viewport, fitted without cropping. Viewport dimensions are integers from 40 to 10000; the default is 1000×720. Placement width/height include the compact caption. For a 360×650 design at natural size, use width 362 and height 696 (borders plus caption). Canvas starts at 100% and scrolls naturally; Grid retains panel dimensions for comparison. The tile toolbar's ⋯ (Item details) control, right-click Details… or Cmd/Ctrl-I opens the nonmodal right-side Inspector with canonical notes, feedback, Full preview / Compact card / Icon appearance choices, paper swatches and readable created/edited dates. Appearance is placement-local. The optional `presentation.paper` is a hexadecimal color (`#rgb`, `#rgba`, `#rrggbb` or `#rrggbbaa`); omission retains the default paper. When changing appearance, preserve existing `viewport` and `paper` values as appropriate: `updatePlacement` replaces the supplied presentation object. The Inspector's Move / resize… action opens the exact board-unit geometry form. Full preview uses a supplied preview image when available, with the same uncropped sizing as an HTML fallback; the primary content and canonical identity stay unchanged. The same canonical item may have a card reference elsewhere; notes, stars, revisions and reader behavior stay shared. `createItem.placement` accepts the same presentation field. `updateBoard` patches `title,description,reviewOrder,decorations,background`; `background.resource` is a named-root reference. Decorations are board-local presentation metadata. Text, region and line decorations retain `id,type,x,y,width,height,color,text`. A line may additionally set boolean `endArrow`, `flipX` and `flipY`: `endArrow:true` adds the arrowhead at its end, while the flips reverse the horizontal and vertical start/end orientation within its positive-size bounding box. Absent flags preserve ordinary lines. The Add menu offers Text, Colored region and Arrow, with direct on-board editing controls. Ordinary lines remain supported decoration metadata. `updateItem` changes title, description, content, preview, revisions or build metadata. An item may carry an optional short display `number` (for example `"07"`, at most 8 characters shown); migrated items keep their legacy concept number. When present it appears on the tile and continues inside: the reader title, the browser title and, for a board-owning item, the child board's top bar ("07 · Columns give way"). Tinka never invents numbers. Review is `{"type":"review","itemId":"opening-idea","patch":{"note":"Try a shorter introduction.","star":true}}`. `status --board BOARD ITEM_ID reserved|building|review|ready [MESSAGE]` also updates canonical build state; migrated `ROUND/CONCEPT` keys remain accepted.
 
 A board-only item’s primary cover/title action opens its child board directly. An item with both content and children keeps the content action and an explicit Open board choice. Comparison-reader stepping remains available.
 
-Collection covers are derived at read time from up to four visible placements in review order, with a quiet remaining count for larger boards. Saved item preview images take priority, followed by local image content and local HTML fitted to the placement's complete viewport. Unsupported, unavailable and board-only children use title tiles; nested collections do not recursively embed their descendants. An explicit owner preview retains priority over the automatic cover. Composites retain their own primary content. Covers require no stored preview type, metadata write, migration or generated file and apply to existing collections after upgrade.
+Selected placements on a nested board can be shown on an actual parent with
+`{"type":"reference","sourceBoardId":"ROUND_ID","placementIds":["PLACEMENT_ID"],"targetBoardId":"PARENT_ID","featureOnParent":true}`.
+The destination must currently contain the source board's active owner; selected
+items and both boards must be active. This adds references atomically beside the
+source board card in clear available space, retaining selected relative geometry,
+sizes, viewport and paper. Parent placements record `presentation.featuredFrom`
+as the source board ID and display a source link. The same item, note and star
+are shared; source placements stay unchanged. Duplicate featuring of the same
+item from that source to that parent rejects. The parent can rearrange or remove
+its references without removing source work. Where the source board is available,
+the source link indicates if the item no longer appears there; membership and
+layout do not automatically synchronize. The feature operation returns the
+standard signed movement receipt for undo/redo. The UI's **Show on parent…**
+offers current parents; conflicts reject without partial changes. Existing board
+geometry is never rearranged. Older Tinka versions may reject the new optional
+`presentation.featuredFrom` field; keep a compatible app and complete backup.
 
-Local HTML cover thumbnails use an inert sandbox with an opaque origin. Local render scripts and styles can draw the design; parent access, storage, forms, nested frames, network APIs and remote assets are unavailable. Applications requiring those capabilities should supply a saved preview image. Relative local static assets are fingerprinted within their declared resource root with a bounded dependency walk (64 files, eight levels); content changes update the affected thumbnail while ordinary placement and review edits retain existing media documents.
+Collection covers are derived at read time from up to four visible placements in review order, with a quiet remaining count for larger boards. Each derived cover may also carry an optional `layout` miniature: `{width,height,regions:[{x,y,width,height,color?,shape?,text}],tiles:[{id,itemId,title,x,y,width,height,z,mode,type,board,star?,state?,paper?,preview?}],omitted?}` with coordinates relative to the board's bounds. It is bounded to 60 tiles (largest first), 24 regions, 8 image previews and 4 live HTML previews per board, and remains response data only. Clients draw it as a miniature of the board (Home cards and board-tile windows) when its tiles stay legible at window size, and otherwise use the four-tile collage. Saved item preview images take priority, followed by local image content and local HTML fitted to the placement's complete viewport. Unsupported, unavailable and board-only children use title tiles; nested collections do not recursively embed their descendants. An explicit owner preview retains priority over the automatic cover. Composites retain their own primary content. Covers require no stored preview type, metadata write, migration or generated file and apply to existing collections after upgrade.
 
-Grid and Canvas use the same placements. Review order is separate from freeform geometry and remains suitable for comparison. Graph boards retain the comparison reader's previous/next, dots, revisions, notes/star, sizing, standalone opening and browser Back/Forward behavior. The compact header shows Home, an explicit parent return when applicable, one current title and Tools. Tools contains + Add, Grid/Canvas, search, recent, starred and archive views, board details, export and help. A valid `?from=BOARD_ID` retains the entry parent; ambiguous parents without entry context open a chooser. The reader uses Home, a containing-board return and one current item title; View holds comparison settings and item actions. Search, recent, starred and archive views operate on canonical items; a shared reference does not create another source of truth.
+Local HTML cover thumbnails load from `/frames/items/ID/cover.html?v=REVISION`; the earlier `/api/items/ID/cover-thumbnail` path remains an alias. They use an inert sandbox with an opaque origin. The response adds a fixed script that posts `{tinkaCoverReady:ITEM_ID}` to the parent after load; the client keeps each cover frame invisible above its typed placeholder until that signal arrives, so blocked, failed or slow frames never show as blank cells. Local render scripts and styles can draw the design; parent access, storage, forms, nested frames, network APIs and remote assets are unavailable. Applications requiring those capabilities should supply a saved preview image. Relative local static assets are fingerprinted within their declared resource root with a bounded dependency walk (64 files, eight levels); content changes update the affected thumbnail while ordinary placement and review edits retain existing media documents.
+
+Grid and Canvas use the same placements. Review order is separate from freeform geometry and remains suitable for comparison. Graph boards retain the comparison reader's previous/next, dots, revisions, notes/star, sizing, standalone opening and browser Back/Forward behavior. The compact header shows Home, an explicit parent return when applicable, one current title and the Navigator toggle on the left, with Find, Undo/Redo, the Inspector and + Add on the right. The board Inspector contains Grid/Canvas, the browser-local Dots/Grid/Plain background, canvas filtering, recent, starred and archive views, board details, export and help. The background preference is not board metadata; no schema field was added for it. A valid `?from=BOARD_ID` retains the entry parent; ambiguous parents without entry context open a chooser. The reader uses Home, a containing-board return and one current item title; View holds comparison settings and item actions. Search, recent, starred and archive views operate on canonical items; a shared reference does not create another source of truth.
 
 ### Discoverable tools, discovery cache and annotations
 
@@ -703,3 +731,25 @@ revision race leaves the draft and offers another Post attempt. Unknown/lost wri
 acknowledgments retain the operationId for deliberate retry and exact replay.
 No reader/source reload is required. Notes, sticky edits, geometry, resolution,
 votes and removals retain their existing conflict protection.
+
+## Project Navigator
+
+Home and every board expose a read-only Navigator panel. It uses the existing
+compact graph view and paginated `/api/search` names/descriptions search; no
+metadata, schema, resource or cross-project discovery API is added. Scopes are
+Whole project, This board and This board and descendants. Canonical board owners
+and matching board results coalesce in the displayed list. The tree shows current
+ancestry, current board and shared references, with finite traversal even for
+manually malformed cycles. Legacy boards are listed/searchable by board name;
+legacy experiments are outside graph discovery.
+
+Result location links use `/boards/ID/?reveal=PLACEMENT_ID`. The target board
+clears only its current in-memory filters, selects the active placement, centers
+it at up to natural size, focuses its Open control and announces the result.
+Responsive viewport changes keep that found target visible until the user resumes
+canvas navigation. Saved placement geometry and Grid/Canvas preferences stay
+unchanged. Navigation saves the origin tab viewport for browser Back. Missing or
+archived targets report their unavailability without substituting another item.
+Navigator handles focus, ArrowDown/ArrowUp between rows, native Tab and Escape (clear the search, then close) in a
+non-modal left side panel that closes on click-away unless Keep open docks it; canvas filtering remains explicitly separate in the Inspector.
+Recently visited boards and the dock choice are browser-local per workspace; no metadata is written.

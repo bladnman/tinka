@@ -41,7 +41,7 @@ preview resources retain priority.
 
 Boards have ownerItemId, placements [{id,itemId,x,y,width,height,z,...local state}],
 reviewOrder, retained rounds, decorations and optional background. Placements share
-canonical review; geometry, optional presentation and local archive state are board-scoped. Presentation accepts mode card/panel/icon, an optional viewport with integer width/height from 40 to 10000, and an optional hexadecimal paper color. Absence retains cards; panels fit the complete HTML/image viewport without cropping. The item footer ⋯ (Item details) control opens an attached nonmodal notes/appearance popup with Full preview, Compact card, Icon and paper choices. Notes/star remain canonical; appearance remains placement-local. Presentation patches replace the object, so clients preserve existing viewport and paper values when changing one field. Line decorations optionally accept boolean endArrow/flipX/flipY for an arrowhead and its endpoint orientation within the positive-size bounding box; absent flags preserve existing lines. Text, Colored region and Arrow are available from Add with direct on-board controls; ordinary lines remain supported decoration metadata. Containment
+canonical review; geometry, optional presentation and local archive state are board-scoped. Presentation accepts mode card/panel/icon, an optional viewport with integer width/height from 40 to 10000, and an optional hexadecimal paper color. Absence on stored placements retains cards; createItem defaults visual kinds (html/image/video/pdf/markdown) and saved-image previews to explicit panel at 720×560, with explicit mode/geometry taking priority. Title-only ideas retain cards; no saved placement is migrated. Panels fit the complete HTML/image viewport without cropping. The tile toolbar's ⋯ (Item details) control, right-click Details… or ⌘/Ctrl-I opens the nonmodal right-side Inspector with notes, feedback, Full preview, Compact card, Icon and paper choices, readable created/edited dates and item actions. Notes/star remain canonical; appearance remains placement-local. Presentation patches replace the object, so clients preserve existing viewport and paper values when changing one field. Line decorations optionally accept boolean endArrow/flipX/flipY for an arrowhead and its endpoint orientation within the positive-size bounding box; absent flags preserve existing lines. Text, Colored region and Arrow are available from Add with direct on-board controls; ordinary lines remain supported decoration metadata. Containment
 is a DAG, with explicit homeBoardIds. Resource roots are named workspace-relative
 folder paths; files remain project-owned and standalone. Duplication creates a
 new canonical identity pointing at the same files; board duplication copies its
@@ -83,7 +83,7 @@ GET overlays canonical known-item review on original legacy orphan notes.
 Graph live state exposes workspace manifestRevision plus per-item resource revision
 hashes independently of metadata updates. Content and relative asset edits trigger
 a safe reload offer without replacing an active preview. No remote URL is probed.
-Board-only primary cover/title actions open their child board directly; composites retain content plus an explicit board choice. Grid and Canvas share placements; composite Content/Board views retain sequential
+Authored numbers (legacy concept `number`, graph item `number` or migrated `legacy.number`) show on tiles and continue inside: reader title and browser title follow sibling stepping, and a child board's top bar shows its owner item's number. Leaving a reader (Escape, Back to board, ← Board or browser Back) lands on the last viewed tile: if it is not comfortably in view a short pan/zoom brings it to centre (instant with reduced motion), then a brief green pulse marks it; a visible tile keeps the view. Entering a child board from its tile records a session-local return target, so ← Parent or browser Back lands on that board-tile the same way. Only the in-memory view changes. Board-only primary cover/title actions open their child board directly; composites retain content plus an explicit board choice. Grid and Canvas share placements; composite Content/Board views retain sequential
 review order. Graph and legacy readers retain previous/next, dots, versions,
 notes/star, sizing, standalone links and browser history semantics described below.
 
@@ -91,8 +91,8 @@ Graph collection covers are read-time representations of up to four visible chil
 placements in review order. They fit complete saved previews, local images or local
 HTML viewports, with title fallbacks and a remaining count. Explicit owner previews
 win; composites keep primary content. No migration or cover file is generated.
-Derived boardCovers accompany workspace, board and live responses. Local HTML
-cover-thumbnail responses run render helpers in an opaque-origin inert sandbox;
+Derived boardCovers accompany workspace, board and live responses. A cover may add an optional bounded `layout` miniature (tile geometry, region tints, type, star, paper and at most 8 image / 4 HTML previews); clients draw it in Home cards and board-tile windows when legible, else the collage. Explicit owner previews still win. Discovery summaries (format 2) carry compact region outlines for Home; old caches rebuild automatically. Local HTML
+cover-thumbnail responses (`/frames/items/:id/cover.html`, alias `/api/items/:id/cover-thumbnail`) run render helpers in an opaque-origin inert sandbox and post a fixed ready signal; frames stay invisible over their typed placeholder until it arrives, and at most 12 live miniature frames activate per page;
 CSP blocks remote assets, network APIs, forms and frames. Local static dependencies
 are fingerprinted with bounded traversal and short shared caches. Keyed media DOM
 survives geometry/review updates; changed content updates only affected tiles.
@@ -140,7 +140,7 @@ deleted and unrendered placements are excluded. Plain replaces selection, Shift
 at pointerdown adds to the original, and empty clicks clear/preserve respectively.
 Cancellation, Escape, blur, lost capture and a second pointer restore the original
 selection. This gesture makes no operations or geometry/review writes. Card and
-checkbox membership updates use direct DOM synchronization, keeping previews
+selection-circle membership updates use direct DOM synchronization, keeping previews
 mounted. The toolbar holds its original visibility during selection; completion
 compensates local pan for any toolbar layout shift. Existing refresh guards defer
 metadata reconciliation until completion without saving local review drafts.
@@ -163,12 +163,12 @@ receipts remove/restore only the new copied identities and arrangements. Replay 
 the current revision and latest board without flushing review drafts, then relies on
 server arrangement preconditions to reject conflicts rather than overwrite them.
 Cmd/Ctrl-Z and Shift-Cmd/Ctrl-Z replay only outside editing fields/dialogs/readers
-and when no pointer gesture or write is active. Tools contains dynamically labelled
+and when no pointer gesture or write is active. The Inspector (and top-bar icons) contain dynamically labelled
 Undo/Redo controls without adding header actions. Keyed reconciliation retains all
-unaffected previews through replay. Right-clicking a native card opens its existing
-anchored notes/appearance popup; editable fields and touch context gestures retain
+unaffected previews through replay. Right-clicking a native card opens a short menu (Open, Details…, Favorite, Move…, Duplicate, Remove) whose Details… opens the same
+right-side Inspector; editable fields and touch context gestures retain
 their behavior. Canvas bottom name-bar and title drags share normal thresholds and
-selection movement, while title clicks open the item and checkbox/star/overflow/
+selection movement, while title clicks open the item and selection-circle/toolbar/
 resize controls retain their independent actions.
 
 Cmd/Ctrl-D duplicates valid rendered selected placements through the existing
@@ -179,10 +179,14 @@ resource files; destination is offset +32 in x/y. New placements become selected
 and produce one Undo/Redo receipt. Only the captured pending Cut intent clears
 after success; a newer intent survives. Failure leaves the original selection.
 Cmd/Ctrl-A selects all rendered cards under current filters, Enter opens only one
-selected item, / opens Tools search, Shift-1 fits the board, and ? or Tools opens
+selected item, ⌘/Ctrl-K or / opens Navigator, ⌘/Ctrl-I opens the Inspector, Shift-1 fits the board, Shift-2 fits the selection, Shift-0 zooms to 100%, Shift/⌘/Ctrl-click toggles a tile's selection, and ? or the Inspector opens
 a Keyboard shortcuts sheet. Native editors, readers, iframes/dialogs and busy or
 pointer-gesture guards retain their commands. These selection/navigation shortcuts
 make no graph writes; existing Escape/nudge behavior remains.
+Clicked controls (Inspector Keyboard shortcuts, Copy selection, Undo/Redo and item
+Duplicate) are explicit commands: they yield only to work in progress or an open
+modal dialog, never to focus inside the non-modal Inspector. Board keys keep the
+focus guard and do not act while focus is in a field or any `[role=dialog]`.
 
 Delete/Backspace removes visible valid selected board placements immediately via
 one existing atomic remove operation; key repeat, native editing, reader/dialog,
@@ -300,7 +304,9 @@ Every experiment is independently owned, uses its target product's vocabulary/la
 
 One project owns its config, boards root, runtime record, log, saved port, and browser namespace. There is no runtime registry lookup or cross-project coordination. Init defaults to port 43821 in auto mode; actual binds try up to 20 candidates at +100 increments, saving the successful port for restarts. Numeric ports and legacy configs are fixed. A config runtime claim precedes binding, so simultaneous starts cannot create two owners. Process stop validates CLI, config and token. Each project uses its own app copy for independent upgrades.
 
-The brand is Tinka; projectLabel is separate; board title is separate. Home shows Tinka / Project. Board views and browser titles include the project and board. The board header shows the Tinka mark with a visible Home link, an explicit ← Parent return when a containing board exists, one complete current board title, and Tools. Project identity remains in the Home tooltip and accessible name and browser title. A valid ?from entry context selects the return destination; a sole parent can be used without context, while multiple parents without context offer a chooser. Top-level boards show no parent return. Tools contains graph creation (+ Add), Grid/Canvas, search and review filters, board details, notes export and help. Long current titles wrap rather than forming a truncated breadcrumb chain. The board footer keeps live and notes status quiet on the left, with the zoom slider (synced with pinch and Control/⌘-scroll) and Fit on the right.
+The brand is Tinka; projectLabel is separate; board title is separate. Home shows Tinka / Project. Board views and browser titles include the project and board. The board header shows the Tinka mark with a visible Home link, an explicit ← Parent return when a containing board exists, one complete current board title and, at the far left, the Navigator toggle (left is where). The right side holds Find (⌘/Ctrl-K), Undo/Redo, the Inspector toggle and the single primary + Add (right is what). Project identity remains in the Home tooltip and accessible name and browser title. A valid ?from entry context selects the return destination; a sole parent can be used without context, while multiple parents without context offer a chooser. Top-level boards show no parent return. The board Inspector (the former Tools drawer, `#board-info`) opens at the right edge with Grid/Canvas, the canvas background, Appearance, canvas and review filters, editing, comments, board details, notes export, shortcuts and help; an item's Inspector replaces it in the same place. Both close on click-away (capture phase) and Escape; only one right-side panel is open at a time. Long current titles wrap to at most two lines rather than forming a truncated breadcrumb chain. Live and notes status float quietly at the lower left; one floating pill at the lower right holds −, the zoom percentage menu (presets, the precise zoom slider synced with pinch and Control/⌘-scroll, Fit board, Fit selection and Dots/Grid/Plain) and + and Fit. Chrome controls keep 44px hit areas around 32px visible shapes.
+
+Visual foundation (0.7.0): `public/tokens.css` defines one accent (the mark's green, #536044 light / #a9bb8a dark) for on, selected and primary only; warm neutrals with no blue cast; a warm graphite dark (#2b2c29); e1–e4 elevation; one quiet control family (no container at rest, except an on toggle, the single primary action, a field or a segmented choice); a visible green focus ring; AA text contrast in both themes; and `prefers-reduced-motion`. Tiles rest at e1 with state badges only; hover, focus or a single selection reveals a floating toolbar inside the tile's top edge (Open, Comments, Vote, Favorite, ⋯ Details) and a corner selection circle, counter-scaled to stay readable at low zoom. Board-tiles render as stacked sheets with a recessed window, a system serif name, "Board · N items · edited …" and an Open board cue. Dots/Grid/Plain is a per-board browser-local view preference (`tinka/<config identity>/<board>/canvas-pattern`); it scales and fades with zoom and writes no board data. One relative-date formatter (`public/relative-dates.js`) renders every date as `<time datetime title>` with the exact time on hover and refreshes once a minute.
 
 The experiment viewer's header shows Home, an explicit ← Board return to the containing board, the current item title, its shortlist star and a Notes panel that uses the same notes as the board card. Its footer offers Back to board (Esc), previous/next controls and a dot track showing position in board manifest order across rounds, plus a View popover containing Type size, Fit, Light, window size (with Version when revisions exist), Open standalone and applicable graph item actions. Tools and View support keyboard focus, Escape dismissal and outside click. Navigation skips reserved/building slots, stops at either end, and preserves window size (including custom dimensions), light and type settings. Each destination opens its original version and updates the URL, title, hint and standalone link. Opening, stepping between or closing experiments and choosing a version each add one browser history entry; Back and Forward restore them, while view settings, notes and zoom do not add entries. Live status and manifest updates refresh the navigation without reloading the current preview. Arrow keys remain available to the experiment itself.
 
@@ -430,3 +436,25 @@ expectedRevision alone refreshes from the locked response. Actual source/target
 conflicts retain the originating draft/error and are not automatically retried.
 Unknown write acknowledgments preserve the attempt identity for deliberate replay.
 Existing text/geometry/review replacement conflicts remain protected.
+
+
+Featured parent placements use an atomic, parent-validated reference operation
+and retain item identity, original geometry and canonical note/star. Their local
+presentation records the source board, supplies a source link and supports the
+existing signed undo/redo receipt. Source membership and parent layout are not
+automatically synchronized. Tinka appearance offers system, light and dark
+browser-local preferences across Home and board chrome; embedded work retains its
+own appearance. Existing project guides and board geometry are not overwritten.
+
+Project Navigator is a read-only, non-modal side panel at the left of Home and every board (⌘/Ctrl-K, /, Find). Click-away and Escape close it unless Keep open docks it; the dock choice and recently visited boards are browser-local per workspace. It offers search first, recent boards, the board tree with the current board marked once, and an outline of the current board's items grouped by region. Boards and On this board are separate collapsible sections with counts; the board emits `tinka:selection {boardId, placementIds}` on every selection change, and the outline lights the selected rows and scrolls the first into view.
+
+Graph Home uses the board's selection language: a corner selection circle, green ring and check, Shift/⌘/Ctrl-click, a marquee on empty Home space (mouse/pen) and one floating selection bar carrying Home's existing bulk actions. Selection makes no writes.
+It projects `/api/workspace?view=graph&covers=0` into a finite expandable board
+index, preserves shared parents and current entry ancestry, and uses paginated
+`/api/search` for names/descriptions with whole-project/direct/recursive scope.
+It does not filter the canvas or mutate workspace data. Result locations carry
+exact placement IDs in a `reveal` query; the board clears in-memory filters,
+selects/focuses/announces the active placement and centers it at useful zoom.
+Responsive resizing retains that target until user navigation resumes. Geometry
+and saved layout choice remain unchanged; Back restores the origin viewport.
+Legacy board names are discoverable; legacy experiment content is not indexed.
