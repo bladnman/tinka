@@ -543,6 +543,21 @@ export class WorkspaceBoard {
       this.whiteboard?.editing || this.whiteboard?.finishing || this.client.pendingWrites || this.historyBusy || this.history?.busy || this.pasteBusy || this.saving ||
       document.activeElement?.closest("input,textarea,select,[contenteditable]") || document.querySelector("dialog.workspace-dialog[open]"));
   }
+  // Another writer advancing the workspace revision during a gesture is not a
+  // geometry conflict. Re-read the board once and resubmit the same operation
+  // only when every dragged target still has the saved state the gesture started
+  // from; a real change keeps the rejection, its visible rollback and reconcile.
+  async writeGesture(type, data, unchanged) {
+    const operationId = crypto.randomUUID();
+    try { return await this.client.write(type, data, {operationId}); }
+    catch (error) {
+      if (error.code !== "WORKSPACE_REVISION_CHANGED") throw error;
+      const latest = await this.client.get(`/api/boards/${encodeURIComponent(this.snapshot.id)}`).catch(() => null);
+      if (!latest || !unchanged(latest)) throw error;
+      this.client.revision = Math.max(this.client.revision, latest.revision);
+      return this.client.write(type, data, {operationId});
+    }
+  }
   syncGeometry(overrides) {
     this.whiteboard?.sync(overrides);
     this.feedback?.sync(overrides);
@@ -1889,6 +1904,12 @@ export class WorkspaceBoard {
       }, 450);
     };
     const drainRefresh = () => this.drainGeometryRefresh();
+    // Every dragged placement is still active with its gesture-start geometry.
+    const unmoved = (latest, gesture) => gesture.entries.every(({p}) => {
+      const saved = latest.placements?.find(q => q.id === p.id);
+      return saved && !saved.removedAt && !saved.deletedAt && !saved.archivedAt &&
+        ["x","y","width","height"].every(key => saved[key] === p[key]);
+    });
     const cancel = () => {
       if (marquee) { finishMarquee(true); return; }
       if (!drag) return;
@@ -2079,6 +2100,9 @@ export class WorkspaceBoard {
         }
         e.preventDefault();
         suppressedClick = true;
+        // A direct arrangement ends the resting view, so changed board bounds
+        // cannot recenter the canvas away from the drop.
+        this.hooks.holdView?.();
         try {
           viewport.releasePointerCapture(e.pointerId);
         } catch {}
@@ -2128,11 +2152,11 @@ export class WorkspaceBoard {
           this.moveCommitting = true;
           let saved = false;
           try {
-            await this.client.write("translatePlacements", {
+            await this.writeGesture("translatePlacements", {
               boardId:this.snapshot.id,
               placementIds:done.entries.map(entry => entry.p.id),
               ...done.translation,
-            });
+            }, latest => unmoved(latest, done));
             saved = true;
             this.moveCommitting = false;
             await this.refresh({saveReview:false});
@@ -2154,11 +2178,11 @@ export class WorkspaceBoard {
         this.movePending = true;
         this.moveCommitting = true;
         try {
-          await this.client.write("updatePlacement", {
+          await this.writeGesture("updatePlacement", {
             boardId: this.snapshot.id,
             placementId: done.id,
             patch: done.patch,
-          });
+          }, latest => unmoved(latest, done));
           this.moveCommitting = false;
           await this.refresh({saveReview:false});
         } catch (error) {

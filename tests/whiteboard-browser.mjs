@@ -48,6 +48,8 @@ try{
  // Attached endpoints redraw during shape movement and commit without replacing media.
  const processShape=page.locator('[data-decoration=process]');const before=await page.locator('[data-decoration=attached]').boundingBox();
  await drag(processShape,35,65);await page.waitForFunction(()=>parseFloat(document.querySelector('[data-decoration=process]')?.style.top)>100);
+ // The released shape already rests at its drop position; wait for the save itself.
+ for(let i=0;i<60&&(await find('process')).x!==35;i++)await page.waitForTimeout(50);
  assert.equal((await find('process')).x,35);assert.equal((await find('process')).y,65);
  assert.equal(await page.evaluate(()=>window.keptFrame===document.querySelector('.workspace-live-preview iframe')),true);
  assert.notEqual((await page.locator('[data-decoration=attached]').boundingBox()).y,before.y);

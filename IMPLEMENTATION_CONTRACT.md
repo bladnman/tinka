@@ -435,7 +435,14 @@ scoped global-revision rejection. Semantic payload and operationId stay fixed;
 expectedRevision alone refreshes from the locked response. Actual source/target
 conflicts retain the originating draft/error and are not automatically retried.
 Unknown write acknowledgments preserve the attempt identity for deliberate replay.
-Existing text/geometry/review replacement conflicts remain protected.
+Existing text/geometry/review replacement conflicts remain protected. A released
+Canvas drag (placement position/resize, group translation, decoration geometry)
+keeps its drop geometry rendered and live reconciliation deferred until its save
+settles; it also ends the resting view. If that drop is rejected only for the
+machine-identified global revision, the browser re-reads the board once and
+resubmits the same operation and operationId only when every dragged target still
+has its exact gesture-start saved state; otherwise the rejection, visible rollback
+and latest-board reconcile remain.
 
 
 Featured parent placements use an atomic, parent-validated reference operation

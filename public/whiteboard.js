@@ -8,6 +8,8 @@ const selector = id => `[data-decoration="${CSS.escape(id)}"]`;
 const cleanColor = value => /^#[0-9a-f]{3,8}$/i.test(value || '') ? value : '#78866c';
 const isAttachment = endpoint => !!(endpoint?.placementId || endpoint?.decorationId);
 const pointOnly = point => ({x:point.x, y:point.y});
+// Key-order independent comparison of saved decoration state.
+const canonical = value => JSON.stringify(value, (key, v) => v && typeof v === 'object' && !Array.isArray(v) ? Object.fromEntries(Object.entries(v).sort(([a],[b]) => a < b ? -1 : a > b ? 1 : 0)) : v);
 
 export function lineBox(from, to) {
   return {x:Math.min(from.x,to.x), y:Math.min(from.y,to.y),
@@ -239,9 +241,10 @@ export class Whiteboard {
     const p=resolveEndpoint(from,this.host.snapshot),q=resolveEndpoint(endpoint,this.host.snapshot);
     await this.createLine({...lineBox(p,q),from,to:endpoint});
   }
-  async save(id,patch,options) {
+  async save(id,patch,options,unchanged) {
     this.host.decorationCommitting=true;
-    try{await this.host.client.write('updateDecoration',{boardId:this.host.snapshot.id,decorationId:id,patch},options);await this.host.refresh({saveReview:false});}
+    const operation={boardId:this.host.snapshot.id,decorationId:id,patch};
+    try{await (unchanged?this.host.writeGesture('updateDecoration',operation,unchanged):this.host.client.write('updateDecoration',operation,options));await this.host.refresh({saveReview:false});}
     finally{this.host.decorationCommitting=false;this.host.hooks.liveReady?.();}
   }
   async createLine(patch) {
@@ -410,16 +413,21 @@ export class Whiteboard {
     }
     this.host.syncGeometry({decorations:new Map([[d.id,g.next]])});
   }
-  finish() {
+  finish(settled) {
     const g=this.drag;this.drag=null;this.host.decorationGesture=false;this.hint.hidden=true;
-    this.host.syncGeometry();this.host.updateHistoryControls();this.host.hooks.liveReady?.();return g;
+    // A released drop keeps its geometry until the save reconciles or rolls back.
+    this.host.syncGeometry(settled?{decorations:new Map([[g.d.id,settled]])}:undefined);this.host.updateHistoryControls();this.host.hooks.liveReady?.();return g;
   }
   cancel() {
     if(this.drag){const g=this.finish();if(g.creating)document.querySelector(selector(g.d.id))?.remove();}
     this.pendingFrom=null;this.connectMode=false;this.hint.hidden=true;this.renderPorts();this.renderToolbar();this.host.drainGeometryRefresh();
   }
   async up(e) {
-    const g=this.drag;if(!g||e.pointerId!==g.pointerId)return;const done=this.finish();
+    const g=this.drag;if(!g||e.pointerId!==g.pointerId)return;
+    // Hold live reconciliation from release until the save, so a snapshot read
+    // before it cannot repaint the original geometry.
+    const commit=!!(g.active&&g.next);if(commit){this.host.decorationCommitting=true;this.host.hooks.holdView?.();}
+    const done=this.finish(commit&&!g.creating?g.next:null);
     if(!done.active||!done.next) {
       if(done.active){e.preventDefault();e.stopImmediatePropagation();this.suppressClick=true;setTimeout(()=>this.suppressClick=false,0);}
       if(done.port&&!done.active) { e.preventDefault();e.stopImmediatePropagation();this.suppressClick=true;await this.choosePort(done.port); }
@@ -428,9 +436,9 @@ export class Whiteboard {
     e.preventDefault();e.stopImmediatePropagation();this.suppressClick=true;setTimeout(()=>this.suppressClick=false,0);
     try {
       if(done.creating){document.querySelector(selector(done.d.id))?.remove();await this.createLine(done.next);}
-      else {const {id,...patch}=done.next;await this.save(id,patch);}
+      else {const {id,...patch}=done.next,start=canonical(done.d);await this.save(id,patch,undefined,latest=>canonical(latest.decorations?.find(d=>d.id===id))===start);}
     } catch(error){if(done.creating)document.querySelector(selector(done.d.id))?.remove();showFailure(error);this.host.rebuild();}
-    finally{this.host.hooks.liveReady?.();this.host.drainGeometryRefresh();}
+    finally{this.host.decorationCommitting=false;this.host.hooks.liveReady?.();this.host.drainGeometryRefresh();}
   }
   handleEscape(e) {
     if(e.key!=='Escape')return false;

@@ -21,7 +21,7 @@ try{
   const assets=path.join(config.boardsRoot,'assets');await mkdir(assets);
   await writeFile(path.join(assets,'design.html'),'<!doctype html><style>body{margin:0;padding:30px;background:#192c3b;color:#fff;font:20px system-ui}strong{display:block;font-size:32px;color:#edc17c}</style><h1>Work worth seeing</h1><strong>Full-size design</strong><p>Compare this directly on the board.</p>');
   await op('updateWorkspace',{patch:{resourceRoots:{assets:{path:'../assets'}}}});
-  const a=await op('createItem',{boardId:round.boardId,item:{id:'design',title:'Design A',content:{kind:'html',resource:{rootId:'assets',path:'design.html'}},review:{note:'A shared note',star:true}},placement:{x:0,y:0,width:442,height:600,presentation:{mode:'panel',viewport:{width:440,height:560}}}});
+  const a=await op('createItem',{boardId:round.boardId,item:{id:'design',number:'07',title:'Design A',content:{kind:'html',resource:{rootId:'assets',path:'design.html'}},review:{note:'A shared note',star:true}},placement:{x:0,y:0,width:442,height:600,presentation:{mode:'panel',viewport:{width:440,height:560}}}});
   await op('createItem',{boardId:round.boardId,item:{id:'thought',title:'Context',content:{kind:'note',text:'A supporting idea'}}});
   const before=await getBoardSnapshot(config,round.boardId);
   server=await listen(config,{port:0});const base=`http://127.0.0.1:${server.address().port}`;
@@ -49,6 +49,8 @@ try{
   await page.goto(base+'/boards/parent/');await page.locator(`[data-placement="${featured.id}"]`).waitFor();
   assert.match(await page.locator(`[data-placement="${featured.id}"] .workspace-feature-source`).innerText(),/From Round 02/);
   assert.equal(await page.locator(`[data-placement="${featured.id}"] .workspace-feature-caption .workspace-panel-title`).isVisible(),true);
+  const caption=await page.evaluate(id=>{const card=document.querySelector(`[data-placement="${id}"]`),footer=card.querySelector('.workspace-panel-caption').getBoundingClientRect(),title=card.querySelector('.workspace-feature-caption .workspace-panel-title'),range=document.createRange();range.selectNodeContents(title);const text=range.getBoundingClientRect(),box=title.getBoundingClientRect(),parts=[...card.querySelectorAll('.workspace-feature-caption > *')].map(e=>e.getBoundingClientRect());return {fits:title.scrollHeight<=title.clientHeight&&text.top>=box.top-.5&&text.bottom<=box.bottom+.5,inside:parts.every(b=>b.top>=footer.top-.5&&b.bottom<=footer.bottom+.5)};},featured.id);
+  assert.deepEqual(caption,{fits:true,inside:true},'featured caption title, number and source line stay unclipped inside the caption');
   await page.waitForFunction(id=>{const doc=document.querySelector(`[data-placement="${id}"] iframe`)?.contentDocument;return doc?.body?.textContent?.includes('Work worth seeing')||doc?.querySelector('iframe')?.contentDocument?.body?.textContent?.includes('Work worth seeing');},featured.id);
   await page.screenshot({path:path.join(evidence,'parent-feature-dark.png')});
   const card=page.locator(`[data-placement="${featured.id}"]`);
@@ -69,5 +71,5 @@ try{
   await op('remove',{boardId:round.boardId,placementIds:a.placementIds});await page.reload();
   await page.locator(`[data-placement="${featured.id}"] .workspace-feature-source`).filter({hasText:'Not currently in source'}).waitFor();
   await page.goto(base+'/');assert.equal(await page.getByRole('combobox',{name:'Appearance'}).inputValue(),'light');
-  assert.deepEqual(errors,[]);console.log(JSON.stringify({passed:true,evidence,checks:['system dark','multiple parents','cancel and failed-save recovery','feature a full-size shared item','source geometry preserved','shared note and comment editing','source and stale-membership links','light preference across Home and board','narrow layout'],errors}));
+  assert.deepEqual(errors,[]);console.log(JSON.stringify({passed:true,evidence,checks:['system dark','multiple parents','cancel and failed-save recovery','feature a full-size shared item','source geometry preserved','shared note and comment editing','source and stale-membership links','unclipped numbered featured caption','light preference across Home and board','narrow layout'],errors}));
 }finally{await browser?.close();if(server)await closeAppServer(server);await rm(root,{recursive:true,force:true});}

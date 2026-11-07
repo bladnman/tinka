@@ -731,6 +731,10 @@ revision race leaves the draft and offers another Post attempt. Unknown/lost wri
 acknowledgments retain the operationId for deliberate retry and exact replay.
 No reader/source reload is required. Notes, sticky edits, geometry, resolution,
 votes and removals retain their existing conflict protection.
+Graph operations rejected solely for `expectedRevision` return the same 409 `code`
+and current `revision`. A released Canvas drag that receives it re-reads the board
+once and resubmits only if every dragged placement or decoration still has its exact
+gesture-start saved state; any real change is reported and rolled back visibly.
 
 ## Project Navigator
 

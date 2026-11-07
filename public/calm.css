@@ -450,6 +450,13 @@ body.navigator-docked .canvas-footer { left: var(--navigator-dock-width, 340px);
   #world .return-pulse { animation: none !important; outline: 3px solid var(--accent-ring) !important; outline-offset: 3px; }
 }
 #world .workspace-caption-number { line-height: 40px; }
+/* A featured reference stacks its title (and number) over the "From … ↗" line, so the
+   single-line 40px caption line-height above must not apply inside it. */
+#world .workspace-panel-caption .workspace-feature-caption { display: grid; grid-template-columns: auto minmax(0, 1fr); align-content: center; }
+#world .workspace-panel-caption .workspace-feature-caption :is(.workspace-panel-title, .workspace-caption-number) { line-height: 18px; }
+#world .workspace-feature-caption .workspace-caption-number { grid-column: 1; margin-right: 6px; }
+#world .workspace-feature-caption .workspace-panel-title { grid-column: 2; }
+#world .workspace-feature-caption .workspace-feature-source { grid-column: 1 / -1; }
 /* Narrow: the selection bar wraps instead of scrolling sideways, so every action stays in place. */
 @media (max-width: 720px) {
   #workspace-selection.workspace-selection { flex-wrap: wrap; overflow: visible; white-space: normal; row-gap: 2px; padding: 4px 4px 4px 12px; }
