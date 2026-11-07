@@ -732,9 +732,14 @@ acknowledgments retain the operationId for deliberate retry and exact replay.
 No reader/source reload is required. Notes, sticky edits, geometry, resolution,
 votes and removals retain their existing conflict protection.
 Graph operations rejected solely for `expectedRevision` return the same 409 `code`
-and current `revision`. A released Canvas drag that receives it re-reads the board
-once and resubmits only if every dragged placement or decoration still has its exact
-gesture-start saved state; any real change is reported and rolled back visibly.
+and current `revision`. Browser arrangement actions that receive it (Canvas drags
+and resizes, drops into a board or onto Parent, cover lifts, port-drawn arrows,
+keyboard nudges, the Move / resize and Position & size dialogs, and movement
+undo/redo) resubmit the same operation and operationId once, only if every target
+still has the exact state the action started from: re-read placement geometry,
+complete decorations or attached endpoint geometry, or, for undo/redo, the
+receipt's arrangement hashes that the server verifies. Any real change is still
+rejected and reported, with a visible rollback where the action had moved anything.
 
 ## Project Navigator
 

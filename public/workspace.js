@@ -98,7 +98,7 @@ export class WorkspaceClient {
             : r.status===409&&!appendOnly
               ? 'This workspace changed elsewhere. Reload the board, review the latest version, then retry your change.'
               : d.error||`Change failed (${r.status})`);
-          e.conflict=r.status===409;e.rejected=r.status>=400&&r.status<500;e.code=d.code;throw e;
+          e.conflict=r.status===409;e.rejected=r.status>=400&&r.status<500;e.code=d.code;e.revision=d.revision;throw e;
         }
         this.revision = Math.max(this.revision,d.revision);
         if (d.history && recordHistory && type !== "restoreMovement") this.onHistory?.(d.history,{type,data});
@@ -106,6 +106,22 @@ export class WorkspaceClient {
       }).finally(() => { this.pendingWrites--; this.onState?.();this.onSettled?.(); });
     this.queue = pending;
     return pending;
+  }
+  // Another writer advancing the workspace revision is not an arrangement
+  // conflict. After a revision-only rejection, recheck(error) confirms that every
+  // target still has the state the action started from and returns the revision
+  // to retry at; the same operation and operationId are then submitted once more.
+  // Any other result keeps the rejection, its visible rollback and reconcile.
+  async writeRechecked(type, data, recheck, options = {}) {
+    const operationId = options.operationId || crypto.randomUUID();
+    try { return await this.write(type, data, {...options, operationId}); }
+    catch (error) {
+      if (error.code !== "WORKSPACE_REVISION_CHANGED") throw error;
+      const revision = await Promise.resolve().then(() => recheck(error)).catch(() => null);
+      if (!Number.isSafeInteger(revision) || revision < 0) throw error;
+      this.revision = Math.max(this.revision, revision);
+      return this.write(type, data, {...options, operationId});
+    }
   }
 }
 export function toast(message) {

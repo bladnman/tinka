@@ -64,6 +64,8 @@ try{
   const centre=async s=>{const b=await page.locator(s).first().boundingBox();return {x:b.x+b.width/2,y:b.y+b.height/2};};
   // Drag with real mouse events, then require every frame after release to keep the drop position.
   const dragCase=async(name,{grabSelector,watch,kinds,dx,dy,during})=>{
+    // A new gesture starts once the previous write and refresh have finished (Paste re-enables).
+    await page.waitForFunction(()=>document.getElementById('workspace-paste')?.disabled===false);
     const before=await Promise.all(kinds.map(geometry));
     const p=await centre(grabSelector);
     await page.mouse.move(p.x,p.y);await page.mouse.down();await page.mouse.move(p.x+dx,p.y+dy,{steps:8});

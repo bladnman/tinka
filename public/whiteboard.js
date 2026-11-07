@@ -28,6 +28,23 @@ const pointOnly = point => ({x:point.x, y:point.y});
 // Key-order independent comparison of saved decoration state.
 const canonical = value => JSON.stringify(value, (key, v) => v && typeof v === 'object' && !Array.isArray(v) ? Object.fromEntries(Object.entries(v).sort(([a],[b]) => a < b ? -1 : a > b ? 1 : 0)) : v);
 
+// The latest board still holds this decoration exactly as an action read it.
+export function decorationUnchanged(d) {
+  const start = canonical(d);
+  return latest => canonical(latest.decorations?.find(saved => saved.id === d.id)) === start;
+}
+// Attached arrow endpoints still exist with the geometry the arrow was drawn against.
+function endpointsUnchanged(line, board) {
+  const geometry = (endpoint, source) => {
+    const target = endpoint.placementId
+      ? source.placements?.find(p => p.id === endpoint.placementId && !p.removedAt && !p.deletedAt && !p.archivedAt)
+      : source.decorations?.find(d => d.id === endpoint.decorationId && d.type !== 'line');
+    return target ? JSON.stringify(['x','y','width','height'].map(key => target[key])) : null;
+  };
+  const ends = [line.from, line.to].filter(isAttachment).map(end => [end, geometry(end, board)]);
+  return latest => ends.every(([end, start]) => start !== null && geometry(end, latest) === start);
+}
+
 export function lineBox(from, to) {
   return {x:Math.min(from.x,to.x), y:Math.min(from.y,to.y),
     width:Math.max(1,Math.abs(to.x-from.x)), height:Math.max(1,Math.abs(to.y-from.y)),
@@ -261,12 +278,12 @@ export class Whiteboard {
   async save(id,patch,options,unchanged) {
     this.host.decorationCommitting=true;
     const operation={boardId:this.host.snapshot.id,decorationId:id,patch};
-    try{await (unchanged?this.host.writeGesture('updateDecoration',operation,unchanged):this.host.client.write('updateDecoration',operation,options));await this.host.refresh({saveReview:false});}
+    try{await (unchanged?this.host.writeArrangement('updateDecoration',operation,unchanged):this.host.client.write('updateDecoration',operation,options));await this.host.refresh({saveReview:false});}
     finally{this.host.decorationCommitting=false;this.host.hooks.liveReady?.();}
   }
   async createLine(patch) {
     const d={...patch,id:patch.id||crypto.randomUUID(),type:'line',text:patch.text||'',color:patch.color||'#6c8060',endArrow:patch.endArrow??true};
-    await this.host.client.write('createDecoration',{boardId:this.host.snapshot.id,decoration:d});
+    await this.host.writeArrangement('createDecoration',{boardId:this.host.snapshot.id,decoration:d},endpointsUnchanged(d,this.host.snapshot));
     this.host.activeDecoration=d.id;this.connectMode=false;this.pendingFrom=null;this.hint.hidden=true;
     await this.host.refresh({saveReview:false});this.sync();
   }
@@ -452,8 +469,9 @@ export class Whiteboard {
     }
     e.preventDefault();e.stopImmediatePropagation();this.suppressClick=true;setTimeout(()=>this.suppressClick=false,0);
     try {
-      if(done.creating){document.querySelector(selector(done.d.id))?.remove();await this.createLine(done.next);}
-      else {const {id,...patch}=done.next,start=canonical(done.d);await this.save(id,patch,undefined,latest=>canonical(latest.decorations?.find(d=>d.id===id))===start);}
+      // The drawn arrow stays until the saved one takes its place (same keyed element).
+      if(done.creating)await this.createLine(done.next);
+      else {const {id,...patch}=done.next;await this.save(id,patch,undefined,decorationUnchanged(done.d));}
     } catch(error){if(done.creating)document.querySelector(selector(done.d.id))?.remove();showFailure(error);this.host.rebuild();}
     finally{this.host.decorationCommitting=false;this.host.hooks.liveReady?.();this.host.drainGeometryRefresh();}
   }
@@ -494,7 +512,7 @@ export class Whiteboard {
         const from=resolveEndpoint(patch.from,this.host.snapshot),to=resolveEndpoint(patch.to,this.host.snapshot);
         if(from.detached||to.detached)throw new Error('Choose an available target or a free point.');Object.assign(patch,lineBox(from,to));
       }else{for(const key of ['x','y','width','height'])patch[key]=Number(form.get(key));if(d.shape)patch.shape=form.get('shape');}
-      await this.save(id,patch);
+      await this.save(id,patch,undefined,decorationUnchanged(d));
     });
     if(r) {
       dialog.classList.add('whiteboard-arrow-settings');

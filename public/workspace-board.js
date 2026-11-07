@@ -1,5 +1,5 @@
 import {bindCommitShortcut,commitShortcutLabel} from './interaction.js';
-import {Whiteboard,decorationMarkup,lineBox} from "./whiteboard.js";
+import {Whiteboard,decorationMarkup,decorationUnchanged,lineBox} from "./whiteboard.js";
 import {decorationBounds,resolveLine} from "./whiteboard-geometry.js";
 import {FeedbackController} from "./feedback.js";
 import {newestBoardsFirst} from "./board-order.js";
@@ -23,6 +23,13 @@ import {
   showFailure,
 } from "./workspace.js";
 const $ = (id) => document.getElementById(id);
+// Every placement is still active on the latest board with the geometry an
+// arrangement action started from.
+const placementsUnchanged = (latest, placements) => placements.every(p => {
+  const saved = latest.placements?.find(q => q.id === p.id);
+  return saved && !saved.removedAt && !saved.deletedAt && (saved.archivedAt ?? null) === (p.archivedAt ?? null) &&
+    ["x","y","width","height"].every(key => saved[key] === p[key]);
+});
 // Authored paper keeps appropriate ink in either app appearance, including
 // translucent colors. The two backing papers are the light/dark theme tokens.
 function paperColors(paper) {
@@ -543,20 +550,14 @@ export class WorkspaceBoard {
       this.whiteboard?.editing || this.whiteboard?.finishing || this.client.pendingWrites || this.historyBusy || this.history?.busy || this.pasteBusy || this.saving ||
       document.activeElement?.closest("input,textarea,select,[contenteditable]") || document.querySelector("dialog.workspace-dialog[open]"));
   }
-  // Another writer advancing the workspace revision during a gesture is not a
-  // geometry conflict. Re-read the board once and resubmit the same operation
-  // only when every dragged target still has the saved state the gesture started
-  // from; a real change keeps the rejection, its visible rollback and reconcile.
-  async writeGesture(type, data, unchanged) {
-    const operationId = crypto.randomUUID();
-    try { return await this.client.write(type, data, {operationId}); }
-    catch (error) {
-      if (error.code !== "WORKSPACE_REVISION_CHANGED") throw error;
-      const latest = await this.client.get(`/api/boards/${encodeURIComponent(this.snapshot.id)}`).catch(() => null);
-      if (!latest || !unchanged(latest)) throw error;
-      this.client.revision = Math.max(this.client.revision, latest.revision);
-      return this.client.write(type, data, {operationId});
-    }
+  // Arrangement writes survive an unrelated revision change: after a revision-only
+  // rejection the affected board is re-read once, and the same operation is
+  // resubmitted only if unchanged(latest) confirms the action's starting state.
+  writeArrangement(type, data, unchanged, {boardId = this.snapshot.id, ...options} = {}) {
+    return this.client.writeRechecked(type, data, async () => {
+      const latest = await this.client.get(`/api/boards/${encodeURIComponent(boardId)}`);
+      return unchanged(latest) ? latest.revision : null;
+    }, options);
   }
   syncGeometry(overrides) {
     this.whiteboard?.sync(overrides);
@@ -1574,7 +1575,7 @@ export class WorkspaceBoard {
     const p=this.snapshot.placements.find(p=>p.id===id);if(!p)return;
     makeDialog('Move / resize item',`<p>Position and size in board units.</p>${['x','y','width','height'].map(key=>`<label>${key==='x'?'Left':key==='y'?'Top':key==='width'?'Width':'Height'}<input name="${key}" type="number" step="any" required min="${key==='width'||key==='height'?40:-10000000}" max="${key==='width'||key==='height'?100000:10000000}" value="${p[key]}"></label>`).join('')}<button type="submit" class="workspace-primary">Save geometry</button>`,async form=>{
       const patch=Object.fromEntries(['x','y','width','height'].map(key=>[key,Number(form.get(key))]));
-      await this.client.write('updatePlacement',{boardId:this.snapshot.id,placementId:id,patch});await this.refresh({saveReview:false});
+      await this.writeArrangement('updatePlacement',{boardId:this.snapshot.id,placementId:id,patch},latest=>placementsUnchanged(latest,[p]));await this.refresh({saveReview:false});
     });
   }
   positionContext() {
@@ -1907,11 +1908,7 @@ export class WorkspaceBoard {
     };
     const drainRefresh = () => this.drainGeometryRefresh();
     // Every dragged placement is still active with its gesture-start geometry.
-    const unmoved = (latest, gesture) => gesture.entries.every(({p}) => {
-      const saved = latest.placements?.find(q => q.id === p.id);
-      return saved && !saved.removedAt && !saved.deletedAt && !saved.archivedAt &&
-        ["x","y","width","height"].every(key => saved[key] === p[key]);
-    });
+    const unmoved = (latest, gesture) => placementsUnchanged(latest, gesture.entries.map(entry => entry.p));
     const cancel = () => {
       if (marquee) { finishMarquee(true); return; }
       if (!drag) return;
@@ -2109,21 +2106,22 @@ export class WorkspaceBoard {
           viewport.releasePointerCapture(e.pointerId);
         } catch {}
         if (target || done.lifted) {
-          // Keep the source in its saved position until the atomic move succeeds.
-          restore(done);
-          if (!target || target.invalid) { drainRefresh(); return; }
+          if (!target || target.invalid) { restore(done); drainRefresh(); return; }
+          // The dropped source stays where it was released until the atomic move
+          // lands; a rejection restores its saved geometry below.
           const subject = done.lifted || {boardId:this.snapshot.id};
           const movedIds = done.lifted ? [done.lifted.p.id] : done.entries.map(entry => entry.p.id);
+          const sources = done.lifted ? [done.lifted.p] : done.entries.map(entry => entry.p);
           this.movePending = true;
           this.moveCommitting = true;
           let moved = false;
           try {
-            await this.client.write("move", {
+            await this.writeArrangement("move", {
               sourceBoardId: subject.boardId,
               placementIds:movedIds,
               targetBoardId: target.boardId,
               ...(target.targetPosition ? {targetPosition:target.targetPosition} : {}),
-            });
+            }, latest => placementsUnchanged(latest, sources), {boardId:subject.boardId});
             this.moveCommitting = false;
             moved = true;
             if (!done.lifted) {
@@ -2154,7 +2152,7 @@ export class WorkspaceBoard {
           this.moveCommitting = true;
           let saved = false;
           try {
-            await this.writeGesture("translatePlacements", {
+            await this.writeArrangement("translatePlacements", {
               boardId:this.snapshot.id,
               placementIds:done.entries.map(entry => entry.p.id),
               ...done.translation,
@@ -2180,7 +2178,7 @@ export class WorkspaceBoard {
         this.movePending = true;
         this.moveCommitting = true;
         try {
-          await this.writeGesture("updatePlacement", {
+          await this.writeArrangement("updatePlacement", {
             boardId: this.snapshot.id,
             placementId: done.id,
             patch: done.patch,
@@ -2360,12 +2358,13 @@ export class WorkspaceBoard {
           const d=this.snapshot.decorations.find(d=>d.id===this.activeDecoration);
           let patch={x:d.x+dx,y:d.y+dy};
           if(d.type === "line"){const r=resolveLine(d,this.snapshot),from={x:r.from.x+dx,y:r.from.y+dy},to={x:r.to.x+dx,y:r.to.y+dy};patch={...lineBox(from,to),from,to};}
-          await this.whiteboard.save(d.id,patch);
+          await this.whiteboard.save(d.id,patch,undefined,decorationUnchanged(d));
         }
         else {
-          const placementIds = [...this.selection].filter(id => this.snapshot.placements.some(p => p.id === id && !p.removedAt && !p.deletedAt));
-          if (!placementIds.length) return;
-          await this.client.write("translatePlacements", {boardId:this.snapshot.id,placementIds,dx,dy});
+          const placements = this.snapshot.placements.filter(p => this.selection.has(p.id) && !p.removedAt && !p.deletedAt);
+          if (!placements.length) return;
+          const placementIds = [...this.selection].filter(id => placements.some(p => p.id === id));
+          await this.writeArrangement("translatePlacements", {boardId:this.snapshot.id,placementIds,dx,dy},latest=>placementsUnchanged(latest,placements));
           await this.refresh({saveReview:false});
         }
       } catch (error) { showFailure(error); }

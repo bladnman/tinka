@@ -29,6 +29,7 @@ test('duplicate participates in existing whole-group history and reciprocal redo
   const inverse={signature:'initial'}, reciprocal={signature:'redo'};
   const writes=[];
   const client={pendingWrites:0,write:async (...args)=>{writes.push(args);return {history:reciprocal,result:{}};}};
+  client.writeRechecked=(type,data,recheck,options)=>client.write(type,data,options);
   const history=new MovementHistory(client,'fixture');
   history.record(inverse,{type:'duplicate',data:{clipboard:{placements:[{id:'a'},{id:'b'}]}}});
   assert.equal(history.label('undo'),'Duplicate 2 items');

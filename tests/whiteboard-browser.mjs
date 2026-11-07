@@ -34,16 +34,20 @@ try{
  const page=await browser.newPage({viewport:{width:1440,height:960}}),errors=[];page.on('pageerror',e=>errors.push(e.message));
  await page.goto(`${url}/boards/${board.boardId}/`);await page.locator('[data-decoration=process]').waitFor();
  const snapshot=()=>getBoardSnapshot(config,board.boardId),find=async id=>(await snapshot()).decorations.find(d=>d.id===id);
+ // Saved state is read from the store once the asynchronous write lands.
+ const eventually=async(read,done)=>{let value;for(let i=0;i<100;i++){value=await read();if(done(value))return value;await page.waitForTimeout(50);}return value;};
  const centre=async locator=>{const b=await locator.boundingBox();return {x:b.x+b.width/2,y:b.y+b.height/2};};
- const drag=async(locator,dx,dy,{cancel=false}={})=>{const p=await centre(locator);await page.mouse.move(p.x,p.y);await page.mouse.down();await page.mouse.move(p.x+dx,p.y+dy,{steps:5});if(cancel)await page.keyboard.press('Escape');await page.mouse.up();};
+ // The board accepts a new gesture once the previous write and refresh finish (Paste re-enables).
+ const idle=()=>page.waitForFunction(()=>document.getElementById('workspace-paste')?.disabled===false);
+ const drag=async(locator,dx,dy,{cancel=false}={})=>{await idle();const p=await centre(locator);await page.mouse.move(p.x,p.y);await page.mouse.down();await page.mouse.move(p.x+dx,p.y+dy,{steps:5});if(cancel)await page.keyboard.press('Escape');await page.mouse.up();};
  const inspect=async id=>{await page.locator(`[data-decoration="${id}"] [data-decoration-label]`).click();await page.locator('[data-whiteboard-action=more]').click();await page.locator('[data-whiteboard-action=inspect]').click();};
  await page.evaluate(()=>window.keptFrame=document.querySelector('.workspace-live-preview iframe'));
  // Real repeated double-click editing keeps stable DOM and exact multiline text.
  const originalSticky=(await find('sticky')).text;
  await page.locator('[data-decoration=sticky] [data-decoration-label]').dblclick();await page.locator('.whiteboard-editor textarea').fill('First line');await page.keyboard.press('Enter');await page.keyboard.type('Second line');
  assert.equal(await page.locator('.whiteboard-editor textarea').inputValue(),'First line\nSecond line');
- await page.keyboard.press('Meta+Enter');await page.locator('.whiteboard-editor').waitFor({state:'detached'});await page.waitForTimeout(100);assert.equal((await find('sticky')).text,'First line\nSecond line');
- await page.locator('[data-decoration=sticky] [data-decoration-label]').dblclick();await page.locator('.whiteboard-editor textarea').fill('');await page.keyboard.press('Control+Enter');await page.locator('.whiteboard-editor').waitFor({state:'detached'});await page.waitForTimeout(100);assert.equal((await find('sticky')).text,'');
+ await page.keyboard.press('Meta+Enter');await page.locator('.whiteboard-editor').waitFor({state:'detached'});assert.equal(await eventually(async()=>(await find('sticky')).text,v=>v==='First line\nSecond line'),'First line\nSecond line');
+ await page.locator('[data-decoration=sticky] [data-decoration-label]').dblclick();await page.locator('.whiteboard-editor textarea').fill('');await page.keyboard.press('Control+Enter');await page.locator('.whiteboard-editor').waitFor({state:'detached'});assert.equal(await eventually(async()=>(await find('sticky')).text,v=>v===''),'');
  await page.locator('[data-decoration=sticky] [data-decoration-label]').dblclick();await page.locator('.whiteboard-editor textarea').fill(originalSticky);await page.keyboard.press('Meta+Enter');await page.locator('.whiteboard-editor').waitFor({state:'detached'});await page.waitForTimeout(100);
  // Attached endpoints redraw during shape movement and commit without replacing media.
  const processShape=page.locator('[data-decoration=process]');const before=await page.locator('[data-decoration=attached]').boundingBox();
@@ -68,8 +72,9 @@ try{
  assert.equal((await snapshot()).placements.find(p=>p.id===item.placementId).width,340);
  assert.equal(await page.evaluate(()=>window.keptFrame===document.querySelector('.workspace-live-preview iframe')),true);
  // Shape resizing uses the same temporary override path.
+ await idle();
  await page.locator('[data-decoration=process] [data-decoration-label]').click();const shapeResize=page.locator('[data-decoration=process] [data-decoration-resize]');
- await drag(shapeResize,20,15);await page.waitForTimeout(100);assert.equal((await find('process')).width,260);
+ await drag(shapeResize,20,15);assert.equal(await eventually(async()=>(await find('process')).width,v=>v===260),260);
  // Geometry inspector exposes logical units and exact attached endpoints.
  await inspect('attached');
  await page.locator('dialog.workspace-dialog').waitFor();assert.match(await page.locator('dialog.workspace-dialog').textContent(),/logical board units/);assert.match(await page.locator('dialog.workspace-dialog').textContent(),/attached/i);
@@ -84,11 +89,11 @@ try{
  assert.equal((await find('attached')).to.decorationId,'decision');
  // An endpoint can cross both axes into an exact free point, then reattach via keyboard form.
  await page.locator('[data-decoration=attached] [data-decoration-label]').click();const fromHandle=page.locator('[data-decoration=attached] [data-endpoint=from]');
- await drag(fromHandle,-365,-188);await page.waitForTimeout(100);const crossed=(await find('attached')).from;assert.ok(Number.isFinite(crossed.x)&&crossed.x<0&&crossed.y<0);
+ await drag(fromHandle,-365,-188);const crossed=await eventually(async()=>(await find('attached')).from,from=>Number.isFinite(from?.x)&&from.x<0);assert.ok(Number.isFinite(crossed.x)&&crossed.x<0&&crossed.y<0);
  await inspect('attached');await page.locator('[name=fromTarget]').selectOption('d:process');await page.locator('[name=fromSide]').selectOption('right');await page.locator('dialog.workspace-dialog button[type=submit]').click();await page.locator('dialog.workspace-dialog').waitFor({state:'detached'});assert.equal((await find('attached')).from.decorationId,'process');
  // Cancel leaves persisted geometry/revision alone, and sticky body drags as an object.
  const saved=await snapshot();await drag(page.locator('[data-decoration=sticky]'),45,20,{cancel:true});assert.equal((await snapshot()).revision,saved.revision);
- await drag(page.locator('[data-decoration=sticky]'),45,20);await page.waitForTimeout(100);assert.equal((await find('sticky')).x,65);
+ await drag(page.locator('[data-decoration=sticky]'),45,20);assert.equal(await eventually(async()=>(await find('sticky')).x,v=>v===65),65);
  // A port-to-port gesture creates one scoped attached arrow.
  await page.locator('[data-decoration=process] [data-decoration-label]').click();await page.locator('[data-whiteboard-action=connect]').click();const startPort=page.getByRole('button',{name:'Connect Prepare release bottom',exact:true});await startPort.waitFor();const start=await centre(startPort);
  await page.mouse.move(start.x,start.y);await page.mouse.down();await page.mouse.move(start.x,start.y+10,{steps:2});const stickyPort=page.getByRole('button',{name:'Connect Keep the source and review together top',exact:true});
@@ -97,13 +102,13 @@ try{
  assert.ok((await snapshot()).decorations.some(d=>d.type==='line'&&d.from?.decorationId==='process'&&d.to?.decorationId==='sticky'));
  // Tapping ports is the keyboard/touch alternative to a drag gesture.
  await page.locator('[data-decoration=process] [data-decoration-label]').click();await page.locator('[data-whiteboard-action=connect]').click();await page.getByRole('button',{name:'Connect Prepare release top',exact:true}).click();
- assert.ok(await page.locator('[data-port]').count()>4);await page.getByRole('button',{name:'Connect Keep the source and review together right',exact:true}).click();await page.waitForTimeout(100);assert.ok((await snapshot()).decorations.some(d=>d.from?.decorationId==='process'&&d.from.side==='top'&&d.to?.decorationId==='sticky'&&d.to.side==='right'));
+ assert.ok(await page.locator('[data-port]').count()>4);await page.getByRole('button',{name:'Connect Keep the source and review together right',exact:true}).click();assert.ok(await eventually(async()=>(await snapshot()).decorations.some(d=>d.from?.decorationId==='process'&&d.from.side==='top'&&d.to?.decorationId==='sticky'&&d.to.side==='right'),Boolean));
  const region=await page.locator('[data-decoration=area]').boundingBox(),regionRevision=(await snapshot()).revision;
  await page.mouse.move(region.x+50,region.y+70);await page.mouse.down();await page.mouse.move(region.x+180,region.y+140,{steps:4});await page.locator('#workspace-marquee').waitFor();await page.keyboard.press('Escape');await page.mouse.up();assert.equal((await snapshot()).revision,regionRevision);
  await page.screenshot({path:path.join(evidence,'whiteboard-wide.png')});
  // Human Add menu creates the compact flowchart preset, using scoped metadata.
  await page.locator('#board-info-toggle').click();await page.locator('#workspace-add').click();await page.locator('[data-add=ellipse]').click();
- await page.locator('.whiteboard-editor textarea').waitFor();await page.keyboard.press('Escape');await page.waitForTimeout(100);assert.ok((await snapshot()).decorations.some(d=>d.shape==='ellipse'&&d.type==='region'));
+ await page.locator('.whiteboard-editor textarea').waitFor();await page.keyboard.press('Escape');assert.ok(await eventually(async()=>(await snapshot()).decorations.some(d=>d.shape==='ellipse'&&d.type==='region'),Boolean));
  // Narrow inspector remains reachable; target removal reports detached fallback.
  await page.setViewportSize({width:390,height:844});await page.locator('[data-decoration=sticky]').scrollIntoViewIfNeeded();await inspect('sticky');
  await page.keyboard.press('Escape');await page.locator('[data-decoration=sticky]').focus();await page.keyboard.press('Enter');await page.locator('dialog.workspace-dialog').waitFor();

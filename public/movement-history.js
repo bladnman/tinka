@@ -47,8 +47,12 @@ export class MovementHistory {
     this.busy = true;
     this.onChange();
     try {
-      const response = await this.client.write("restoreMovement",{history:entry.history},
-        {recordHistory:false,includeHistory:true});
+      // The signed receipt makes the server compare every affected arrangement with
+      // the exact state it restores from, under the same lock. A revision-only
+      // rejection can therefore be resubmitted at the reported revision; a real
+      // arrangement change still rejects on the server.
+      const response = await this.client.writeRechecked("restoreMovement",{history:entry.history},
+        error => error.revision,{recordHistory:false,includeHistory:true});
       this.state[direction].pop();
       if (response.history) this.state[opposite].push({history:response.history,label:entry.label});
       this.changed();

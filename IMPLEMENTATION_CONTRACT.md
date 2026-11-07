@@ -443,13 +443,21 @@ expectedRevision alone refreshes from the locked response. Actual source/target
 conflicts retain the originating draft/error and are not automatically retried.
 Unknown write acknowledgments preserve the attempt identity for deliberate replay.
 Existing text/geometry/review replacement conflicts remain protected. A released
-Canvas drag (placement position/resize, group translation, decoration geometry)
-keeps its drop geometry rendered and live reconciliation deferred until its save
-settles; it also ends the resting view. If that drop is rejected only for the
-machine-identified global revision, the browser re-reads the board once and
-resubmits the same operation and operationId only when every dragged target still
-has its exact gesture-start saved state; otherwise the rejection, visible rollback
-and latest-board reconcile remain.
+Canvas drag (placement position/resize, group translation, decoration geometry,
+drops into a board or onto Parent, a lifted cover child) keeps its released
+geometry rendered and live reconciliation deferred until its save settles; it also
+ends the resting view. A drawn port arrow stays visible until its saved arrow
+replaces it. Browser arrangement actions survive an unrelated revision change:
+when one is rejected only for the machine-identified global revision, the same
+operation and operationId are resubmitted once, and only when every target still
+has the exact state the action started from. Drags, board/Parent drops and cover
+lifts re-read the source board and compare each moved placement's active state
+and geometry; keyboard nudges and the Move / resize and Position & size dialogs
+compare the placement geometry or complete decoration they read; a port arrow
+compares the geometry of its attached endpoint targets. Undo/redo resubmits its
+signed receipt, whose exact arrangement hashes the server checks again under the
+same lock. Real conflicts still reject: any change to those targets keeps the
+rejection, its visible rollback or notice and the latest-board reconcile.
 
 
 Featured parent placements use an atomic, parent-validated reference operation
