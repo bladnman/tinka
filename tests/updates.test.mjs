@@ -281,3 +281,48 @@ test('failed candidate health rolls back app, exact config and pin; a prior owne
   const health = await fetch(`${restored.url}api/health`).then(response => response.json());
   assert.equal(health.version, priorVersion); assert.equal(health.configPath, f.config.configPath);
 });
+
+test('every install and portable start keeps the AGENTS.md block current; manual layouts and failures are safe', async t => {
+  const {PREVIOUS_TINKA_SECTIONS: [oneLiner, unmarked], tinkaBlock} = await import('../lib/project.mjs');
+  const block = tinkaBlock();
+  const f = await fixture(t);
+  const agents = path.join(f.project, 'AGENTS.md'), claude = path.join(f.project, 'CLAUDE.md');
+  const cli = path.join(f.app, 'cli.mjs'), configPath = f.config.configPath;
+  const claudeText = `# Claude\n\n${oneLiner}\n`;
+  await writeFile(agents, `# Rules\n\n${oneLiner}\n\n## After\n`); await writeFile(claude, claudeText);
+  // An unattended update: the new app's health-probe start applies its own text.
+  await policy(f, 'auto');
+  const auto = await withAppLock(f.app, lockToken => checkForUpdates(f.config, {context: f.context, fetchLatest: async () => latest(), downloadRelease: source, lockToken}));
+  assert.equal(auto.replaced, true);
+  assert.match(auto.message, /Review and commit tinka\/project\.json and the updated Tinka section in AGENTS\.md\./);
+  assert.equal(await readFile(agents, 'utf8'), `# Rules\n\n${block}\n\n## After\n`);
+  assert.equal(await readFile(claude, 'utf8'), claudeText);
+  await policy(f, 'notify');
+  // A normal start migrates 0.7.6's unmarked text once; the next start writes nothing.
+  await writeFile(agents, `# Rules\n\n${unmarked}\n`);
+  const first = (await exec(node, [cli, 'start', '--config', configPath])).stdout;
+  assert.match(first, /Updated the Tinka section in AGENTS\.md\.\nTinka \/ Fixture started/);
+  assert.equal(await readFile(agents, 'utf8'), `# Rules\n\n${block}\n`);
+  const second = (await exec(node, [cli, 'start', '--config', configPath])).stdout;
+  assert.doesNotMatch(second, /Tinka section|Warning/);
+  assert.equal(await readFile(agents, 'utf8'), `# Rules\n\n${block}\n`);
+  await exec(node, [cli, 'stop', '--config', configPath]);
+  // A refresh failure is a warning; start and update still succeed.
+  await rm(agents); await mkdir(agents);
+  const warned = (await exec(node, [cli, 'start', '--config', configPath])).stdout;
+  assert.match(warned, /^Warning: Tinka could not refresh AGENTS\.md: .*\nTinka \/ Fixture started/m);
+  await exec(node, [cli, 'stop', '--config', configPath]);
+  const failedRefresh = await withAppLock(f.app, lockToken => checkForUpdates(f.config, {context: f.context, fetchLatest: async () => latest(), downloadRelease: source, explicit: true, lockToken}));
+  assert.equal(failedRefresh.replaced, true);
+  assert.equal(await readFile(claude, 'utf8'), claudeText);
+  // Manual layouts have no project root: no install or start writes AGENTS.md.
+  const manual = await fixture(t, false);
+  const outside = path.join(manual.project, 'AGENTS.md');
+  await writeFile(outside, `${oneLiner}\n`);
+  assert.equal(manual.context.projectRoot, null);
+  const plain = await withAppLock(manual.app, lockToken => checkForUpdates(manual.config, {context: manual.context, fetchLatest: async () => latest(), downloadRelease: source, explicit: true, lockToken}));
+  assert.equal(plain.replaced, true); assert.doesNotMatch(plain.message, /AGENTS/);
+  const manualStart = (await exec(node, [path.join(manual.app, 'cli.mjs'), 'start', '--config', manual.config.configPath])).stdout;
+  assert.doesNotMatch(manualStart, /Tinka section|Warning/);
+  assert.equal(await readFile(outside, 'utf8'), `${oneLiner}\n`);
+});

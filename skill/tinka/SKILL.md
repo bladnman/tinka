@@ -1,14 +1,17 @@
 ---
 name: tinka
-description: Find and use this project's Tinka boards when the user mentions Tinka. Tinka also works without this optional discovery skill.
+description: Show visual work on this project's Tinka boards. Use when creating or showing designs, mockups, images, illustrations, diagrams, prototypes, visual comparisons or screenshots in a project that has Tinka (a TINKA.md or tinka/project.json), and whenever the user mentions Tinka. Tinka also works without this optional skill.
 ---
 
 # Tinka
 
-Read the project's `AGENTS.md` and `TINKA.md` to locate its boards and installation.
-Follow the selected app's `docs/AGENT.md` (or its README on older installs) and
-`docs/PROTOCOL.md`, plus the board's own instructions. Those files carry the
-guidance for that installed version.
+In a project with Tinka, visual work for the user goes on a board: add it there
+and give the user the board link rather than a separate file, hosted page or
+browser preview, unless the user asks for a particular file or destination.
+
+Read the project's `AGENTS.md` and `TINKA.md` to locate its boards and
+installation. Follow the selected app's `docs/AGENT.md` (or its README on older
+installs) and `docs/PROTOCOL.md`, plus the board's own instructions. Those files carry the guidance for that installed version.
 
 If the app is missing, follow the project's checked-in `tinka/setup.mjs` and
 `tinka/project.json` to restore its pinned release. Existing installations may

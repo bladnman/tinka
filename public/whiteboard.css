@@ -1,7 +1,11 @@
 /* Whiteboard objects inherit Tinka's paper canvas and authored Georgia text. */
+/* Text on an authored fill takes its ink from that fill, not from the app
+   appearance; the renderer supplies per-appearance ink and an editing wash. */
+.workspace-decoration { --decoration-ink:var(--decoration-ink-light,var(--ink)); --decoration-wash:var(--decoration-wash-light,var(--paper)); }
+html[data-appearance="dark"] .workspace-decoration { --decoration-ink:var(--decoration-ink-dark,var(--ink)); --decoration-wash:var(--decoration-wash-dark,var(--paper)); }
 .whiteboard-shape { background:transparent !important; border:0 !important; border-radius:0 !important; box-shadow:none !important; z-index:1 !important; }
-.whiteboard-silhouette { position:absolute; inset:0; width:100%; height:100%; fill:var(--decoration-color); stroke:color-mix(in srgb,var(--decoration-color),var(--ink) 18%); stroke-width:1; overflow:visible; pointer-events:none; filter:drop-shadow(0 3px 3px #35402a14); }
-.whiteboard-shape .workspace-decoration-label { position:relative; display:flex; align-items:center; justify-content:center; width:100%; height:100%; box-sizing:border-box; text-align:center; white-space:pre-wrap; color:var(--ink); padding:16px; font:400 20px/1.4 Georgia,serif; }
+.whiteboard-silhouette { position:absolute; inset:0; width:100%; height:100%; fill:var(--decoration-color); stroke:color-mix(in srgb,var(--decoration-color),var(--decoration-ink) 18%); stroke-width:1; overflow:visible; pointer-events:none; filter:drop-shadow(0 3px 3px #35402a14); }
+.whiteboard-shape .workspace-decoration-label { position:relative; display:flex; align-items:center; justify-content:center; width:100%; height:100%; box-sizing:border-box; text-align:center; white-space:pre-wrap; color:var(--decoration-ink); padding:16px; font:400 20px/1.4 Georgia,serif; }
 .shape-rectangle .workspace-decoration-label { align-items:flex-start; justify-content:flex-start; text-align:left; padding:20px; }
 .shape-diamond .workspace-decoration-label { padding:20% 24%; }
 .shape-ellipse .workspace-decoration-label { padding:15% 20%; }
@@ -28,10 +32,12 @@
 .whiteboard-color { display:flex; align-items:center; justify-content:space-between; gap:12px; padding:4px 10px; }
 .whiteboard-color input { width:36px; height:32px; border:1px solid var(--line); border-radius:5px; background:transparent; padding:3px; }
 .whiteboard-editor { position:absolute; inset:0; z-index:3; margin:0; pointer-events:auto; }
-.whiteboard-editor textarea { display:block; width:100%; height:100%; resize:none; border:1px solid var(--green); border-radius:3px; background:color-mix(in srgb,var(--decoration-color),var(--paper) 18%); color:var(--ink); padding:20px; font:400 20px/1.4 Georgia,serif; white-space:pre-wrap; outline:2px solid var(--paper); outline-offset:1px; }
-.decoration-text .whiteboard-editor textarea { background:var(--paper); padding:10px 12px; }
+.workspace-decoration .whiteboard-editor textarea { display:block; width:100%; height:100%; resize:none; border:1px solid var(--green); border-radius:3px; background:color-mix(in srgb,var(--decoration-color),var(--decoration-wash) 18%); color:var(--decoration-ink); caret-color:var(--decoration-ink); padding:20px; font:400 20px/1.4 Georgia,serif; white-space:pre-wrap; outline:2px solid var(--paper); outline-offset:1px; }
+.workspace-decoration.decoration-text .whiteboard-editor textarea { background:var(--paper); color:var(--ink); caret-color:var(--ink); padding:10px 12px; }
+.workspace-decoration .whiteboard-editor textarea::selection { background:color-mix(in srgb,var(--decoration-ink) 26%,transparent); color:var(--decoration-ink); }
+.workspace-decoration:is(.decoration-text,.decoration-line) .whiteboard-editor textarea::selection { background:color-mix(in srgb,var(--ink) 22%,transparent); color:var(--ink); }
 .decoration-line .whiteboard-editor { width:260px; height:100px; left:50%; top:50%; transform:translate(-50%,-50%); }
-.decoration-line .whiteboard-editor textarea { background:var(--paper); font:400 16px/1.4 Georgia,serif; padding:12px; }
+.workspace-decoration.decoration-line .whiteboard-editor textarea { background:var(--paper); color:var(--ink); caret-color:var(--ink); font:400 16px/1.4 Georgia,serif; padding:12px; }
 .whiteboard-editing > .workspace-decoration-resize,.whiteboard-editing > .workspace-endpoint { display:none !important; }
 .whiteboard-draft-state { position:absolute; left:0; top:calc(100% + 6px); display:flex; gap:8px; align-items:center; padding:4px 6px; background:var(--paper); border:1px solid var(--line); border-radius:6px; white-space:nowrap; font:12px/1.4 system-ui; pointer-events:auto; z-index:5; }
 .whiteboard-draft-state button { min-height:32px; font-size:12px; padding:4px 8px; }

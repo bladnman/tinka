@@ -6,6 +6,23 @@ const sides = ['top', 'right', 'bottom', 'left'];
 const shapeNames = {rectangle:'Sticky note', rounded:'Process', diamond:'Decision', ellipse:'Start / end'};
 const selector = id => `[data-decoration="${CSS.escape(id)}"]`;
 const cleanColor = value => /^#[0-9a-f]{3,8}$/i.test(value || '') ? value : '#78866c';
+// Readable ink for text on an authored fill, per app appearance. Translucent
+// fills composite over that appearance's canvas; the wash lightens or darkens
+// the fill away from its ink for the editing surface.
+const decorationInk = color => {
+  let hex = color.slice(1); if (hex.length < 5) hex = [...hex].map(c => c + c).join('');
+  const rgb = [0,2,4].map(i => parseInt(hex.slice(i,i+2),16)), alpha = hex.length === 8 ? parseInt(hex.slice(6),16)/255 : 1;
+  const luminance = channels => channels.map(c => c/255).map(c => c <= .04045 ? c/12.92 : ((c+.055)/1.055)**2.4).reduce((sum,c,i) => sum + c*[.2126,.7152,.0722][i],0);
+  const parse = value => value.match(/[a-f0-9]{2}/gi).map(c => parseInt(c,16));
+  return [['light',[239,238,232]],['dark',[43,44,41]]].map(([theme,canvas]) => {
+    const fill = luminance(rgb.map((c,i) => c*alpha + canvas[i]*(1-alpha)));
+    const contrast = ink => { const l = luminance(parse(ink)); return (Math.max(fill,l)+.05)/(Math.min(fill,l)+.05); };
+    let ink = ['#23271f','#ecece5'].sort((a,b) => contrast(b)-contrast(a))[0];
+    if (contrast(ink) < 4.5) ink = ['#000000','#ffffff'].sort((a,b) => contrast(b)-contrast(a))[0];
+    const dark = luminance(parse(ink)) < .2;
+    return `--decoration-ink-${theme}:${ink};--decoration-wash-${theme}:${dark ? '#fdfdfb' : '#1c1d1a'};`;
+  }).join('');
+};
 const isAttachment = endpoint => !!(endpoint?.placementId || endpoint?.decorationId);
 const pointOnly = point => ({x:point.x, y:point.y});
 // Key-order independent comparison of saved decoration state.
@@ -34,7 +51,7 @@ export function decorationMarkup(d, board, origin, selected=false, overrides) {
     mark = `${shape?`<svg class="whiteboard-silhouette" viewBox="0 0 ${w} ${h}" preserveAspectRatio="none" aria-hidden="true">${silhouette}</svg>`:''}<span class="workspace-decoration-label" data-decoration-label>${esc(current.text||'')}</span>`;
     if (selected) handles = '<button type="button" class="workspace-decoration-resize" data-decoration-resize aria-label="Resize decoration">◢</button>';
   }
-  return `<div tabindex="0" role="group" aria-label="${esc(line?'Arrow':shapeNames[current.shape]||current.type)}: ${esc(current.text||'Untitled')}" class="workspace-decoration decoration-${esc(d.type)} ${current.shape?'whiteboard-shape shape-'+esc(current.shape):''} ${selected?'selected':''}" data-decoration="${esc(d.id)}" style="left:${box.x+origin.x}px;top:${box.y+origin.y}px;width:${w}px;height:${h}px;--decoration-color:${color}">${mark}${handles}</div>`;
+  return `<div tabindex="0" role="group" aria-label="${esc(line?'Arrow':shapeNames[current.shape]||current.type)}: ${esc(current.text||'Untitled')}" class="workspace-decoration decoration-${esc(d.type)} ${current.shape?'whiteboard-shape shape-'+esc(current.shape):''} ${selected?'selected':''}" data-decoration="${esc(d.id)}" style="left:${box.x+origin.x}px;top:${box.y+origin.y}px;width:${w}px;height:${h}px;--decoration-color:${color};${decorationInk(color)}">${mark}${handles}</div>`;
 }
 
 export class Whiteboard {

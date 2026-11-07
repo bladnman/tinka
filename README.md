@@ -53,7 +53,7 @@ node /absolute/tinka-install.mjs --project /absolute/project \
 Setup creates an empty boards folder and this project structure:
 
 ```text
-AGENTS.md                 Short pointer to TINKA.md; preserves existing guidance
+AGENTS.md                 Short Tinka section: visual work goes on boards; see TINKA.md
 TINKA.md                  Board location, restore and operating instructions
 tinka/
   project.json            Version pin, project label, relative boards path
@@ -63,6 +63,13 @@ tinka/
   local/                  This machine's config, process record and log; ignored
 design/boards/            Commit boards, assets, handoffs and .state/notes.json
 ```
+
+Tinka keeps that section current in the project-root `AGENTS.md` (read by Codex,
+Claude Code and other agents), creating the file if needed. The section sits
+between `<!-- tinka:start … -->` and `<!-- tinka:end -->` markers: setup, every
+install and update, and each start of a portable project replace what is between
+them and never change anything outside. Earlier unmarked Tinka text is converted
+in place. No other instruction file is written.
 
 Commit the instructions, setup helper, version pin and complete boards. On a new
 machine, the app and local config can be absent. Run from the checked-out root:
@@ -383,7 +390,9 @@ node tinka/app/cli.mjs update status --config tinka/local/config.json
 `auto` is this machine's explicit consent to install compatible updates before
 starting a stopped instance. A running board is left running, with the update
 deferred. Failed automatic installs are attempted once per release; `update now`
-explicitly retries. `off` disables automatic checks. `update check` explicitly
+explicitly retries. In a portable project, the newly installed app refreshes the
+managed Tinka section in `AGENTS.md` when it starts, for manual and automatic
+updates alike; review and commit that change with the pin. `off` disables automatic checks. `update check` explicitly
 refreshes release information without downloading or installing an app.
 
 Preferences/cache stay in ignored `tinka/local/updates.json`. Manual and dotfolder

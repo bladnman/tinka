@@ -1173,7 +1173,9 @@ export class WorkspaceBoard {
         return `<section class="workspace-grid-round" data-round="${esc(id)}"><header><p class="workspace-eyebrow">${r.number ? "ROUND " + esc(r.number) : "ITEMS"}${r.date ? " · " + esc(r.date) : ""}</p><h2>${esc(r.title || "Exploration")}</h2>${r.description ? `<p>${esc(r.description)}</p>` : ""}</header><div class="workspace-cards">${newestBoardsFirst(entries, c => this.snapshot.childBoardCreatedAt?.[c.graphItem.childBoardId], c => !!c.graphItem.childBoardId).map(renderCard).join("")}</div></section>`;
       })
       .join("");
-    this.reconcile(world, `${this.mode === "canvas" ? this.decorations() : ""}${this.mode === "grid" ? grid || '<p class="workspace-empty">Nothing here yet. Add an idea or clear a filter.</p>' : `<div class="workspace-cards">${cards || '<p class="workspace-empty">Nothing here yet. Add an idea or clear a filter.</p>'}</div>`}`);
+    // On Canvas, stickies, shapes, text, regions and arrows also make a board non-empty.
+    const canvasEmpty = !cards && !(this.snapshot.decorations || []).length;
+    this.reconcile(world, `${this.mode === "canvas" ? this.decorations() : ""}${this.mode === "grid" ? grid || '<p class="workspace-empty">Nothing here yet. Add an idea or clear a filter.</p>' : `<div class="workspace-cards">${canvasEmpty ? '<p class="workspace-empty">Nothing here yet. Add an idea or clear a filter.</p>' : cards}</div>`}`);
     if (this.mode === "canvas") {
       const p = concepts.map((c) => c.placement),
         d = (this.snapshot.decorations || []).map(d => decorationBounds(d,this.snapshot));

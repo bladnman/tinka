@@ -278,6 +278,7 @@ Legacy board and experiment removal controls generate agent prompts with explici
 
 ## CLI
 node cli.mjs project init --project PATH [--boards design/boards] [--label TEXT]
+node cli.mjs project instructions --project PATH
 node cli.mjs init --config PATH --boards PATH [--port auto|NUMBER] [--label TEXT]
 node cli.mjs workspace init|migrate --config PATH [--dry-run|--apply]
 node cli.mjs workspace show --config PATH
@@ -294,7 +295,7 @@ Runtime PID/log belongs alongside config, never in app. Refuse overwrite existin
 ## Portability
 No installed skill is required. The app ships docs/AGENT.md, docs/PROTOCOL.md, docs/BOARD.md and scripts/install.mjs. New boards carry portable AGENTS.md; board guide adds it to old boards without replacing existing instructions. The optional skill ZIP contains only a stable discovery SKILL.md. Browser prompts identify the selected app and instruction paths directly.
 
-Portable project scaffolding uses visible tinka/project.json {schemaVersion:1,version,projectLabel,boards,repo}, with a project-relative boards path, standalone tinka/setup.mjs, tinka/.gitignore, root TINKA.md and a short appended project AGENTS.md pointer. Boards stay outside tinka/. App tinka/app and machine-specific tinka/local are ignored by default. Setup restores the exact pin and creates this machine's absolute config; an explicit --version updates the pin after successful install. Commit complete boards including disk notes. No registry or previous app is required after checkout. Manual absolute configs and existing dotfolder layouts remain supported; no automatic relocation.
+Portable project scaffolding uses visible tinka/project.json {schemaVersion:1,version,projectLabel,boards,repo}, with a project-relative boards path, standalone tinka/setup.mjs, tinka/.gitignore, root TINKA.md and a short Tinka-managed block in the project-root AGENTS.md (read by Codex, Claude Code and other agents; created if missing; no other instruction file is written). The block routes visual work to boards and points to TINKA.md. It sits between <!-- tinka:start … --> and <!-- tinka:end --> lines; Tinka replaces everything between them and never changes bytes outside, preserving line endings. Without markers, known earlier unmarked generated texts are replaced in place; otherwise the block is appended, with a notice when an unmarked custom ## Tinka section remains. An unmatched marker is reported and left unchanged. Boards stay outside tinka/. App tinka/app and machine-specific tinka/local are ignored by default. Setup restores the exact pin and creates this machine's absolute config; an explicit --version updates the pin after successful install. Commit complete boards including disk notes. No registry or previous app is required after checkout. Manual absolute configs and existing dotfolder layouts remain supported; no automatic relocation.
 
 A matching committed tinka/packages/tinka-vVERSION.zip and .sha256 sidecar allow offline setup with no arguments. Selection follows the project version pin; explicit --zip or --repo takes precedence. Missing bundle checksums fail before installation.
 
@@ -336,6 +337,12 @@ Health verification precedes pin acceptance; failure restores app/config/pin and
 attempts old-service recovery. A stopped health probe restores exact config bytes.
 Retained backups and failed recovery details remain actionable. Existing custom
 project TINKA.md/setup helpers remain create-only; no automatic Git commits.
+Start refreshes the managed AGENTS.md block only for a validated portable
+app/config pair with tinka/project.json; manual layouts are never written. Every
+install with a config starts the new app for its health probe or restart, so setup,
+update now and automatic updates all apply the new app's text, including the first
+hop from an older release. Refresh failure is a one-line warning, never a failed
+start or update. project init and project instructions refresh it explicitly.
 
 Boards on Home appear newest-created first, including graph and legacy boards
 together. Nested board cards in Grid use the child board’s creation date within

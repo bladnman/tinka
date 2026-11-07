@@ -31,6 +31,34 @@ Before claiming a running workspace, verify `/api/health` matches the selected
 canonical config path and project label. Report the actual URL printed by start.
 Do not kill, adopt or reconfigure another instance to resolve a collision.
 
+## Showing visual work
+
+In a project with Tinka, visual work you make for the user to look at (designs,
+mockups, images, illustrations, diagrams, prototypes, alternatives to compare,
+screenshots for review) goes on a board, and you give the user the board link.
+Do not substitute a separate file, hosted page or browser preview unless the user
+asks for one; a requested file, format or destination is provided as asked.
+The project-root `AGENTS.md` (read by Codex, Claude Code and other agents) carries
+this rule in a short Tinka-managed block that setup, installs, updates and
+starts keep current. Do not edit between its markers; put project rules outside.
+
+1. Run the normal `start` command and use the URL it prints.
+2. Use the board the user or project guidance names, or the board holding related
+   work (`workspace.search`); otherwise create one with a clear title (`board.create`).
+3. Save files in a project folder registered as a resource root
+   (`workspace.update` with `resourceRoots`, paths relative to the workspace
+   metadata), never in the app or metadata folders. For images and PDFs,
+   `files.import` copies them into the boards root's `imports/` instead.
+4. Add one item per piece with `item.create` and
+   `content:{kind,resource:{rootId,path}}` (`html`, `image`, `pdf`, `markdown`,
+   `video`). Visual kinds default to a Full preview panel; size detailed designs
+   as described in [Make the work visible](#make-the-work-visible).
+5. Check the rendered board, then give the user `URL/boards/BOARD_ID/`, adding
+   `?reveal=PLACEMENT_ID` from the result's `placementIds` to focus one item.
+
+See [the protocol](PROTOCOL.md#items-resources-and-children) for payloads; legacy
+(schema 1) boards use [Start a board](PROTOCOL.md#start-a-board).
+
 ## Discover tools and selected work
 
 The immediately readable tool catalog is [`../lib/tools.json`](../lib/tools.json).

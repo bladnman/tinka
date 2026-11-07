@@ -58,7 +58,8 @@ try{
  let cardPoint=await centre(cardBody),lineBefore=await page.locator('[data-decoration=to-card]').boundingBox();
  await page.mouse.move(cardPoint.x,cardPoint.y);await page.mouse.down();await page.mouse.move(cardPoint.x+45,cardPoint.y+25,{steps:5});
  const lineDuring=await page.locator('[data-decoration=to-card]').boundingBox();assert.ok(lineDuring.width>lineBefore.width+40);
- await page.mouse.up();await page.waitForTimeout(100);assert.equal((await snapshot()).placements.find(p=>p.id===item.placementId).x,625);
+ await page.mouse.up();for(let i=0;i<60&&(await snapshot()).placements.find(p=>p.id===item.placementId).x!==625;i++)await page.waitForTimeout(50);assert.equal((await snapshot()).placements.find(p=>p.id===item.placementId).x,625);
+ await page.waitForFunction(()=>!document.querySelector('.workspace-dragging'));await page.waitForTimeout(200);
  await inspect('to-card');
  await page.locator('[name=toSide]').selectOption('right');await page.locator('dialog.workspace-dialog button[type=submit]').click();await page.locator('dialog.workspace-dialog').waitFor({state:'detached'});
  const resize=card.locator('[data-resize]'),resizePoint=await centre(resize);lineBefore=await page.locator('[data-decoration=to-card]').boundingBox();

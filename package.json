@@ -1,6 +1,6 @@
 {
   "name": "board-room",
-  "version": "0.7.5",
+  "version": "0.7.7",
   "private": true,
   "type": "module",
   "engines": {
@@ -8,6 +8,6 @@
   },
   "scripts": {
     "test": "node --test tests/*.test.mjs",
-    "test:browser": "node tests/browser.mjs && node tests/appearance-browser.mjs && node tests/cards-browser.mjs && node tests/calm-browser.mjs && node tests/covers-browser.mjs && node tests/home-selection-browser.mjs && node tests/return-browser.mjs && node tests/inspector-commands-browser.mjs && node tests/drag-settle-browser.mjs"
+    "test:browser": "node tests/browser.mjs && node tests/appearance-browser.mjs && node tests/cards-browser.mjs && node tests/calm-browser.mjs && node tests/covers-browser.mjs && node tests/home-selection-browser.mjs && node tests/return-browser.mjs && node tests/inspector-commands-browser.mjs && node tests/drag-settle-browser.mjs && node tests/decoration-ink-browser.mjs"
   }
 }
