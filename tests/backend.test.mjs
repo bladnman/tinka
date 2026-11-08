@@ -4,6 +4,7 @@ import {mkdtemp,mkdir,readFile,readdir,realpath,symlink,writeFile,rm} from 'node
 import os from 'node:os';
 import path from 'node:path';
 import net from 'node:net';
+import http from 'node:http';
 import {main} from '../cli.mjs';
 import {loadConfig} from '../lib/config.mjs';
 import {discoverBoards,updateBuildState} from '../lib/boards.mjs';
@@ -99,6 +100,22 @@ test('notes save and load with same-origin checks and a size bound',async()=>{
   const notes=await json('/api/boards/sample/notes');
   assert.deepEqual(Object.keys(notes),['first/alpha']);
   assert.equal(notes['first/alpha'].note,'Useful');
+});
+test('every route answers only requests addressed to the loopback listener by name',async()=>{
+  const port=server.address().port;
+  const read=(route,host)=>new Promise((resolve,reject)=>{
+    const request=http.get({host:'127.0.0.1',port,path:route,headers:{host}},response=>{let body='';response.setEncoding('utf8');response.on('data',chunk=>body+=chunk);response.on('end',()=>resolve({status:response.statusCode,body}));});
+    request.on('error',reject);
+  });
+  // A rebound DNS name reaches the same socket with a foreign Host header.
+  for(const route of ['/api/health','/api/boards','/api/boards/sample/notes','/boards/sample/files/rounds/first/alpha/index.html','/','/app/home.js']){
+    for(const host of [`rebound.example:${port}`,`127.0.0.1.nip.io:${port}`,`127.0.0.1:${port+1}`,'127.0.0.1']){
+      const response=await read(route,host);
+      assert.equal(response.status,403,`${host}${route}`);
+      assert.doesNotMatch(response.body,new RegExp(path.basename(temporary)),`${host}${route} leaked a path`);
+    }
+  }
+  for(const host of [`127.0.0.1:${port}`,`localhost:${port}`])assert.equal((await read('/api/health',host)).status,200,host);
 });
 test('preview rejects dotfiles, escaping symlinks, and unsafe IDs',async()=>{
   const good=await fetch(`${base}/boards/sample/files/rounds/first/alpha/index.html`);

@@ -28,7 +28,7 @@ These public examples use sample content.
 
 ### Manual setup
 
-Tinka uses **Node.js 22 or newer**, has **no runtime npm dependencies**, and binds only to `127.0.0.1`. Managed start/stop uses `ps`, so use macOS or Linux. The package is internally named `board-room` for compatibility with the original installer; the product is Tinka.
+Tinka uses **Node.js 22 or newer**, has **no runtime npm dependencies**, and binds only to `127.0.0.1`. It answers only requests addressed to `127.0.0.1` or `localhost` at its own port, so a web page cannot reach it through a DNS name that resolves to this computer, and board links open only on this computer. Managed start/stop uses `ps`, so use macOS or Linux. The package is internally named `board-room` for compatibility with the original installer; the product is Tinka.
 
 No agent skill is required. Use a visible `tinka/` folder for project tooling and
 `design/boards/` for durable design work. Existing `.tinka` or external layouts
@@ -53,7 +53,7 @@ node /absolute/tinka-install.mjs --project /absolute/project \
 Setup creates an empty boards folder and this project structure:
 
 ```text
-AGENTS.md                 Short Tinka section: visual work goes on boards; see TINKA.md
+AGENTS.md                 Short Tinka section: visual work also goes on boards; see TINKA.md
 TINKA.md                  Board location, restore and operating instructions
 tinka/
   project.json            Version pin, project label, relative boards path

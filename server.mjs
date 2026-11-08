@@ -38,9 +38,15 @@ async function requestJson(req){
   for await(const chunk of req){total+=chunk.length;if(total>1_000_000)throw new HttpError(413,'Request too large.');chunks.push(chunk);}
   try{return JSON.parse(Buffer.concat(chunks).toString('utf8'));}catch{throw new HttpError(400,'Invalid JSON.');}
 }
+const loopbackOrigins=server=>{const port=server.address()?.port;return new Set([`http://127.0.0.1:${port}`,`http://localhost:${port}`]);};
+// Every request must be addressed to this loopback listener by name. Binding to
+// 127.0.0.1 alone does not stop a page whose DNS name later resolves to
+// 127.0.0.1 (DNS rebinding) from reading boards, notes and paths.
+function checkHost(req,server){
+  if(!loopbackOrigins(server).has(`http://${String(req.headers.host||'').toLowerCase()}`))throw new HttpError(403,`Tinka answers only requests to http://127.0.0.1:${server.address()?.port}/ on this computer.`);
+}
 function checkWriteOrigin(req,server){
-  const port=server.address()?.port;
-  const allowed=new Set([`http://127.0.0.1:${port}`,`http://localhost:${port}`]);
+  const allowed=loopbackOrigins(server);
   if(!allowed.has(`http://${req.headers.host}`)||req.headers.origin&&!allowed.has(req.headers.origin))throw new HttpError(403,'Cross-origin write denied.');
   if(req.headers['sec-fetch-site']==='cross-site')throw new HttpError(403,'Cross-origin write denied.');
 }
@@ -104,6 +110,7 @@ export function createAppServer(config){
     // idle later, after its complete response (and any metadata write) drains.
     res.once('finish',()=>{if(closing.has(server))setImmediate(()=>server.closeIdleConnections());});
     try{
+      checkHost(req,server);
       const url=new URL(req.url,'http://localhost');
       let pathname=url.pathname;
       if(config.legacyBoard&&['/api/live','/api/notes'].includes(pathname))pathname=`/api/boards/${config.legacyBoard}/${pathname.slice(5)}`;

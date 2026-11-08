@@ -35,9 +35,14 @@ Do not kill, adopt or reconfigure another instance to resolve a collision.
 
 In a project with Tinka, visual work you make for the user to look at (designs,
 mockups, images, illustrations, diagrams, prototypes, alternatives to compare,
-screenshots for review) goes on a board, and you give the user the board link.
-Do not substitute a separate file, hosted page or browser preview unless the user
-asks for one; a requested file, format or destination is provided as asked.
+screenshots for review) goes on a board, where it can be found again, and you
+give the user the board link. The board is added to the usual way of showing
+work, not substituted for it: also send the same image or file in the
+conversation, or show it however you otherwise would. Board links open only on
+this computer (Tinka answers only `127.0.0.1`), so the copy in the conversation
+is what reaches someone reading on another device. Send the file the board uses,
+saved in the project, rather than a temporary copy that will not last. A
+requested file, format or destination is provided as asked.
 The project-root `AGENTS.md` (read by Codex, Claude Code and other agents) carries
 this rule in a short Tinka-managed block that setup, installs, updates and
 starts keep current. Do not edit between its markers; put project rules outside.
@@ -55,6 +60,37 @@ starts keep current. Do not edit between its markers; put project rules outside.
    as described in [Make the work visible](#make-the-work-visible).
 5. Check the rendered board, then give the user `URL/boards/BOARD_ID/`, adding
    `?reveal=PLACEMENT_ID` from the result's `placementIds` to focus one item.
+
+To show another board from a board, place that board itself rather than a card
+holding its URL: `reference` its `ownerItemId` (from `board.get`) with
+`{"type":"reference","itemIds":["OWNER_ITEM_ID"],"targetBoardId":"BOARD_ID"}`
+through `workspace op`. The board tile keeps working when the port or machine
+changes; a pasted `http://127.0.0.1:PORT/...` link does not.
+
+A worked example: add a render saved at `renders/look-a.png` in the project to
+board `art-directions`, beside a short note. `resourceRoots` paths are relative
+to the workspace metadata folder (by default `design/boards/.tinka`), so the
+project's `renders/` folder is `../../../renders`. Register it once:
+
+```sh
+node tinka/app/cli.mjs tools call workspace.update --config tinka/local/config.json \
+  --json '{"patch":{"resourceRoots":{"renders":{"path":"../../../renders"}}}}'
+node tinka/app/cli.mjs tools call item.create --config tinka/local/config.json \
+  --json '{"boardId":"art-directions",
+  "item":{"title":"Look A","content":{"kind":"image","resource":{"rootId":"renders","path":"look-a.png"}}},
+  "placement":{"x":620,"y":0,"width":962,"height":600,"presentation":{"mode":"panel"}}}'
+node tinka/app/cli.mjs tools call item.create --config tinka/local/config.json \
+  --json '{"boardId":"art-directions",
+  "item":{"title":"Which look? Star one, or just tell me.","content":{"kind":"note","text":"My pick is A."}},
+  "placement":{"x":0,"y":0,"width":560,"height":300}}'
+```
+
+A changing call prints `{"revision":N,"result":{"itemId":"…","boardId":"…","placementIds":["…"]}}`.
+`board.get` prints the board object itself (`id`, `ownerItemId`, `placements`
+with x/y/width/height, and canonical `items` keyed by ID), not `{"board":…}`.
+Over HTTP the same reads are GET `/api/boards/BOARD_ID` (plural `boards`) and
+POST `/api/tools/call`. Coordinates are board units; leave 40–60 units between
+neighbours.
 
 See [the protocol](PROTOCOL.md#items-resources-and-children) for payloads; legacy
 (schema 1) boards use [Start a board](PROTOCOL.md#start-a-board).

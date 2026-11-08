@@ -5,9 +5,10 @@ description: Show visual work on this project's Tinka boards. Use when creating 
 
 # Tinka
 
-In a project with Tinka, visual work for the user goes on a board: add it there
-and give the user the board link rather than a separate file, hosted page or
-browser preview, unless the user asks for a particular file or destination.
+In a project with Tinka, visual work for the user goes on a board, where it can
+be found again: add it there and give the user the board link, as well as showing
+it the way you otherwise would, such as sending the same image or file in the
+conversation. Board links open only on this computer.
 
 Read the project's `AGENTS.md` and `TINKA.md` to locate its boards and
 installation. Follow the selected app's `docs/AGENT.md` (or its README on older

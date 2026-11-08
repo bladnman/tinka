@@ -27,6 +27,10 @@ test('the managed block routes visual work to boards in a few lines',()=>{
   assert(TINKA_SECTION.split('\n').length<=8);
   assert.match(TINKA_SECTION,/^## Tinka\n/);
   assert.match(TINKA_SECTION,/board link/);
+  // The board is added to the usual way of showing work, not substituted for it.
+  assert.match(TINKA_SECTION,/board link as well as showing it/);
+  assert.doesNotMatch(TINKA_SECTION,/instead of/);
+  assert.match(TINKA_SECTION,/open only on this computer/);
   assert.match(TINKA_SECTION,/\[TINKA\.md\]\(TINKA\.md\)/);
 });
 
