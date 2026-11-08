@@ -115,6 +115,27 @@ Dark; it changes Tinka's surfaces without recoloring the work inside previews.
 The installed [agent guide](docs/AGENT.md#make-the-work-visible) explains how to
 build boards that show their work at a useful scale.
 
+### One image of a board
+
+To send a whole board as one picture, for a phone or a chat that cannot open a
+board link, save an overview while the project's Tinka is running:
+
+```sh
+node /absolute/project/tinka/app/cli.mjs board overview looks \
+  --config /absolute/project/tinka/local/config.json --out /absolute/project/design/looks-overview.png
+```
+
+It shows the board as it looks at its saved geometry, with only its title above
+it, fitted to one PNG at most 2400 pixels wide (`--width` from 400 to 8000; a
+small board is not enlarged past 125%) and as tall as the board's shape needs. It
+is light by default; use `--appearance dark` for the dark look. It drives an
+installed Chrome, Chromium, Edge or Brave in headless mode with a throwaway
+profile (set `CHROMIUM_EXECUTABLE` to choose one) and never overwrites an existing
+file. It usually takes about ten seconds, during which other Tinka commands for
+this app wait; it gives up after 45 seconds, and saves nothing if the board page
+fails to load. Without a browser, open `URL/boards/BOARD_ID/?overview` and take a
+screenshot; that view changes nothing in the browser or the project.
+
 Stop only this instance with `node /absolute/project/tinka/app/cli.mjs stop --config /absolute/project/tinka/local/config.json`. Use `serve` for a foreground process and Ctrl-C to stop it. PID and log files live beside the config. Managed stop checks the recorded PID, CLI path, config path, and unique process token before signaling anything.
 
 ## Initialize the flexible workspace

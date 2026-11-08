@@ -1064,7 +1064,8 @@ export class WorkspaceBoard {
   setMode(mode, rebuild = true) {
     this.mode = mode;
     this.whiteboard?.reconcileSelection();
-    try {
+    // A view-only render (?overview) never changes this browser's saved layout.
+    if (!this.hooks.viewOnly) try {
       localStorage.setItem(
         `tinka/${this.config.workspaceId}/${this.snapshot.id}/layout`,
         mode,

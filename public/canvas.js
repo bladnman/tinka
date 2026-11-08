@@ -25,6 +25,10 @@ const SIZE_NAMES = { fit: 'Fit', custom: 'Custom', compact: 'Compact', standard:
 const boardMatch = location.pathname.match(/^\/boards\/([a-z0-9][a-z0-9-]*)\/?$/);
 const boardId = boardMatch?.[1];
 const boardApi = `/api/boards/${encodeURIComponent(boardId || '')}`;
+// ?overview shows this board alone, fitted to the window, for `board overview`
+// to save as one image. It changes nothing and opens no live connection.
+const overview = new URLSearchParams(location.search).has('overview');
+if (overview) document.documentElement.classList.add('tinka-overview');
 let notesKey, viewKey, workspaceId;
 const esc = value => String(value ?? '').replace(/[&<>"']/g, char => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[char]);
 const clampZoom = value => Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, value));
@@ -126,7 +130,8 @@ async function fetchBoard() {
   if (!response.ok) throw new Error(`Board metadata unavailable (${response.status})`);
   const data = await response.json();
   if (data.schemaVersion === 2) {
-    if (!graph) graph = new WorkspaceBoard(appConfig, data, { concepts:()=>all, active:()=>active, zoom:()=>zoom, shiftOrigin:(dx,dy)=>{if(dx||dy){view.x-=dx*zoom;view.y-=dy*zoom;resting=false;}}, shiftViewport:(dx,dy)=>{if(dx||dy)moveView(view.x+dx,view.y+dy);}, holdView:()=>{resting=false;}, revealPlacements:revealPlacements, revealTarget:placement=>{const fit=Math.min((viewport.clientWidth-80)/placement.width,(viewport.clientHeight-80)/placement.height,1);changeZoom(fit);const rect=world.getBoundingClientRect(),region=viewport.getBoundingClientRect();moveView(view.x+region.left+viewport.clientWidth/2-(rect.left+(placement.x+graph.origin.x+placement.width/2)*zoom),view.y+region.top+viewport.clientHeight/2-(rect.top+(placement.y+graph.origin.y+placement.height/2)*zoom));}, preview:c=>previewHref(c), layout:()=>{ if(resting)rest();else applyView(); }, mode:mode=>{ if(mode==='canvas'){zoom=1;settleCushion();}else{viewport.scrollLeft=0;viewport.scrollTop=0;} }, reloadReader:()=>loadRevision(), saveStatus:setSaveStatus, openOwner:()=>{const c=graph.ownerConcept();if(c)openReader(c.key);}, closeReader:()=>closeReader(), flushNotes:flushNoteEdits, liveReady:()=>{void drainLiveUpdates().catch(()=>{});}, data:acceptGraphData });
+    if (!graph) graph = new WorkspaceBoard(appConfig, data, { concepts:()=>all, active:()=>active, zoom:()=>zoom, shiftOrigin:(dx,dy)=>{if(dx||dy){view.x-=dx*zoom;view.y-=dy*zoom;resting=false;}}, shiftViewport:(dx,dy)=>{if(dx||dy)moveView(view.x+dx,view.y+dy);}, holdView:()=>{resting=false;}, revealPlacements:revealPlacements, revealTarget:placement=>{const fit=Math.min((viewport.clientWidth-80)/placement.width,(viewport.clientHeight-80)/placement.height,1);changeZoom(fit);const rect=world.getBoundingClientRect(),region=viewport.getBoundingClientRect();moveView(view.x+region.left+viewport.clientWidth/2-(rect.left+(placement.x+graph.origin.x+placement.width/2)*zoom),view.y+region.top+viewport.clientHeight/2-(rect.top+(placement.y+graph.origin.y+placement.height/2)*zoom));}, preview:c=>previewHref(c), layout:()=>{ if(resting)rest();else applyView(); }, mode:mode=>{ if(mode==='canvas'){zoom=1;settleCushion();}else{viewport.scrollLeft=0;viewport.scrollTop=0;} }, reloadReader:()=>loadRevision(), saveStatus:setSaveStatus, openOwner:()=>{const c=graph.ownerConcept();if(c)openReader(c.key);}, closeReader:()=>closeReader(), flushNotes:flushNoteEdits, liveReady:()=>{void drainLiveUpdates().catch(()=>{});}, data:acceptGraphData, viewOnly:overview });
+    if (overview) graph.mode = 'canvas';
     return graph.adapt(data);
   }
   if (!Array.isArray(data.rounds)) throw new Error('The board manifest is invalid.');
@@ -344,6 +349,57 @@ function fitBoard() {
   zoom = clampZoom(Math.min((viewport.clientWidth - margin * 2) / contentWidth, (viewport.clientHeight - margin * 2) / contentHeight));
   const pad = geometry.pad * zoom;
   moveView((viewport.clientWidth - contentWidth * zoom) / 2 - pad, (viewport.clientHeight - contentHeight * zoom) / 2 - pad);
+}
+
+// Overview readiness for `board overview`: fit, then wait until every on-screen
+// image and same-origin preview frame has loaded and the resource count holds
+// still (15 s at most).
+let overviewRun = 0;
+function overviewPending() {
+  let pending = 0, resources = performance.getEntriesByType('resource').length;
+  // Only an image that is on screen in its own document can hold the picture up:
+  // lazy images below a preview's fold, or in hidden boxes, may never load.
+  const onScreen = node => { const box = node.getBoundingClientRect(), view = node.ownerDocument.defaultView; return box.width > 0 && box.height > 0 && box.bottom > 0 && box.right > 0 && box.top < view.innerHeight && box.left < view.innerWidth; };
+  const visit = (root, depth) => {
+    for (const image of root.querySelectorAll('img')) if (!image.complete && onScreen(image)) pending++;
+    for (const frame of root.querySelectorAll('iframe')) {
+      if (frame.hidden || frame.closest('[hidden]')) continue;
+      if (frame.hasAttribute('data-cover-pending')) { pending++; continue; }
+      let inner = null;
+      try { inner = frame.contentDocument; } catch {}
+      // A sandboxed (opaque-origin) cover frame reports readiness by message instead.
+      if (!inner) continue;
+      const blank = inner.URL === 'about:blank' && (frame.getAttribute('src') || 'about:blank') !== 'about:blank';
+      if (blank || inner.readyState !== 'complete') { pending++; continue; }
+      try { resources += frame.contentWindow.performance.getEntriesByType('resource').length; } catch {}
+      if (depth < 2) visit(inner, depth + 1);
+    }
+  };
+  visit(world, 0);
+  return { pending, resources };
+}
+async function settleOverview() {
+  const run = ++overviewRun, root = document.documentElement;
+  delete root.dataset.overview;
+  fitBoard();
+  const wait = ms => new Promise(resolve => setTimeout(resolve, ms));
+  const deadline = performance.now() + 15000;
+  let previous = -1, state = overviewPending();
+  while (performance.now() < deadline && (state.pending || state.resources !== previous)) {
+    previous = state.resources;
+    await wait(state.pending ? 150 : 700);
+    if (run !== overviewRun) return;
+    state = overviewPending();
+  }
+  await document.fonts?.ready;
+  await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+  if (run !== overviewRun) return;
+  const width = world.offsetWidth - geometry.pad * 2, height = world.offsetHeight - geometry.pad * 2;
+  root.dataset.overviewAspect = String(width > 0 && height > 0 ? height / width : 0.625);
+  root.dataset.overviewWidth = String(Math.max(0, width));
+  root.dataset.overviewChrome = String(Math.max(0, innerHeight - viewport.clientHeight));
+  root.dataset.overviewItems = String(world.querySelectorAll('[data-placement]').length);
+  root.dataset.overview = state.pending ? 'partial' : 'ready';
 }
 
 function jump(key) {
@@ -935,7 +991,7 @@ async function loadNotes() {
   const changed = mergeNotes(notes, backup);
   setSaveStatus(connected ? 'Notes saved on this Mac' : 'Browser notes · local service unavailable', connected ? 'saved' : 'local');
   applyNotes();
-  if (changed) storeNotes();
+  if (changed && !overview) storeNotes();
 }
 
 // ---- Live build state ----
@@ -1491,7 +1547,7 @@ new ResizeObserver(() => {
   // A new size label can change the footer layout, which resizes this window; lay out on the next frame to avoid a resize loop.
   if (dialog.open) { renderSizeControls(false); requestAnimationFrame(layoutReaderFooter); }
 }).observe($('reader-window'));
-new ResizeObserver(() => { if(graph?.revealedPlacement&&!dialog.open)graph.recenterRevealed();else if (resting) rest(); else applyView(); }).observe(viewport);
+new ResizeObserver(() => { if (overview) { if (board) void settleOverview(); return; } if(graph?.revealedPlacement&&!dialog.open)graph.recenterRevealed();else if (resting) rest(); else applyView(); }).observe(viewport);
 // A found target follows responsive canvas changes until the user resumes navigation.
 for(const type of ['pointerdown','wheel','keydown'])viewport.addEventListener(type,()=>{if(graph)graph.revealedPlacement=null;},{capture:true,passive:true});
 // The dialog fills the window, so this fires on window resizes but never because the footer re-laid itself out.
@@ -1516,6 +1572,48 @@ $('live-refresh').onclick = reloadCanvas;
 $('reader-update').onclick = () => loadRevision();
 if ('scrollRestoration' in history) history.scrollRestoration = 'manual';
 
+// The interactive board: route the hash, restore the view, follow live changes.
+async function openBoardView() {
+  const requested = parseHash();
+  if (requested.view === 'experiment') {
+    const concept = all.find(item => item.key === requested.key) || graph?.ownerConcept(requested.key) || graph?.aliasConcept(requested.key);
+    currentRound = concept?.row || 0;
+    renderNav();
+    jump(concept.key);
+    openReader(requested.key, requested.revision || 'original', { history: 'replace' });
+  } else {
+    if (requested.invalid) commitHistory({ view: 'board', round: null }, 'replace');
+    const index = rounds.findIndex(round => round.id === requested.round);
+    if (index >= 0) currentRound = index;
+    renderNav();
+    rest();
+  }
+  routedHash = location.hash;
+  try {
+    const saved = JSON.parse(sessionStorage.getItem(viewKey) || 'null');
+    sessionStorage.removeItem(viewKey);
+    if (saved && Number.isFinite(saved.zoom)) {
+      zoom = clampZoom(saved.zoom);
+      currentRound = Math.max(0, rounds.findIndex(round => round.id === saved.round));
+      renderNav();
+      // A view saved by an earlier version (scroll offsets) falls back to the round's resting place.
+      if (saved.resting || !Number.isFinite(saved.x) || !Number.isFinite(saved.y)) rest();
+      else { resting = false; Object.assign(view, { x: saved.x, y: saved.y }); applyView(); }
+    }
+  } catch {}
+  const revealId=new URLSearchParams(location.search).get('reveal');
+  if(revealId&&graph)await graph.revealPlacement(revealId);
+  if (!dialog.open && document.activeElement === document.body) viewport.focus({ preventScroll: true });
+  $('live-status').classList.add('live-indicator');
+  watchBoard(boardId, {
+    config:appConfig,
+    onSnapshot: applyBoardSnapshot,
+    onManifestChange: refreshManifest,
+    onShellChange: scheduleShellReload,
+    onConnection: connected => { const label = $('live-status'); label.dataset.connection = connected ? 'live' : 'offline'; if (!connected) label.textContent = 'Reconnecting to this Mac…'; else if (liveSnapshot && label.textContent.startsWith('Reconnecting')) applyBoardSnapshot(liveSnapshot); },
+  });
+}
+
 if (!boardId) showError('This board address is invalid. Return to Boards and open a board from there.');
 else {
   try {
@@ -1531,43 +1629,11 @@ else {
     await loadNotes();
     setTheme(readerView.theme, false);
     setType(readerView.type, false);
-    const requested = parseHash();
-    if (requested.view === 'experiment') {
-      const concept = all.find(item => item.key === requested.key) || graph?.ownerConcept(requested.key) || graph?.aliasConcept(requested.key);
-      currentRound = concept?.row || 0;
-      renderNav();
-      jump(concept.key);
-      openReader(requested.key, requested.revision || 'original', { history: 'replace' });
-    } else {
-      if (requested.invalid) commitHistory({ view: 'board', round: null }, 'replace');
-      const index = rounds.findIndex(round => round.id === requested.round);
-      if (index >= 0) currentRound = index;
-      renderNav();
-      rest();
+    if (overview) {
+      // Legacy cards take their build badges from the live state; read it once.
+      if (!graph) { const live = await fetch(`${boardApi}/live`, { cache: 'no-store' }); if (live.ok) await applyBoardSnapshot(await live.json()); }
+      await settleOverview();
     }
-    routedHash = location.hash;
-    try {
-      const saved = JSON.parse(sessionStorage.getItem(viewKey) || 'null');
-      sessionStorage.removeItem(viewKey);
-      if (saved && Number.isFinite(saved.zoom)) {
-        zoom = clampZoom(saved.zoom);
-        currentRound = Math.max(0, rounds.findIndex(round => round.id === saved.round));
-        renderNav();
-        // A view saved by an earlier version (scroll offsets) falls back to the round's resting place.
-        if (saved.resting || !Number.isFinite(saved.x) || !Number.isFinite(saved.y)) rest();
-        else { resting = false; Object.assign(view, { x: saved.x, y: saved.y }); applyView(); }
-      }
-    } catch {}
-    const revealId=new URLSearchParams(location.search).get('reveal');
-    if(revealId&&graph)await graph.revealPlacement(revealId);
-    if (!dialog.open && document.activeElement === document.body) viewport.focus({ preventScroll: true });
-    $('live-status').classList.add('live-indicator');
-    watchBoard(boardId, {
-      config:appConfig,
-      onSnapshot: applyBoardSnapshot,
-      onManifestChange: refreshManifest,
-      onShellChange: scheduleShellReload,
-      onConnection: connected => { const label = $('live-status'); label.dataset.connection = connected ? 'live' : 'offline'; if (!connected) label.textContent = 'Reconnecting to this Mac…'; else if (liveSnapshot && label.textContent.startsWith('Reconnecting')) applyBoardSnapshot(liveSnapshot); },
-    });
-  } catch (error) { showError(error.message || 'This board could not be loaded.'); }
+    else await openBoardView();
+  } catch (error) { showError(error.message || 'This board could not be loaded.'); if (overview) document.documentElement.dataset.overview = 'error'; }
 }

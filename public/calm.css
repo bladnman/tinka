@@ -478,3 +478,21 @@ body.navigator-docked .canvas-footer { left: var(--navigator-dock-width, 340px);
 @container tinka-card (max-height: 182px) { #viewport[data-zoom-bucket="60"] #world .workspace-tile-toolbar { display: none; } }
 @container tinka-card (max-height: 274px) { #viewport[data-zoom-bucket="40"] #world .workspace-tile-toolbar { display: none; } }
 @container tinka-card (max-height: 439px) { #viewport[data-zoom-bucket="25"] #world .workspace-tile-toolbar { display: none; } }
+
+/* ---------- One-image overview (?overview, `board overview`) ---------- */
+/* The board alone with its title, fitted to the window: no controls, status or hover tools. */
+.tinka-overview #canvas-header .project-navigator-toggle,
+.tinka-overview #canvas-header #project-label,
+.tinka-overview #chrome-actions,
+.tinka-overview #board-info,
+.tinka-overview .canvas-footer,
+.tinka-overview .project-navigator,
+.tinka-overview #world .workspace-select-dot,
+.tinka-overview #world .workspace-tile-toolbar,
+.tinka-overview #world .workspace-resize,
+.tinka-overview #world .workspace-preview-launch,
+.tinka-overview #world .card-actions,
+.tinka-overview #world .note-box,
+.tinka-overview #world .preview-launch { display: none !important; }
+.tinka-overview #viewport { cursor: default; }
+.tinka-overview body.navigator-docked > main { margin-left: 0; }

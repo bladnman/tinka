@@ -92,6 +92,26 @@ Over HTTP the same reads are GET `/api/boards/BOARD_ID` (plural `boards`) and
 POST `/api/tools/call`. Coordinates are board units; leave 40–60 units between
 neighbours.
 
+To send a whole board as one picture (for someone on a phone, or a chat that
+cannot open the link), save an overview into the project and send that file:
+
+```sh
+node tinka/app/cli.mjs board overview BOARD_ID --config tinka/local/config.json \
+  --out /absolute/project/design/BOARD_ID-overview.png
+```
+
+It renders the board as it looks at its saved geometry, fitted to one PNG at most
+2400 pixels wide (`--width`), light by default (`--appearance dark`), in about ten
+seconds. Other Tinka commands for this app wait while it runs, so do not start it
+alongside a batch of tool calls. It needs this project's Tinka running and an
+installed Chrome, Chromium, Edge or Brave (or `CHROMIUM_EXECUTABLE`); without one,
+screenshot `URL/boards/BOARD_ID/?overview`.
+It refuses to overwrite a file, so name each round's image (`-r02`). Everything
+on the board is in the picture at one scale, so long notes shrink with it. For a
+choice between options, keep the options together on their own board or child
+board, render that, and also place the image as the first tile of the board
+where the question is asked.
+
 See [the protocol](PROTOCOL.md#items-resources-and-children) for payloads; legacy
 (schema 1) boards use [Start a board](PROTOCOL.md#start-a-board).
 
