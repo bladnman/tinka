@@ -93,12 +93,19 @@ app copy for offline use; keep its boards and config outside that replaceable co
 
 For a source checkout, run `node cli.mjs` directly; keep config and boards outside the app checkout. No build step or `npm install` is needed. `node cli.mjs project init --project /absolute/target-project` prepares portable project instructions and setup, or use `init --config /absolute/config.json --boards /absolute/boards --label Atlas` for a manual layout. The standalone installer also accepts `--install-dir /absolute/app` and `--config` for existing installations.
 
-Create a board:
+Create a board that agents fill with the workspace tools (`item.create` and the
+others in the [agent guide](docs/AGENT.md#showing-visual-work)):
 
 ```sh
-node /absolute/project/tinka/app/cli.mjs board create first-ideas \
-  --config /absolute/project/tinka/local/config.json --title "A better first step"
+node /absolute/project/tinka/app/cli.mjs tools call board.create \
+  --config /absolute/project/tinka/local/config.json \
+  --json '{"id":"first-ideas","title":"A better first step"}'
 ```
+
+In a new project this also starts the workspace. The older
+`board create SLUG --title TEXT` command makes the same kind of board once the
+workspace exists; before that it makes a legacy board folder, which the workspace
+tools cannot use until `workspace migrate --dry-run`, then `--apply`.
 
 Or copy [`examples/first-steps`](examples/first-steps) into the external boards root for two small, runnable experiments. The home page's **+ New board** button produces a copyable agent prompt containing this instance's label, URL, and paths.
 

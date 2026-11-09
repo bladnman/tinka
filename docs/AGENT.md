@@ -49,7 +49,8 @@ starts keep current. Do not edit between its markers; put project rules outside.
 
 1. Run the normal `start` command and use the URL it prints.
 2. Use the board the user or project guidance names, or the board holding related
-   work (`workspace.search`); otherwise create one with a clear title (`board.create`).
+   work (`workspace.search`); otherwise create one with a clear title (`board.create`). In a new project use
+   `tools call board.create`, not `board create`, which makes a legacy folder there.
 3. Save files in a project folder registered as a resource root
    (`workspace.update` with `resourceRoots`, paths relative to the workspace
    metadata), never in the app or metadata folders. For images and PDFs,
@@ -228,7 +229,9 @@ AGENTS guides, rounds, status and note files are historical snapshots. Follow th
 schema 2 contract for organization/feedback even if an older guide instructs direct
 manifest writes; those writes do not update canonical metadata. Prototype files
 and assets remain live editable resources. `board create` creates a graph board
-when initialized and a legacy folder otherwise. `status --board BOARD ITEM_ID STATE`
+when initialized and a legacy folder otherwise; the workspace tools cannot use a
+legacy folder until `workspace migrate --dry-run`, then `--apply`, so in a new
+project create boards with `tools call board.create`. `status --board BOARD ITEM_ID STATE`
 updates an initialized item's status; migrated `ROUND/CONCEPT` keys also work.
 
 Register the project-controlled resource folder once through `updateWorkspace`,
