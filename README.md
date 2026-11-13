@@ -183,8 +183,8 @@ current title — and **what** on the right: Find (⌘K), Undo/Redo, the Inspect
 the single primary **+ Add** (Text, Colored region, Arrow, shapes, items and
 boards). The Inspector opens on demand at the right edge: with nothing chosen it
 holds Grid/Canvas, the canvas background, Appearance, filters, editing, comments,
-details, help, shortcuts and notes export; a tile's ⋯ (or ⌘/Ctrl-I with one tile
-selected) shows that item's notes, feedback, appearance and paper, created/edited
+details, help, shortcuts and notes export; a tile's ⋯ menu groups Open experiment, Handoff when available, Notes and
+Remove from board; Details… (or ⌘/Ctrl-I with one tile selected) shows that item's notes, feedback, appearance and paper, created/edited
 dates and actions. Click-away or Escape closes any temporary panel or menu. Zoom
 lives in one floating pill at the lower right: −, the zoom percentage (a menu with
 50/100/125%, a precise slider, Fit board, Fit selection and Dots / Grid / Plain),
@@ -192,9 +192,9 @@ lives in one floating pill at the lower right: −, the zoom percentage (a menu 
 browser; it never changes board data. The reader keeps its containing-board return
 beside Home, with comparison settings and item actions in View.
 
-Tiles rest quietly, showing only state badges (favorite, notes, your vote). On
-hover, keyboard focus or a single selection a small floating toolbar offers Open,
-Comments, Vote, Favorite and ⋯ Details, and a selection circle appears at the
+Tiles rest quietly, showing state badges (favorite, notes, your vote) and one ⋯ menu. On
+hover, keyboard focus or a single selection a small floating toolbar over the preview offers Open,
+Comments, Vote, Favorite and ⋯ Actions, and a selection circle appears at the
 top-left corner. Board-tiles are places: stacked sheets, a recessed window onto
 their contents, a serif name, "Board · N items · edited …" and an **Open board**
 cue on hover. Dates everywhere use one readable format — "just now", "5 min ago",
@@ -483,3 +483,14 @@ boards created in the last 24 hours. Find filters the cards by name or
 description (/ focuses it), and the sort control offers **Newest** (the default),
 **Recently edited** and **A–Z**; the choice is remembered in this browser and the
 primary date always matches it.
+
+Tile surfaces use opaque tonal stone in Light and green-stone in Dark, with
+14-unit host insets and no decorative resting outline. Authored preview content
+and explicit paper choices retain their own appearance. Dots fade substantially
+at 50% zoom and disappear at 25%. Legacy cards share the compact title, favorite,
+notes state and ellipsis anatomy; their removal action still prepares an agent
+prompt and does not mutate or delete files. Schema 2 removal remains undoable
+placement removal. Tile Notes opens a draft editor: Save note or Cmd/Ctrl-Enter
+commits, Cancel discards that draft, and Escape/click-away retains it for return.
+Failed saves keep the draft available for retry. Reader and Inspector notes keep
+their existing autosave behavior; notes and favorites remain shared by references.

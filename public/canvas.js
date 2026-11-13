@@ -1,3 +1,4 @@
+import {TileNotes, positionTilePopover, bindTileMenu} from './tile-ui.js';
 import {ProjectNavigator} from './navigator.js';
 import {mountAppearance} from './appearance.js';
 import { watchBoard } from './live.js';
@@ -45,6 +46,8 @@ let all = [];
 let currentRound = 0;
 let zoom = .5;
 let notes = {};
+let notesReady=false, notesLoading=null;
+let legacyCommittedNotes = {}, legacyCommitSequence = 0;
 let active = null;
 let activeVariantId = 'original';
 let activeRevision = null;
@@ -130,7 +133,7 @@ async function fetchBoard() {
   if (!response.ok) throw new Error(`Board metadata unavailable (${response.status})`);
   const data = await response.json();
   if (data.schemaVersion === 2) {
-    if (!graph) graph = new WorkspaceBoard(appConfig, data, { concepts:()=>all, active:()=>active, zoom:()=>zoom, shiftOrigin:(dx,dy)=>{if(dx||dy){view.x-=dx*zoom;view.y-=dy*zoom;resting=false;}}, shiftViewport:(dx,dy)=>{if(dx||dy)moveView(view.x+dx,view.y+dy);}, holdView:()=>{resting=false;}, revealPlacements:revealPlacements, revealTarget:placement=>{const fit=Math.min((viewport.clientWidth-80)/placement.width,(viewport.clientHeight-80)/placement.height,1);changeZoom(fit);const rect=world.getBoundingClientRect(),region=viewport.getBoundingClientRect();moveView(view.x+region.left+viewport.clientWidth/2-(rect.left+(placement.x+graph.origin.x+placement.width/2)*zoom),view.y+region.top+viewport.clientHeight/2-(rect.top+(placement.y+graph.origin.y+placement.height/2)*zoom));}, preview:c=>previewHref(c), layout:()=>{ if(resting)rest();else applyView(); }, mode:mode=>{ if(mode==='canvas'){zoom=1;settleCushion();}else{viewport.scrollLeft=0;viewport.scrollTop=0;} }, reloadReader:()=>loadRevision(), saveStatus:setSaveStatus, openOwner:()=>{const c=graph.ownerConcept();if(c)openReader(c.key);}, closeReader:()=>closeReader(), flushNotes:flushNoteEdits, liveReady:()=>{void drainLiveUpdates().catch(()=>{});}, data:acceptGraphData, viewOnly:overview });
+    if (!graph) graph = new WorkspaceBoard(appConfig, data, { concepts:()=>all, active:()=>active, zoom:()=>zoom, shiftOrigin:(dx,dy)=>{if(dx||dy){view.x-=dx*zoom;view.y-=dy*zoom;resting=false;}}, shiftViewport:(dx,dy)=>{if(dx||dy)moveView(view.x+dx,view.y+dy);}, holdView:()=>{resting=false;}, revealPlacements:revealPlacements, revealTarget:placement=>{const fit=Math.min((viewport.clientWidth-80)/placement.width,(viewport.clientHeight-80)/placement.height,1);changeZoom(fit);const rect=world.getBoundingClientRect(),region=viewport.getBoundingClientRect();moveView(view.x+region.left+viewport.clientWidth/2-(rect.left+(placement.x+graph.origin.x+placement.width/2)*zoom),view.y+region.top+viewport.clientHeight/2-(rect.top+(placement.y+graph.origin.y+placement.height/2)*zoom));}, preview:c=>previewHref(c), layout:()=>{ if(resting)rest();else applyView(); }, mode:mode=>{ if(mode==='canvas'){zoom=1;settleCushion();}else{viewport.scrollLeft=0;viewport.scrollTop=0;} }, reloadReader:()=>loadRevision(), saveStatus:setSaveStatus, openOwner:()=>{const c=graph.ownerConcept();if(c)openReader(c.key);}, closeReader:()=>closeReader(), flushNotes:flushNoteEdits, liveReady:()=>{void drainLiveUpdates().catch(()=>{});}, data:acceptGraphData, editNote:(key,anchor)=>openTileNote(key,anchor), viewOnly:overview });
     if (overview) graph.mode = 'canvas';
     return graph.adapt(data);
   }
@@ -180,18 +183,16 @@ function buildCanvas() {
   if (graph) { graph.build(all); wireReaderReview(); updateMetadata(); renderNav(); applyNotes(); projectNavigator?.refresh?.(); if (!landed) { landed = true; requestAnimationFrame(landFromChild); } return; }
   const retainedLegacy=new Map([...world.querySelectorAll(".concept-card")].map(card=>[card.dataset.key,card.querySelector("iframe")]));
   const cards = round => all.filter(concept => concept.round === round.id).map(concept => {
-    const versions = revisions[concept.key] || [];
-    const revisionButtons = versions.map(variant => `<button class="revision-button" type="button" data-open="${esc(concept.key)}" data-revision="${esc(variant.id)}">Try ${esc(variant.name)} ↗</button>`).join('');
-    const handoff = safeBoardPath(concept.handoff);
     const previewSource=previewHref(concept,null,concept.tone==='night'?'night':'paper');
     const retained=retainedLegacy.get(concept.key);
     const preview=retained?.dataset.previewSource===previewSource?retained.src:previewSource;
-    return `<article class="concept-card" data-key="${esc(concept.key)}" data-placement="${esc(concept.key)}"><header class="card-label"><div class="card-title"><span class="card-number">${esc(concept.number || String(concept.col + 1).padStart(2, '0'))}</span><h3>${esc(concept.name)}</h3><span class="card-category">${esc(concept.category || '')}</span></div><div class="card-actions">${revisionButtons}<button type="button" data-open="${esc(concept.key)}">Open experiment ↗</button>${handoff ? `<a class="handoff-link" href="${esc(handoff)}" target="_blank" rel="noopener">Handoff ↗</a>` : ''}<button class="remove-action" type="button" data-remove-experiment="${esc(concept.key)}" aria-label="Remove ${esc(concept.name)} from board" title="Get a removal prompt">Remove…</button></div></header><div class="preview"><iframe src="${esc(preview)}" data-preview-source="${esc(previewSource)}" title="${esc(concept.name)} preview" tabindex="-1" loading="eager" inert></iframe><button class="preview-launch" type="button" data-open="${esc(concept.key)}" aria-label="Explore ${esc(concept.name)}"><span>Open ${esc(concept.name)} ↗</span></button></div><div class="card-copy"><div><p>${esc(concept.description || '')}</p><p class="question">${esc(concept.question || '')}</p></div><div class="note-box"><button class="shortlist" type="button" data-star="${esc(concept.key)}" aria-label="Shortlist ${esc(concept.name)}" aria-pressed="false">☆</button><label>Thoughts to return to · ${esc(commitShortcutLabel())} to save<textarea aria-keyshortcuts="Meta+Enter Control+Enter" data-note="${esc(concept.key)}" placeholder="What feels right? What gets in the way?" aria-label="Notes on ${esc(concept.name)}"></textarea></label></div></div></article>`;
+    return `<article class="concept-card" data-key="${esc(concept.key)}" data-placement="${esc(concept.key)}"><header class="card-label"><div class="card-title">${concept.number ? `<span class="card-number">${esc(concept.number)}</span>` : ''}<h3>${esc(concept.name)}</h3><span class="build-badge"></span></div><div class="card-actions"><button class="shortlist" type="button" data-star="${esc(concept.key)}" aria-label="Favorite ${esc(concept.name)}" aria-pressed="false">☆</button><button type="button" data-tile-notes="${esc(concept.key)}" aria-label="Notes on ${esc(concept.name)}" title="Notes">${noteGlyph}<span class="tile-note-dot" hidden></span></button><button type="button" data-legacy-menu="${esc(concept.key)}" aria-label="Actions for ${esc(concept.name)}" aria-haspopup="menu" aria-expanded="false">${moreGlyph}</button></div></header><div class="preview"><iframe src="${esc(preview)}" data-preview-source="${esc(previewSource)}" title="${esc(concept.name)} preview" tabindex="-1" loading="eager" inert></iframe><button class="preview-launch" type="button" data-open="${esc(concept.key)}" aria-label="Explore ${esc(concept.name)}"><span>Open ${esc(concept.name)} ↗</span></button></div></article>`;
   }).join('');
   const freshLegacy=document.createElement("template");
   freshLegacy.innerHTML = rounds.map(round => `<section class="round" data-round="${esc(round.id)}" aria-labelledby="round-heading-${esc(round.id)}"><header class="round-header"><span class="round-label">ROUND ${esc(round.number || '')} · ${esc(round.date || '')}</span><h2 id="round-heading-${esc(round.id)}">${esc(round.title || 'Exploration')}</h2><p>${esc(round.description || '')}</p></header><div class="concepts">${cards(round)}</div></section>`).join('') + '<section class="future-row"><span>CONTINUE EXPLORING</span><h2>Room for what comes next.</h2><p>New explorations can join this board without replacing earlier work.</p></section>';
   reconcileChildren(world,freshLegacy.content);
   decorateBuildCards();
+  applyNotes();
   renderNav();
   if (resting) rest(); else applyView();
   updateMetadata();
@@ -924,10 +925,74 @@ function endScrub(commit) {
   void drainLiveUpdates().catch(()=>{});
 }
 
+// ---- On-demand tile controls ----
+const noteGlyph='<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 3.5h9l3.5 3.5v13.5H6zM9 11h6M9 15h4"/></svg>';
+const moreGlyph='<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="5" cy="12" r="1.5"/><circle cx="12" cy="12" r="1.5"/><circle cx="19" cy="12" r="1.5"/></svg>';
+const tileNotes=new TileNotes({
+  read:key=>notes[key]?.note||'',
+  draftKey:key=>`tinka/${workspaceId}/${boardId}/note-draft/${key}`,
+  save:async(key,value)=>{
+    if(graph){
+      const item=all.find(c=>c.key===key)?.graphItem;
+      if(!item)throw Error('This item is no longer on the board.');
+      await graph.saveTileNote(item.id,value);
+    } else {
+      const updatedAt=Date.now();
+      await persistLegacyNotes(saveSequence,()=>JSON.stringify({...notes,[key]:{...notes[key],note:value,updatedAt}}),()=>{
+        // Publish only after ACK, preserving star changes made during this save.
+        notes[key]={...notes[key],note:value,updatedAt};
+        try{localStorage.setItem(notesKey,JSON.stringify(notes));}catch{}
+      });
+    }
+    applyNotes();
+  },
+  discard:async key=>{
+    if(graph){await graph.refresh({saveReview:false});return;}
+    const baseline=legacyCommittedNotes[key]?.note||'', local=notes[key]?.note||'', sequence=legacyCommitSequence;
+    const response=await fetch(`${boardApi}/notes`,{cache:'no-store',signal:AbortSignal.timeout(3000)});
+    if(!response.ok)return;
+    const current=await response.json();
+    // A later ACK or a separate local editor wins over this read. Otherwise
+    // return to the latest committed note, including another writer's update.
+    if(sequence!==legacyCommitSequence || (notes[key]?.note||'')!==local || local!==baseline)return;
+    legacyCommittedNotes=current;
+    notes[key]={...notes[key],note:current[key]?.note||''};
+    try{localStorage.setItem(notesKey,JSON.stringify(notes));}catch{}
+    applyNotes();
+  }
+});
+async function openTileNote(key,anchor){
+  if(!await ensureNotesReady())return;
+  const concept=all.find(c=>c.key===key);if(!concept)return;
+  // A Notes menu row is removed before this handler runs. Anchor the editor to
+  // the persistent tile control, not that detached row's empty rectangle.
+  const tile=world.querySelector(`[data-key="${CSS.escape(key)}"]`);
+  if(!anchor?.isConnected||!tile?.contains(anchor))anchor=tile?.querySelector(graph?'[data-item-controls]':'[data-legacy-menu]')||anchor;
+  closeLegacyMenu();graph?.closeContext();tileNotes.open({key,title:concept.name,anchor});
+}
+let legacyMenu=null,legacyMenuKey=null,legacyMenuBinding=null;
+function closeLegacyMenu(focus=false){legacyMenuBinding?.destroy();legacyMenuBinding=null;const key=legacyMenuKey;legacyMenu?.remove();legacyMenu=null;legacyMenuKey=null;const button=document.querySelector(`[data-legacy-menu="${CSS.escape(key||'')}"]`);button?.setAttribute('aria-expanded','false');if(focus)button?.focus({preventScroll:true});}
+function openLegacyMenu(key,anchor){
+  if(legacyMenuKey===key){closeLegacyMenu(true);return;}
+  closeLegacyMenu();tileNotes.close();
+  const concept=all.find(c=>c.key===key);if(!concept)return;
+  const handoff=safeBoardPath(concept.handoff),unavailable=['reserved','building'].includes(liveSnapshot?.concepts?.[key]?.state);
+  const menu=document.createElement('div');menu.className='tk-menu workspace-tile-menu legacy-tile-menu';menu.setAttribute('role','menu');menu.setAttribute('aria-label',`Actions for ${concept.name}`);
+  menu.innerHTML=`<button role="menuitem" class="tk-mi" data-open="${esc(key)}" ${unavailable?'disabled':''}>Open experiment</button>${(revisions[key]||[]).map(variant=>`<button role="menuitem" class="tk-mi" data-open="${esc(key)}" data-revision="${esc(variant.id)}" ${unavailable?'disabled':''}>Try ${esc(variant.name)}</button>`).join('')}${handoff?`<a role="menuitem" class="tk-mi" href="${esc(handoff)}" target="_blank" rel="noopener">Handoff</a>`:''}<button role="menuitem" class="tk-mi" data-tile-notes="${esc(key)}">Notes</button><div class="tk-msep" role="separator"></div><button role="menuitem" class="tk-mi tk-danger" data-remove-experiment="${esc(key)}">Remove from board…</button>`;
+  legacyMenu=menu;legacyMenuKey=key;document.body.append(menu);anchor.setAttribute('aria-expanded','true');positionTilePopover(menu,anchor);legacyMenuBinding=bindTileMenu(menu,{close:()=>closeLegacyMenu(),returnFocus:anchor,anchor});
+  menu.addEventListener('click',event=>{if(event.target.closest('[role="menuitem"]'))closeLegacyMenu();});
+}
+document.addEventListener('click',event=>{const menu=event.target.closest('[data-legacy-menu]');if(menu)openLegacyMenu(menu.dataset.legacyMenu,menu);const note=event.target.closest('[data-tile-notes]');if(note)openTileNote(note.dataset.tileNotes,note);});
+document.addEventListener('pointerdown',event=>{if(legacyMenu&&!event.target.closest('.legacy-tile-menu,[data-legacy-menu]'))closeLegacyMenu();},true);
+window.addEventListener('resize',()=>closeLegacyMenu());
+
 // ---- Notes ----
 function applyNotes() {
+  $('reader-note').disabled=!graph&&!notesReady;
+  $('reader-star').disabled=!graph&&!notesReady;
+  document.querySelectorAll('[data-tile-notes]').forEach(element=>{const has=Boolean(notes[element.dataset.tileNotes]?.note);element.querySelector('.tile-note-dot')?.toggleAttribute('hidden',!has);element.title=has?'Notes · has a saved note':'Notes';});
   document.querySelectorAll('[data-note]').forEach(element => { const value = notes[element.dataset.note]?.note || ''; if (element.value !== value) element.value = value; });
-  document.querySelectorAll('[data-star]').forEach(element => { const starred = Boolean(notes[element.dataset.star]?.star); element.setAttribute('aria-pressed', String(starred)); if(!element.querySelector('svg'))element.textContent = starred ? '★' : '☆'; });
+  document.querySelectorAll('[data-star]').forEach(element => { const starred = Boolean(notes[element.dataset.star]?.star); element.setAttribute('aria-pressed', String(starred)); element.disabled=!graph&&!notesReady; if(!element.querySelector('svg'))element.textContent = starred ? '★' : '☆'; });
   syncReaderNotes();
 }
 
@@ -956,27 +1021,36 @@ function mergeNotes(base, incoming) {
 async function flushNoteEdits(){
   clearTimeout(saveTimer);
   if(graph){if(await graph.saveReview(active&&!all.includes(active)?[...all,active]:all,notes)===false)throw Error('Notes remain in this browser. Try again.');return;}
-  await persistLegacyNotes(saveSequence,JSON.stringify(notes));
+  if(!await ensureNotesReady())throw Error('Notes unavailable. Reconnect and try Notes again before editing.');
+  await persistLegacyNotes(saveSequence,()=>JSON.stringify(notes));
 }
-function persistLegacyNotes(revision,body){
+function persistLegacyNotes(revision,body,onSaved=()=>{}){
   const attempt=saveQueue.catch(()=>{}).then(async()=>{
-    try{const response=await fetch(`${boardApi}/notes`,{method:'PUT',headers:{'Content-Type':'application/json','X-Tinka-Workspace':workspaceId},body});if(!response.ok)throw new Error('Notes not saved. Retry when the service is ready.');if(revision===saveSequence)setSaveStatus('Notes saved on this Mac','saved');}
+    try{const payload=typeof body==='function'?body():body;const response=await fetch(`${boardApi}/notes`,{method:'PUT',headers:{'Content-Type':'application/json','X-Tinka-Workspace':workspaceId},body:payload});if(!response.ok)throw new Error('Notes not saved. Retry when the service is ready.');legacyCommittedNotes=JSON.parse(payload);legacyCommitSequence++;onSaved();if(revision===saveSequence)setSaveStatus('Notes saved on this Mac','saved');}
     catch(error){if(revision===saveSequence)setSaveStatus('Saved in this browser · retry or export notes','local');throw error;}
   });saveQueue=attempt.catch(()=>{});return attempt;
 }
 function storeNotes() {
   if (graph) { graph.captureReview(active&&!all.includes(active)?[...all,active]:all,notes); clearTimeout(saveTimer); setSaveStatus('Saving item notes…','saving'); saveTimer=setTimeout(()=>graph.saveReview(active&&!all.includes(active)?[...all,active]:all,notes),350); return; }
+  if(!notesReady){setSaveStatus('Notes unavailable · reconnect and try Notes again','local');return;}
   const revision = ++saveSequence;
   try { localStorage.setItem(notesKey, JSON.stringify(notes)); } catch {}
   setSaveStatus('Saving notes…', 'saving');
   clearTimeout(saveTimer);
   saveTimer = setTimeout(() => {
-    void persistLegacyNotes(revision,JSON.stringify(notes)).catch(()=>{});
+    void persistLegacyNotes(revision,()=>JSON.stringify(notes)).catch(()=>{});
   }, 350);
 }
 
+// Coalesce the cold read. Editing and whole-map legacy writes must not start
+// from an empty placeholder while the authoritative notes are still unknown.
+async function ensureNotesReady(){
+  if(notesReady)return true;
+  if(!notesLoading)notesLoading=loadNotes().finally(()=>{notesLoading=null;});
+  return notesLoading;
+}
 async function loadNotes() {
-  if (graph) { notes = board.graphNotes || {}; applyNotes(); setSaveStatus(graph.pendingReview.size?'Unsaved feedback restored · retry when ready':'Item notes saved on this Mac',graph.pendingReview.size?'local':'saved'); return; }
+  if (graph) { notes = board.graphNotes || {}; notesReady=true; applyNotes(); setSaveStatus(graph.pendingReview.size?'Unsaved feedback restored · retry when ready':'Item notes saved on this Mac',graph.pendingReview.size?'local':'saved'); return true; }
   const backup = localNotes(notesKey);
   let server = {};
   let connected = false;
@@ -984,20 +1058,23 @@ async function loadNotes() {
     const response = await fetch(`${boardApi}/notes`, { cache: 'no-store' });
     if (!response.ok) throw new Error('Notes unavailable');
     const value = await response.json();
-    if (value && typeof value === 'object' && !Array.isArray(value)) server = value;
-    connected = true;
+    if(!value||typeof value!=='object'||Array.isArray(value))throw Error('Notes unavailable');
+    server=value;connected = true;
   } catch {}
+  notesReady=connected;
+  legacyCommittedNotes = structuredClone(server);
   notes = { ...server };
   const changed = mergeNotes(notes, backup);
-  setSaveStatus(connected ? 'Notes saved on this Mac' : 'Browser notes · local service unavailable', connected ? 'saved' : 'local');
+  setSaveStatus(connected ? 'Notes saved on this Mac' : 'Notes unavailable · reconnect and try Notes again', connected ? 'saved' : 'local');
   applyNotes();
-  if (changed && !overview) storeNotes();
+  if (changed && connected && !overview) storeNotes();
+  return connected;
 }
 
 // ---- Live build state ----
 function decorateBuildCards() {
   document.querySelectorAll('.concept-card').forEach(card => {
-    const badge = document.createElement('span'); badge.className = 'build-badge'; badge.textContent = 'Connecting'; card.querySelector('.card-title').append(badge);
+    const badge = card.querySelector('.build-badge'); badge.textContent = 'Connecting';
     const overlay = document.createElement('div'); overlay.className = 'build-overlay'; overlay.hidden = true;
     const orbit = document.createElement('i'); orbit.className = 'build-orbit'; orbit.setAttribute('aria-hidden', 'true');
     overlay.append(orbit, document.createElement('strong'), document.createElement('span'));
@@ -1091,7 +1168,7 @@ function liveBlocked(){
   // Legacy board notes already preserve their exact value and selection during
   // keyed manifest reconciliation. Other editors retain deferred refresh.
   const legacyNote=!graph&&focused?.matches('textarea[data-note]')&&world.contains(focused);
-  const editing=focused?.closest?.('textarea,input,select,[contenteditable]')&&!legacyNote;
+  const editing=focused?.closest?.('textarea,input,select,[contenteditable]')&&!legacyNote&&!focused?.closest('.tile-notes');
   return !!(pointers.size||scrub||graph?.liveBlocked?.()||graph?.pointerGesture||graph?.decorationGesture||graph?.moveCommitting||graph?.client.pendingWrites||graph?.saving||editing||document.querySelector('dialog.workspace-dialog[open]'));
 }
 async function drainLiveUpdates(){
@@ -1183,9 +1260,11 @@ document.addEventListener('click', event => {
   const remove = event.target.closest('[data-remove-experiment]');
   if (remove && appConfig) {
     const concept = all.find(item => item.key === remove.dataset.removeExperiment);
-    if (concept) openRemovalPrompt(appConfig, board, concept);
+    if (concept) {closeLegacyMenu();document.querySelector(`[data-legacy-menu="${CSS.escape(concept.key)}"]`)?.focus({preventScroll:true});openRemovalPrompt(appConfig, board, concept);}
   }
   if (open && !open.disabled) {
+    closeLegacyMenu();
+    tileNotes.close();
     const concept = graph && (all.find(item => item.key === open.dataset.open) || graph.aliasConcept(open.dataset.open));
     if (concept?.graphItem.childBoardId && !concept.graphItem.content)
       graph.navigate(concept.graphItem.childBoardId, concept.placement?.id);
@@ -1216,6 +1295,8 @@ $('reader-note').setAttribute('aria-keyshortcuts','Meta+Enter Control+Enter');
 const readerNoteHint=document.createElement('small');readerNoteHint.className='workspace-submit-hint';readerNoteHint.textContent=`${commitShortcutLabel()} to save`; $('reader-note').after(readerNoteHint);
 document.addEventListener('keydown', event => {
   if (event.key !== 'Escape' || event.defaultPrevented || event.isComposing || event.keyCode===229 || event.repeat || document.querySelector('dialog.workspace-dialog[open]')) return;
+  if (tileNotes.element) {event.preventDefault();event.stopImmediatePropagation();tileNotes.close({focus:true});return;}
+  if (legacyMenu) {event.preventDefault();event.stopImmediatePropagation();closeLegacyMenu(true);return;}
   if (dialog.open) { handleEscape(event); event.preventDefault(); return; }
   if (!$('zoom-menu').hidden) { event.preventDefault(); setZoomMenuOpen(false, { focus: true }); return; }
   if (!$('board-info').hidden) { event.preventDefault(); setInfoOpen(false, { focus: true }); }
@@ -1312,7 +1393,7 @@ function syncViewChrome() {
   while (step < 9) { step *= 2; major *= 2; }
   viewport.style.setProperty('--pattern-step', `${step}px`);
   viewport.style.setProperty('--pattern-major', `${major}px`);
-  viewport.style.setProperty('--pattern-fade', String(canvasMode ? Math.max(.45, Math.min(1, .55 + zoom * .6)) : 1));
+  viewport.style.setProperty('--pattern-fade', String(canvasMode ? Math.max(0, Math.min(1, (zoom - .25) / .75)) ** 1.5 : 1));
   const ox = canvasMode ? view.x + (graph?.origin?.x || 0) * zoom : 0, oy = canvasMode ? view.y + (graph?.origin?.y || 0) * zoom : 0;
   viewport.style.setProperty('--pattern-x', `${Math.round(ox)}px`);
   viewport.style.setProperty('--pattern-y', `${Math.round(oy)}px`);
@@ -1449,7 +1530,7 @@ viewport.addEventListener('pointerdown', event => {
   if (graph?.mode === 'grid') return;
   if (graph && (event.pointerType !== 'touch' || (event.target.closest('button') && !event.target.closest('.workspace-preview-launch')))) return;
   if (event.pointerType === 'mouse' && event.button !== 0) return;
-  if (event.target.closest('textarea,input,select,a')) return;
+  if (event.target.closest('textarea,input,select,a,button')) return;
   stopGlide();
   pointers.set(event.pointerId, { x: event.clientX, y: event.clientY, canPan: !graph || !event.target.closest('.workspace-card') });
   if (pointers.size === 1) {
@@ -1626,7 +1707,7 @@ else {
     else { const b=document.createElement('button');b.type='button';b.textContent='Enable organization…';b.onclick=()=>enableOrganization(appConfig);document.querySelector('.info-actions').append(b); }
     currentRound = Math.max(0, rounds.length - 1);
     buildCanvas();
-    await loadNotes();
+    await ensureNotesReady();
     setTheme(readerView.theme, false);
     setType(readerView.type, false);
     if (overview) {

@@ -1,0 +1,30 @@
+// Independent pointer targets: titles, selection and menu must survive hover.
+import assert from 'node:assert/strict';
+import {mkdtemp,mkdir,writeFile,rm} from 'node:fs/promises';import os from 'node:os';import path from 'node:path';import {pathToFileURL} from 'node:url';
+import {main} from '../cli.mjs';import {loadConfig} from '../lib/config.mjs';import {applyOperation,getBoardSnapshot} from '../lib/workspace.mjs';import {listen,closeAppServer} from '../server.mjs';
+const {chromium}=await import(process.env.PLAYWRIGHT_MODULE?pathToFileURL(process.env.PLAYWRIGHT_MODULE).href:'playwright');
+const root=await mkdtemp(path.join(os.tmpdir(),'tinka-tile-targets-')),evidence=process.env.TINKA_EVIDENCE_DIR||await mkdtemp(path.join(os.tmpdir(),'tinka-tile-target-evidence-'));await mkdir(evidence,{recursive:true});let browser,server;const errors=[];
+try{
+ const file=path.join(root,'config.json');await main(['init','--config',file,'--boards',path.join(root,'boards'),'--label','Pointer review']);const config=await loadConfig(file),op=async(type,fields)=>(await applyOperation(config,{type,...fields})).result;await op('createBoard',{id:'targets',title:'Independent tile controls'});
+ const assets=path.join(config.boardsRoot,'assets');await mkdir(assets);await writeFile(path.join(assets,'design.html'),'<!doctype html><style>body{margin:0;background:#fff7e7;color:#243b58;font:24px system-ui;padding:24px}h1{font-size:32px}</style><h1>Woodland animals</h1><p>The work keeps its own colors.</p>');await op('updateWorkspace',{patch:{resourceRoots:{assets:{path:'../assets'}}}});
+ const ids={};for(const [id,title,width,height,x,y,mode] of [['panel','Woodland animals',320,280,0,0,'panel'],['card','A compact day',320,240,380,0,'card'],['small','Small saved note',130,130,0,340,'card']]){const result=await op('createItem',{boardId:'targets',item:{id,title,content:id==='small'?{kind:'note',text:'Keep the useful part.'}:{kind:'html',resource:{rootId:'assets',path:'design.html'}}},placement:{x,y,width,height,presentation:{mode,viewport:{width:500,height:300}}}});ids[id]=result.placementIds[0];await op('review',{itemId:id,patch:{note:'A saved note',star:true}});}
+ const before=await getBoardSnapshot(config,'targets');server=await listen(config,{port:0});const base=`http://127.0.0.1:${server.address().port}`;browser=await chromium.launch({headless:true,...(process.env.CHROMIUM_EXECUTABLE?{executablePath:process.env.CHROMIUM_EXECUTABLE}:{})});const page=await browser.newPage({viewport:{width:1440,height:960},colorScheme:'dark'});page.on('pageerror',error=>errors.push(error.message));
+ const card=id=>page.locator(`[data-placement="${ids[id]}"]`);
+ for(const mode of ['canvas','grid'])for(const width of [1440,390]){
+  await page.setViewportSize({width,height:960});await page.goto(base+'/boards/targets/');await page.evaluate(({id,mode})=>localStorage.setItem(`tinka/${id}/targets/layout`,mode),{id:config.workspaceId,mode});await page.reload();await card('panel').waitFor();assert.equal(await page.locator('body').getAttribute('data-board-layout'),mode);
+  for(const id of ['panel','card','small']){
+   // Hover reveals shortcuts first, reproducing the title interception failure.
+   await card(id).hover();const title=card(id).locator(id==='panel'?'.workspace-panel-title':'h3 button');await title.focus();await title.click();await page.locator('#reader-dialog').waitFor({state:'visible'});await page.locator('#close-reader').click();await page.locator('#reader-dialog').waitFor({state:'hidden'});
+   // A saved note's indicator is present while both independent corner targets work.
+   assert.equal(await card(id).locator('.workspace-tile-more .workspace-note-dot').count(),1);
+   const selection=card(id).locator('[data-placement-select]');await selection.click();assert.equal(await selection.getAttribute('aria-pressed'),'true');await selection.click();assert.equal(await selection.getAttribute('aria-pressed'),'false');
+   const more=card(id).locator('[data-item-controls]');
+   const anchored=await more.evaluate(button=>{const tile=button.closest('.workspace-card').getBoundingClientRect(),menu=button.getBoundingClientRect(),selection=button.closest('.workspace-card').querySelector('[data-placement-select]').getBoundingClientRect();return {menuInside:menu.left>=tile.left&&menu.right<=tile.right+.1&&menu.top>=tile.top&&menu.bottom<=tile.bottom+.1,selectionCorner:Math.abs(selection.x+selection.width/2-tile.x)<=16&&Math.abs(selection.y+selection.height/2-tile.y)<=16};});
+   assert.deepEqual(anchored,{menuInside:true,selectionCorner:true},`${mode} ${width} ${id} controls anchor to their own card`);
+   await more.click();await page.locator('.workspace-tile-menu').waitFor();await page.keyboard.press('Escape');await more.focus();await page.keyboard.press('Enter');await page.locator('.workspace-tile-menu').waitFor();await page.locator('[data-tile-menu="notes"]').click();assert.equal(await page.locator('.tile-notes textarea').inputValue(),'A saved note');await page.keyboard.press('Escape');
+   if(id==='small'&&mode==='canvas')assert.equal(await card(id).locator('.workspace-tile-toolbar').isVisible(),false,'Small tile does not carry the wider hover toolbar');
+  }
+  await card('panel').hover();await page.screenshot({path:path.join(evidence,`independent-targets-${mode}-${width}.png`)});
+ }
+ const after=await getBoardSnapshot(config,'targets');assert.deepEqual(after.placements,before.placements);assert.equal(after.revision,before.revision,'Pointer/focus/menu loops make no metadata writes');assert.deepEqual(errors,[]);console.log(JSON.stringify({passed:true,evidence,checks:['hovered panel and compact titles click/focus independently','130px saved tile selection and menu pointer targets','saved note indicator does not intercept','ellipsis pointer and keyboard entry','notes reopen saved value','Canvas/Grid per-card control bounds and390/1440 pointer targets','unchanged geometry/revision'],errors}));
+}finally{await browser?.close();if(server)await closeAppServer(server);await rm(root,{recursive:true,force:true,maxRetries:3,retryDelay:100});}

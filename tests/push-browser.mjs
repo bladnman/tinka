@@ -1,3 +1,4 @@
+import {openItemDetails} from './tile-test-helpers.mjs';
 // Headless focused push evidence. No real project/browser/clipboard is used.
 import assert from 'node:assert/strict';
 import {mkdtemp,mkdir,writeFile,rm} from 'node:fs/promises';
@@ -30,7 +31,7 @@ try{
  await cli({type:'updateBoard',boardId:'live',patch:{title:'Pushed title'}});await page.waitForFunction(()=>document.querySelector('#board-title').textContent.includes('Pushed title'));
  assert.equal(await page.evaluate(()=>window.retainedCardFrame===document.querySelector('.workspace-live-preview iframe')),true,'metadata keeps mounted card iframe');
  // An unsaved form remains exact while a push waits; cancel then drains it.
- await card.locator('[data-item-controls]').click();await page.locator('[data-context-edit]').click();const field=page.locator('dialog.workspace-dialog [name=description]');await field.fill('Unsaved form draft');await field.focus();
+ await openItemDetails(card.locator('[data-item-controls]'));await page.locator('[data-context-edit]').click();const field=page.locator('dialog.workspace-dialog [name=description]');await field.fill('Unsaved form draft');await field.focus();
  await cli({type:'updateBoard',boardId:'live',patch:{title:'Queued while editing'}});await page.waitForTimeout(1200);assert.equal(await field.inputValue(),'Unsaved form draft');assert.equal(await page.locator('#board-title').textContent(),'Pushed title');
  await page.locator('dialog.workspace-dialog .workspace-close').click();await page.waitForFunction(()=>document.querySelector('#board-title').textContent==='Queued while editing');
  // Background metadata/resource changes defer throughout a native pointer gesture.
@@ -40,10 +41,10 @@ try{
  // Local canonical-review drafts remain unsaved through remote reconciliation.
  let reviewAttempts=0;
  await page.route('**/api/operations',route=>{if(route.request().postDataJSON()?.type==='review'){reviewAttempts++;return route.abort();}return route.continue();});
- await card.locator('[data-item-controls]').click();const note=page.locator('#workspace-item-controls [data-note]');await note.fill('Retain local review draft');await note.focus();await page.waitForTimeout(500);await page.locator('#workspace-item-controls [data-context-close]').click();await card.locator('[data-item-controls]').click();await note.focus();const attemptsBeforePush=reviewAttempts;
+ await openItemDetails(card.locator('[data-item-controls]'));const note=page.locator('#workspace-item-controls [data-note]');await note.fill('Retain local review draft');await note.focus();await page.waitForTimeout(500);await page.locator('#workspace-item-controls [data-context-close]').click();await openItemDetails(card.locator('[data-item-controls]'));await note.focus();const attemptsBeforePush=reviewAttempts;
  await cli({type:'updateBoard',boardId:'live',patch:{title:'Review draft retained'}});await page.waitForTimeout(1200);assert.equal(await note.inputValue(),'Retain local review draft');
  await page.locator('#workspace-item-controls [data-context-close]').click();await page.waitForFunction(()=>document.querySelector('#board-title').textContent==='Review draft retained');
- await card.locator('[data-item-controls]').click();assert.equal(await page.locator('#workspace-item-controls [data-note]').inputValue(),'Retain local review draft');assert.equal(reviewAttempts,attemptsBeforePush,'remote refresh does not save local draft');
+ await openItemDetails(card.locator('[data-item-controls]'));assert.equal(await page.locator('#workspace-item-controls [data-note]').inputValue(),'Retain local review draft');assert.equal(reviewAttempts,attemptsBeforePush,'remote refresh does not save local draft');
  const stored=JSON.parse(await main(['tools','call','item.get','--config',configPath,'--json','{"itemId":"html"}']));assert.equal(stored.review.note,'');await page.locator('#workspace-item-controls [data-context-close]').click();
  await card.locator('[data-open]').first().click();await page.locator('#reader-dialog').waitFor({state:'visible'});
  const reader=page.frameLocator('#active-reader').frameLocator('iframe');await reader.locator('#draft').fill('Keep mounted reader input');

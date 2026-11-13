@@ -270,7 +270,7 @@ not evidence that the work can be understood on the board.
 
 For new visual comparisons, `createItem` (including `item.create` and the Add
 form) defaults HTML, images, video, PDF, Markdown and saved-image previews to
-**Full preview**, 720 × 560 board units. Title-only ideas keep Compact card.
+**Full preview**, 720 × 560 board units. A natural-size 360 × 650 viewport needs a 388 × 704 placement including the 14-unit host insets and 40-unit title row; existing saved sizes still fit the complete preview. Title-only ideas keep Compact card.
 Explicit `placement.presentation.mode` and width/height always win. Existing
 placements are never resized or converted when the app changes.
 

@@ -10,6 +10,8 @@
   --surface-1: #fdfdfb;
   --surface-2: #ffffff;
   --surface-sunken: #e7e6df;
+  --tile-surface: #e5e5dc;
+  --tile-shadow: 0 2px 7px rgba(35,39,31,.035);
   --field: #f4f3ee;
   --field-line: #868a7c;
   --line: #dfddd4;
@@ -29,7 +31,7 @@
   --sage: #899477;
   --danger: #a4462f;
   --warn: #8a6314;
-  --dot: rgba(35, 39, 31, .17);
+  --dot: rgba(35, 39, 31, .085);
   --grid-minor: rgba(35, 39, 31, .055);
   --grid-major: rgba(35, 39, 31, .09);
   --scrim: rgba(35, 39, 31, .16);
@@ -69,7 +71,9 @@ html[data-appearance="dark"] {
   --surface-1: #3a3c37;
   --surface-2: #43453f;
   --surface-sunken: #262724;
-  --field: #2a2b28;
+  --tile-surface: #373c31;
+  --tile-shadow: 0 2px 7px rgba(0,0,0,.12);
+  --field: #2b3027;
   --field-line: #85877d;
   --line: #4a4c46;
   --line-strong: #5f615a;
@@ -88,7 +92,7 @@ html[data-appearance="dark"] {
   --sage: #8c9a76;
   --danger: #eb9d86;
   --warn: #d9b25a;
-  --dot: rgba(236, 236, 229, .13);
+  --dot: rgba(204, 216, 182, .08);
   --grid-minor: rgba(236, 236, 229, .045);
   --grid-major: rgba(236, 236, 229, .08);
   --scrim: rgba(10, 10, 8, .35);

@@ -1,3 +1,4 @@
+import {openItemDetails} from './tile-test-helpers.mjs';
 import assert from 'node:assert/strict';
 import {mkdtemp,mkdir,writeFile,rm} from 'node:fs/promises';
 import os from 'node:os';
@@ -42,7 +43,7 @@ try {
  await page.screenshot({path:path.join(evidence,'cards-desktop-dark.png')});
  // Compact title opens the existing reader, then returns to the same placement.
  await imageCard.locator('h3 button').click();await page.locator('#reader-dialog').waitFor({state:'visible'});await page.locator('#close-reader').click();await page.locator('#reader-dialog').waitFor({state:'hidden'});
- await imageCard.locator('[data-item-controls]').click();await page.locator('#workspace-item-controls').waitFor({state:'visible'});
+ await openItemDetails(imageCard.locator('[data-item-controls]'));await page.locator('#workspace-item-controls').waitFor({state:'visible'});
  await page.locator('#workspace-item-controls [data-context-close]').click();
  // Direct Add form shares the backend default; no client-side compact override.
  await page.locator('#board-info-toggle').click();

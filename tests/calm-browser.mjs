@@ -1,3 +1,4 @@
+import {openItemDetails} from './tile-test-helpers.mjs';
 // Headless checks for the calm board chrome: one green, side panels with
 // click-away/Escape, selection without checkboxes, the view pill and the
 // browser-local Dots/Grid/Plain preference. External temporary fixtures only.
@@ -43,13 +44,15 @@ try{
  await page.locator('#board-info-toggle').click();await page.keyboard.press('Escape');
  assert.equal(await page.locator('#board-info').isVisible(),false);assert.equal(await page.evaluate(()=>document.activeElement.id),'board-info-toggle');
  // Item Inspector replaces the attached ⋯ popup; click-away and Escape dismiss it.
- await card(a).hover();await card(a).locator('[data-item-controls]').click();
+ await card(a).hover();await openItemDetails(card(a).locator('[data-item-controls]'));
  const inspector=page.locator('#workspace-item-controls');await inspector.waitFor();
  const box=await inspector.boundingBox();assert.ok(box.x+box.width>1440-12&&box.width>=300,'Item Inspector is the right-side panel');
  assert.ok(await inspector.locator('textarea[data-note]').count());assert.equal(await inspector.locator('[data-presentation]').count(),3);
  assert.match(await inspector.locator('.inspector-props').innerText(),/Created\s+just now/);
  await clickBlank();assert.equal(await inspector.count(),0,'Click-away closes the item Inspector');
- await card(a).locator('[data-item-controls]').click();await inspector.waitFor();await page.keyboard.press('Escape');assert.equal(await inspector.count(),0);
+ await openItemDetails(card(a).locator('[data-item-controls]'));await inspector.waitFor();await page.keyboard.press('Escape');assert.equal(await inspector.count(),0);
+ // The action menu selects its target; start this separate selection case empty.
+ await page.keyboard.press('Escape');assert.equal(await page.locator('.workspace-card.selected').count(),0);
  // Selection without checkboxes: Shift/⌘-click selects instead of opening; one floating bar acts on it.
  assert.equal(await page.locator('[data-placement-select]').evaluateAll(els=>els.some(el=>/[□✓]/.test(el.textContent))),false);
  await card(a).locator('h3 button').click({modifiers:['Shift']});

@@ -1,3 +1,4 @@
+import {positionTilePopover,bindTileMenu} from './tile-ui.js';
 import {bindCommitShortcut,commitShortcutLabel} from './interaction.js';
 import {Whiteboard,decorationMarkup,decorationUnchanged,lineBox} from "./whiteboard.js";
 import {decorationBounds,resolveLine} from "./whiteboard-geometry.js";
@@ -295,7 +296,7 @@ export class WorkspaceBoard {
     document.addEventListener("click", e => {
       if (!(e.shiftKey || e.metaKey || e.ctrlKey) || e.altKey || e.button !== 0) return;
       const card = e.target.closest("#world .workspace-card[data-placement]");
-      if (!card || e.target.closest("input,textarea,select,a[href],[contenteditable],[data-placement-select],.workspace-tile-toolbar,.workspace-resize")) return;
+      if (!card || e.target.closest("input,textarea,select,a[href],[contenteditable],[data-placement-select],[data-item-controls],.workspace-tile-toolbar,.workspace-resize")) return;
       e.preventDefault(); e.stopImmediatePropagation();
       const id = card.dataset.placement;
       this.whiteboard?.clearSelection({finishEdit:true,focus:false});
@@ -319,7 +320,7 @@ export class WorkspaceBoard {
       if (feedback) this.feedback.open({itemId:feedback.dataset.itemFeedback,returnFocus:feedback});
       const vote = e.target.closest("[data-item-vote]");
       if (vote) this.feedback.openVote({itemId:vote.dataset.itemVote,anchor:vote,returnFocus:vote});
-      if (context) this.itemControls(context.dataset.itemControls, context.dataset.controlsFocus);
+      if (context) { if(context.dataset.controlsFocus === 'menu'){if(this.tileMenuPlacement===context.dataset.itemControls)this.closeTileMenu();else this.tileMenu(context.dataset.itemControls,null,context);}else this.itemControls(context.dataset.itemControls, context.dataset.controlsFocus); }
       if (edit)
         itemForm(this.client, {
           item: this.snapshot.items[edit.dataset.editItem],
@@ -1119,7 +1120,6 @@ export class WorkspaceBoard {
           item.content?.kind === "html" && item.content?.resource && !item.content?.url);
       const excerpt = !!documentContent && !panel;
       const review = { ...item.review, ...this.pendingReview.get(item.id) };
-      const handoff = resourceURL(item.resources?.find(r => r.role === "handoff")?.resource);
       const previewSource = JSON.stringify([item.id, item.content || null, documentContent ? (panel ? "document-panel" : "document-card") : null]), previous = previews.get(p.id);
       let documentPreview = documentContent
         ? `/app/media.html?${new URLSearchParams({kind:"markdown",root:item.content.resource.rootId,path:item.content.resource.path,name:item.title,chrome:"none",mode:panel?"panel":"card"})}` : null;
@@ -1146,7 +1146,8 @@ export class WorkspaceBoard {
       const titleButton = `${tileNumber ? `<span class="workspace-concept-number workspace-caption-number">${esc(tileNumber)}</span>` : ""}<button type="button" class="workspace-panel-title" ${unavailable ? "disabled" : ""} data-open="${esc(c.key)}" title="${esc(item.title)}">${esc(item.title)}</button>`;
       const select = `<button type="button" class="workspace-select-dot" data-placement-select="${esc(p.id)}" aria-pressed="${selected}" aria-label="${selected ? "Deselect" : "Select"} ${esc(item.title)}" title="${selected ? "Deselect" : "Select"} (or Shift-click the item)"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="m5.5 10.2 3 3 6-6.4"/></svg></button>`;
       const footer = `<footer class="workspace-item-footer workspace-panel-caption">${p.presentation?.featuredFrom ? `<div class="workspace-feature-caption">${panel ? titleButton : ''}${sourceLine}</div>` : panel ? titleButton : placeMeta || '<span class="workspace-item-spacer" aria-hidden="true"></span>'}${badges}${this.mode === "canvas" ? `<button type="button" class="workspace-resize" data-resize="${esc(p.id)}" aria-label="Resize ${esc(item.title)}" title="Resize">◢</button>` : ""}</footer>`;
-      const toolbar = `<div class="workspace-tile-toolbar" role="toolbar" aria-label="Actions for ${esc(item.title)}"><button type="button" class="workspace-tool-open" ${unavailable ? "disabled" : ""} data-open="${esc(c.key)}" aria-label="${placeOnly ? "Open board" : "Open"} ${esc(item.title)}">${placeOnly ? "Open board" : "Open"}</button><button type="button" data-item-feedback="${esc(item.id)}" aria-label="Comments on ${esc(item.title)}" title="Comments"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 4h14a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H9l-5 3v-3a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2Z"/><path d="M7 9h10M7 13h7"/></svg></button><button type="button" class="workspace-vote-trigger" data-item-vote="${esc(item.id)}" data-vote-value="${esc(voteState.mine || "")}" aria-haspopup="dialog" aria-pressed="${!!voteState.mine}" aria-label="Vote on ${esc(item.title)}${voteState.mine ? `. Your vote: ${esc(choice)}` : ""}" title="${voteState.mine ? `Your vote: ${esc(choice)}` : "Vote"}"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 10H3v10h18V10h-2M3 14h18M8 3h8v9H8z"/><path d="m10 7 2 2 3-3"/></svg><span data-vote-summary>${esc(choice)}</span></button><button type="button" class="shortlist" data-star="${esc(c.key)}" aria-label="Favorite ${esc(item.title)}" aria-pressed="${!!review.star}" title="Favorite"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m12 3 2.8 5.7 6.3.9-4.6 4.4 1.1 6.3-5.6-3-5.6 3 1.1-6.3L3 9.6l6.2-.9Z"/></svg></button><button type="button" data-item-controls="${esc(p.id)}" data-controls-focus="notes" aria-label="Details for ${esc(item.title)}" aria-haspopup="dialog" aria-expanded="${this.contextPlacement === p.id}" title="Details (⌘I)"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="6" cy="12" r="1.3"/><circle cx="12" cy="12" r="1.3"/><circle cx="18" cy="12" r="1.3"/></svg>${review.note ? '<span class="workspace-note-dot" aria-hidden="true"></span>' : ""}</button></div>`;
+      const more = `<button type="button" class="workspace-tile-more" data-item-controls="${esc(p.id)}" data-controls-focus="menu" aria-label="Actions for ${esc(item.title)}" aria-haspopup="menu" aria-expanded="${this.tileMenuPlacement === p.id}" title="Item actions"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="6" cy="12" r="1.3"/><circle cx="12" cy="12" r="1.3"/><circle cx="18" cy="12" r="1.3"/></svg>${review.note ? '<span class="workspace-note-dot" aria-hidden="true"></span>' : ""}</button>`;
+      const toolbar = `<div class="workspace-tile-toolbar" role="toolbar" aria-label="Actions for ${esc(item.title)}"><button type="button" class="workspace-tool-open" ${unavailable ? "disabled" : ""} data-open="${esc(c.key)}" aria-label="${placeOnly ? "Open board" : "Open"} ${esc(item.title)}">${placeOnly ? "Open board" : "Open"}</button><button type="button" data-item-feedback="${esc(item.id)}" aria-label="Comments on ${esc(item.title)}" title="Comments"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 4h14a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H9l-5 3v-3a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2Z"/><path d="M7 9h10M7 13h7"/></svg></button><button type="button" class="workspace-vote-trigger" data-item-vote="${esc(item.id)}" data-vote-value="${esc(voteState.mine || "")}" aria-haspopup="dialog" aria-pressed="${!!voteState.mine}" aria-label="Vote on ${esc(item.title)}${voteState.mine ? `. Your vote: ${esc(choice)}` : ""}" title="${voteState.mine ? `Your vote: ${esc(choice)}` : "Vote"}"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 10H3v10h18V10h-2M3 14h18M8 3h8v9H8z"/><path d="m10 7 2 2 3-3"/></svg><span data-vote-summary>${esc(choice)}</span></button><button type="button" class="shortlist" data-star="${esc(c.key)}" aria-label="Favorite ${esc(item.title)}" aria-pressed="${!!review.star}" title="Favorite"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m12 3 2.8 5.7 6.3.9-4.6 4.4 1.1 6.3-5.6-3-5.6 3 1.1-6.3L3 9.6l6.2-.9Z"/></svg></button></div>`;
       const visual = unavailable
         ? `<div class="workspace-build-placeholder"><strong>${item.build.state === "building" ? "In progress" : "Reserved"}</strong><span>${esc(item.build.message || "The preview will appear when this work is ready for review.")}</span></div>`
         : live ? `<iframe ${excerpt ? 'class="workspace-document-excerpt"' : ""} src="${esc(preview)}" data-preview-source="${esc(previewSource)}" title="${esc(item.title)} ${panel ? "design" : "live"} preview" tabindex="-1" loading="lazy" inert></iframe>`
@@ -1155,11 +1156,11 @@ export class WorkspaceBoard {
         : item.childBoardId && !item.content ? coverMarkup(this.snapshot.boardCovers?.[item.childBoardId],item.childBoardId)
         : item.content?.text ? `<div class="workspace-document-preview">${esc(item.content.text.slice(0,2400))}</div>`
         : `<span class="workspace-title-art">${esc(item.preview?.text || item.title)}</span>`;
-      const paper = /^#[0-9a-f]{3,8}$/i.test(p.presentation?.paper || "") ? p.presentation.paper : "var(--paper)";
+      const paper = /^#[0-9a-f]{3,8}$/i.test(p.presentation?.paper || "") ? p.presentation.paper : "var(--tile-surface)";
       const dimensions = this.mode === "canvas"
         ? `left:${p.x + this.origin.x}px;top:${p.y + this.origin.y}px;width:${p.width}px;height:${p.height}px;z-index:${p.z};`
         : panel || icon ? `width:${p.width}px;height:${p.height}px;` : "";
-      return `<article tabindex="-1" class="workspace-card ${panel ? "workspace-panel" : icon ? "workspace-icon" : "workspace-compact"} ${selected ? "selected" : ""} ${selected && this.selection.size === 1 ? "solo" : ""} ${boardTile ? "workspace-board-tile" : ""} ${placeOnly ? "workspace-place-only" : ""} ${this.revealFlash === p.id ? "navigator-revealed" : ""} ${this.pulsePlacement === p.id ? "return-pulse" : ""}" data-key="${esc(c.key)}" data-placement="${esc(p.id)}" data-build-state="${esc(item.build?.state || "ready")}" style="${dimensions}--item-paper:${paper};${paperColors(paper)}--panel-viewport-width:${viewport.width}px;--panel-viewport-height:${viewport.height}px;">${select}<div class="workspace-card-body">${icon ? `<button type="button" class="workspace-icon-entry" ${unavailable ? "disabled" : ""} data-open="${esc(c.key)}" aria-label="Open ${esc(item.title)}"><span aria-hidden="true">${item.childBoardId ? "▱" : item.content?.kind === "image" ? "▧" : item.content?.kind === "html" ? "▤" : "◇"}</span><strong>${esc(item.title)}</strong></button>` : `<div class="workspace-card-preview ${panel ? "workspace-panel-preview" : ""} ${live ? "workspace-live-preview" : ""} ${excerpt ? "workspace-document-excerpt-preview" : ""}" ${live && !documentContent || panel ? `data-preview-width="${viewport.width}" data-preview-height="${viewport.height}"` : ""}>${visual}<button type="button" class="workspace-preview-launch" ${unavailable ? "disabled" : ""} data-open="${esc(c.key)}" aria-label="${placeOnly ? "Open board" : "Open"} ${esc(item.title)}"><span>${placeOnly ? 'Open board <kbd aria-hidden="true">↵</kbd>' : `Open ${esc(item.title)} ↗`}</span></button></div>${!panel ? `<div class="workspace-card-copy"><div class="workspace-compact-meta">${tileNumber ? `<span class="workspace-concept-number">${esc(tileNumber)}</span>` : ""}<span>${esc(item.category || (item.childBoardId ? "Board" : ({html:"Prototype",image:"Image",markdown:"Document",pdf:"PDF",video:"Video",note:"Note",text:"Text"}[item.content?.kind] || "Idea")))}</span>${unavailable ? `<span class="workspace-build-label">${item.build.state === "building" ? "In progress" : "Reserved"}</span>` : ""}</div><h3><button type="button" ${unavailable ? "disabled" : ""} data-open="${esc(c.key)}">${esc(item.title)}</button></h3>${item.description ? `<p>${esc(item.description)}</p>` : ""}${item.question ? `<p class="workspace-question">${esc(item.question)}</p>` : ""}${handoff ? `<a class="workspace-handoff" href="${esc(handoff)}" target="_blank" rel="noopener noreferrer">Handoff ↗</a>` : ""}${item.childBoardId && item.content ? `<button type="button" class="workspace-child" data-child-board="${esc(item.childBoardId)}">Open board ↗</button>` : ""}</div>` : ""}`}</div>${footer}${toolbar}</article>`;
+      return `<article tabindex="-1" class="workspace-card ${panel ? "workspace-panel" : icon ? "workspace-icon" : "workspace-compact"} ${selected ? "selected" : ""} ${selected && this.selection.size === 1 ? "solo" : ""} ${boardTile ? "workspace-board-tile" : ""} ${placeOnly ? "workspace-place-only" : ""} ${this.revealFlash === p.id ? "navigator-revealed" : ""} ${this.pulsePlacement === p.id ? "return-pulse" : ""}" data-key="${esc(c.key)}" data-placement="${esc(p.id)}" data-build-state="${esc(item.build?.state || "ready")}" style="${dimensions}--item-paper:${paper};${paperColors(paper)}--panel-viewport-width:${viewport.width}px;--panel-viewport-height:${viewport.height}px;">${select}${more}<div class="workspace-card-body">${icon ? `<button type="button" class="workspace-icon-entry" ${unavailable ? "disabled" : ""} data-open="${esc(c.key)}" aria-label="Open ${esc(item.title)}"><span aria-hidden="true">${item.childBoardId ? "▱" : item.content?.kind === "image" ? "▧" : item.content?.kind === "html" ? "▤" : "◇"}</span><strong>${esc(item.title)}</strong></button>` : `<div class="workspace-card-preview ${panel ? "workspace-panel-preview" : ""} ${live ? "workspace-live-preview" : ""} ${excerpt ? "workspace-document-excerpt-preview" : ""}" ${live && !documentContent || panel ? `data-preview-width="${viewport.width}" data-preview-height="${viewport.height}"` : ""}>${visual}<button type="button" class="workspace-preview-launch" ${unavailable ? "disabled" : ""} data-open="${esc(c.key)}" aria-label="${placeOnly ? "Open board" : "Open"} ${esc(item.title)}"><span>${placeOnly ? 'Open board <kbd aria-hidden="true">↵</kbd>' : `Open ${esc(item.title)} ↗`}</span></button></div>${!panel ? `<div class="workspace-card-copy"><div class="workspace-compact-meta">${tileNumber ? `<span class="workspace-concept-number">${esc(tileNumber)}</span>` : ""}${unavailable ? `<span class="workspace-build-label">${item.build.state === "building" ? "In progress" : "Reserved"}</span>` : ""}</div><h3><button type="button" ${unavailable ? "disabled" : ""} data-open="${esc(c.key)}">${esc(item.title)}</button></h3>${item.description ? `<p>${esc(item.description)}</p>` : ""}${item.question ? `<p class="workspace-question">${esc(item.question)}</p>` : ""}${item.childBoardId && item.content ? `<button type="button" class="workspace-child" data-child-board="${esc(item.childBoardId)}">Open board ↗</button>` : ""}</div>` : ""}`}</div>${footer}${toolbar}</article>`;
     };
     const cards = concepts.map(renderCard).join("");
     const groups = new Map();
@@ -1490,7 +1491,7 @@ export class WorkspaceBoard {
       <div class="calm-side-body">
         <div class="inspector-title"><h2 class="${item.childBoardId ? "inspector-place" : ""}">${esc(item.title)}</h2><p>${esc(kind)}${child ? ` · ${childCount} ${childCount === 1 ? "item" : "items"}` : ""} · on ${esc(this.snapshot.title || "this board")}</p></div>
         ${item.description ? `<p class="inspector-desc">${esc(item.description)}</p>` : ""}
-        <div class="inspector-open"><button type="button" class="tk-btn tk-primary" data-context-open ${["reserved","building"].includes(item.build?.state) && !placeOnly ? "disabled" : ""}>${placeOnly ? "Open board" : "Open"}</button>${item.childBoardId && item.content ? `<button type="button" class="tk-btn tk-tonal" data-context-board>Open board</button>` : ""}<button type="button" class="tk-btn tk-tonal" data-context-edit>Edit item…</button></div>
+        <div class="inspector-open"><button type="button" class="tk-btn tk-primary" data-context-open ${["reserved","building"].includes(item.build?.state) && !placeOnly ? "disabled" : ""}>${placeOnly ? "Open board" : "Open"}</button>${item.childBoardId && item.content ? `<button type="button" class="tk-btn tk-tonal" data-context-board>Open board</button>` : ""}${resourceURL(item.resources?.find(r=>r.role==="handoff")?.resource)?`<a class="tk-btn" href="${esc(resourceURL(item.resources.find(r=>r.role==="handoff").resource))}" target="_blank" rel="noopener noreferrer">Handoff</a>`:""}<button type="button" class="tk-btn tk-tonal" data-context-edit>Edit item…</button></div>
         <section class="inspector-sec"><h3>Notes <span>saved as you type</span></h3><label class="workspace-context-note"><span class="inspector-label">Notes</span><textarea data-note="items/${esc(id)}" aria-label="Notes on ${esc(item.title)}" placeholder="A thought to return to…">${esc(note)}</textarea></label></section>
         <section class="inspector-sec"><h3>Feedback</h3><div class="workspace-context-row workspace-context-actions inspector-feedback"><button type="button" class="tk-btn tk-sm" data-context-star aria-pressed="${!!item.review?.star}">${item.review?.star ? "Unfavorite" : "Favorite"}</button><button type="button" class="tk-btn tk-sm" data-context-comments>Comments</button><button type="button" class="tk-btn tk-sm" data-context-vote>Vote</button></div></section>
         <section class="inspector-sec"><h3>Appearance <span>this placement</span></h3><div class="workspace-context-row"><span class="inspector-label">Appearance</span><div class="workspace-appearance-buttons tk-seg" role="group" aria-label="Item appearance">${[["panel", "Full preview", '<rect x="3" y="3" width="18" height="18" rx="1"/><path d="M3 17h18"/>'], ["card", "Compact card", '<rect x="5" y="4" width="14" height="16" rx="1"/><path d="M5 13h14M8 16h8"/>'], ["icon", "Icon", '<rect x="7" y="7" width="10" height="10" rx="2"/>']].map(([value, label, art]) => `<button type="button" data-presentation="${value}" aria-label="${label}" title="${label}" aria-pressed="${mode === value}"><svg viewBox="0 0 24 24" aria-hidden="true">${art}</svg><span>${value === "panel" ? "Full" : value === "card" ? "Card" : "Icon"}</span></button>`).join("")}</div></div><div class="workspace-context-row"><span class="inspector-label">Paper</span><div class="workspace-paper-swatches" role="group" aria-label="Paper color">${[["#f6f7f1", "Paper"], ["#e4ebdc", "Sage"], ["#f1e8d5", "Sand"], ["#f1e0dc", "Rose"], ["#e7e4ee", "Lilac"]].map(([color,label]) => `<button type="button" data-paper="${color}" aria-label="${label} paper" title="${label}" aria-pressed="${paper === color}" style="--swatch:${color}"></button>`).join("")}</div></div></section>
@@ -1535,43 +1536,48 @@ export class WorkspaceBoard {
     const hint=document.createElement('small');hint.textContent=`${commitShortcutLabel()} to save`;noteField.after(hint);
     this.contextCommit=bindCommitShortcut(noteField,{commit:async()=>{await this.hooks.flushNotes();},onError:error=>toast(error.message)});
     this.positionContext();
-    document.querySelectorAll(`[data-item-controls="${CSS.escape(id)}"]`).forEach(b => b.setAttribute("aria-expanded", "true"));
+    document.querySelectorAll(`[data-item-controls="${CSS.escape(id)}"]`).forEach(b => b.setAttribute("aria-expanded", "false"));
     document.querySelector(`[data-placement="${CSS.escape(id)}"]`)?.classList.add("inspected");
     if (focus === "notes") noteField.focus({ preventScroll: true });
     else if(focus==="actions") actions.querySelector("button").focus({preventScroll:true});
     else popover.querySelector("[data-presentation]").focus({ preventScroll: true });
   }
   // Right-click gives a short native-feeling menu; Details… opens the Inspector.
-  tileMenu(id, point) {
+  tileMenu(id, point, anchor = null) {
     this.closeTileMenu();
     const p = this.snapshot.placements.find(p => p.id === id), item = this.snapshot.items[p?.itemId];
     if (!item) return;
     if (!this.selection.has(id)) { this.whiteboard?.clearSelection({finishEdit:true,focus:false}); this.selection = new Set([id]); this.syncSelection(); this.selectionMenu(); }
     const placeOnly = !!item.childBoardId && !item.content, star = !!(this.pendingReview.get(item.id)?.star ?? item.review?.star);
+    const handoff=resourceURL(item.resources?.find(r=>r.role==="handoff")?.resource);
+    const unavailable=["reserved","building"].includes(item.build?.state) && !placeOnly;
     const menu = document.createElement("div");
     menu.className = "tk-menu workspace-tile-menu"; menu.setAttribute("role", "menu"); menu.setAttribute("aria-label", `Actions for ${item.title}`);
-    menu.innerHTML = `<button type="button" class="tk-mi" role="menuitem" data-tile-menu="open">${placeOnly ? "Open board" : "Open"}<kbd class="tk-kbd" aria-hidden="true">↵</kbd></button><button type="button" class="tk-mi" role="menuitem" data-tile-menu="details">Details…<kbd class="tk-kbd" aria-hidden="true">⌘I</kbd></button><div class="tk-msep" role="separator"></div><button type="button" class="tk-mi" role="menuitem" data-tile-menu="star">${star ? "Unfavorite" : "Favorite"}</button><button type="button" class="tk-mi" role="menuitem" data-tile-menu="move">Move to board…</button><button type="button" class="tk-mi" role="menuitem" data-tile-menu="duplicate">Duplicate<kbd class="tk-kbd" aria-hidden="true">⌘D</kbd></button><div class="tk-msep" role="separator"></div><button type="button" class="tk-mi tk-danger" role="menuitem" data-tile-menu="remove">Remove from board…</button>`;
-    document.body.append(menu); this.tilePopup = menu;
-    Object.assign(menu.style, { position: "fixed", zIndex: 80, left: `${Math.max(8, Math.min(innerWidth - menu.offsetWidth - 8, point.x))}px`, top: `${Math.max(8, Math.min(innerHeight - menu.offsetHeight - 8, point.y))}px` });
+    menu.innerHTML = `<button type="button" class="tk-mi" role="menuitem" data-tile-menu="open" ${unavailable?"disabled":""}>${placeOnly ? "Open board" : "Open experiment"}<kbd class="tk-kbd" aria-hidden="true">↵</kbd></button>${handoff?`<a class="tk-mi" role="menuitem" href="${esc(handoff)}" target="_blank" rel="noopener noreferrer">Handoff</a>`:""}<button type="button" class="tk-mi" role="menuitem" data-tile-menu="notes">Notes</button><button type="button" class="tk-mi" role="menuitem" data-tile-menu="details">Details…<kbd class="tk-kbd" aria-hidden="true">⌘I</kbd></button><div class="tk-msep" role="separator"></div><button type="button" class="tk-mi" role="menuitem" data-tile-menu="star">${star ? "Unfavorite" : "Favorite"}</button><button type="button" class="tk-mi" role="menuitem" data-tile-menu="move">Move to board…</button><button type="button" class="tk-mi" role="menuitem" data-tile-menu="duplicate">Duplicate<kbd class="tk-kbd" aria-hidden="true">⌘D</kbd></button><div class="tk-msep" role="separator"></div><button type="button" class="tk-mi tk-danger" role="menuitem" data-tile-menu="remove">Remove from board…</button>`;
+    this.closeContext();
+    document.body.append(menu); this.tilePopup = menu;this.tileMenuPlacement=id;
+    anchor?.setAttribute("aria-expanded","true");
+    positionTilePopover(menu,anchor,point);
     const card = () => document.querySelector(`[data-placement="${CSS.escape(id)}"]`);
     menu.onclick = e => {
-      const action = e.target.closest("[data-tile-menu]")?.dataset.tileMenu; if (!action) return;
+      const action = e.target.closest("[data-tile-menu]")?.dataset.tileMenu; if (!action) {if(e.target.closest("a"))this.closeTileMenu();return;}
       this.closeTileMenu();
       if (action === "open") card()?.querySelector("[data-open]:not(:disabled)")?.click();
+      else if (action === "notes") this.hooks.editNote?.(`items/${id}`,card()?.querySelector("[data-item-controls]"));
       else if (action === "details") this.itemControls(id, "notes");
       else if (action === "star") card()?.querySelector("[data-star]")?.click();
       else if (action === "move") this.bulk("move");
       else if (action === "duplicate") this.duplicateSelection({explicit:true});
       else if (action === "remove") this.bulk("remove");
     };
-    menu.onkeydown = e => {
-      const buttons = [...menu.querySelectorAll("button")], index = buttons.indexOf(document.activeElement);
-      if (e.key === "Escape") { e.preventDefault(); e.stopImmediatePropagation(); this.closeTileMenu(); card()?.querySelector("[data-item-controls]")?.focus({preventScroll:true}); }
-      else if (["ArrowDown", "ArrowUp"].includes(e.key)) { e.preventDefault(); buttons[(index + (e.key === "ArrowDown" ? 1 : -1) + buttons.length) % buttons.length].focus(); }
-    };
-    menu.querySelector("button").focus({ preventScroll: true });
+    this.tileMenuBinding=bindTileMenu(menu,{close:()=>this.closeTileMenu(),returnFocus:()=>card()?.querySelector('[data-item-controls]'),anchor:anchor||card()});
   }
-  closeTileMenu() { this.tilePopup?.remove(); this.tilePopup = null; }
+  closeTileMenu() {
+    this.tileMenuBinding?.destroy();this.tileMenuBinding=null;
+    if(this.tileMenuPlacement)document.querySelector(`[data-item-controls="${CSS.escape(this.tileMenuPlacement)}"]`)?.setAttribute('aria-expanded','false');
+    this.tilePopup?.remove(); this.tilePopup = null;this.tileMenuPlacement=null;
+  }
+
   placementGeometry(id) {
     const p=this.snapshot.placements.find(p=>p.id===id);if(!p)return;
     makeDialog('Move / resize item',`<p>Position and size in board units.</p>${['x','y','width','height'].map(key=>`<label>${key==='x'?'Left':key==='y'?'Top':key==='width'?'Width':'Height'}<input name="${key}" type="number" step="any" required min="${key==='width'||key==='height'?40:-10000000}" max="${key==='width'||key==='height'?100000:10000000}" value="${p[key]}"></label>`).join('')}<button type="submit" class="workspace-primary">Save geometry</button>`,async form=>{
@@ -2314,7 +2320,7 @@ export class WorkspaceBoard {
   canvasEditing() {
     const viewport = $("viewport");
     document.addEventListener("pointerdown", e => {
-      if (this.tilePopup && !e.target.closest(".workspace-tile-menu")) this.closeTileMenu();
+      if (this.tilePopup && !e.target.closest(".workspace-tile-menu,[data-item-controls]")) this.closeTileMenu();
       if (this.context && !e.target.closest("#workspace-item-controls,[data-item-controls],.workspace-dialog,dialog[open],.feedback-panel,.workspace-popover,.workspace-tile-menu")) this.closeContext();
       if (this.addPopup && !e.target.closest(".workspace-add-menu,#workspace-add")) this.closeAddMenu();
     }, true);
@@ -2468,6 +2474,37 @@ export class WorkspaceBoard {
         this.pendingReview.set(id, patch);
     }
     this.persistDrafts();
+  }
+  // Explicit tile editors own their draft until ACK. A failed attempt never
+  // enters the shared autosave queue, so Cancel cannot leak it through a star.
+  async saveTileNote(itemId, note) {
+    if(this.saving)await this.savePromise;
+    const priorNote=this.pendingReview.get(itemId)?.note;
+    let failure;
+    this.saving=true;
+    this.savePromise=(async()=>{
+      try {
+        await this.client.write('review',{itemId,patch:{note}});
+        const item=this.snapshot.items[itemId];
+        if(item)item.review={...item.review,note};
+        for(const c of this.hooks.concepts())if(c.graphItem.id===itemId)c.graphItem.review={...c.graphItem.review,note};
+        const pending=this.pendingReview.get(itemId);
+        // Supersede only the note this editor started from, never a newer edit
+        // or the independent star field in this or another item's pending patch.
+        if(pending && Object.hasOwn(pending,'note') && pending.note===priorNote){
+          const remaining={...pending};delete remaining.note;
+          if(Object.keys(remaining).length)this.pendingReview.set(itemId,remaining);else this.pendingReview.delete(itemId);
+        }
+        this.persistDrafts();this.rebuild();
+        this.hooks.saveStatus('Item note saved on this Mac','saved');
+        return true;
+      } catch(error) {failure=error;return false;}
+      finally {this.saving=false;this.savePromise=null;}
+    })();
+    const saved=await this.savePromise;
+    // Autosaves requested during the explicit write retain their own patches.
+    if(this.pendingReview.size)void this.saveReview([],{});
+    if(!saved)throw failure;
   }
   async saveReview(concepts = [], notes = {}) {
     this.captureReview(concepts, notes);

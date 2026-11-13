@@ -1,3 +1,4 @@
+import {legacyNote,saveLegacyNote,openLegacyItem} from './tile-test-helpers.mjs';
 // Optional browser acceptance check; Playwright is a QA tool, not an app dependency.
 import strictAssert from 'node:assert/strict';
 // Count passing assertions so a run reports an exact number.
@@ -131,7 +132,7 @@ try{
     await instance.page.waitForFunction(()=>document.querySelectorAll('.concept-card').length===2);
     await instance.page.waitForFunction(()=>document.querySelector('#save-status').textContent==='Notes saved on this Mac');
     assert((await instance.page.title()).includes(instance===a?'Tinka / Glade':'Tinka / Runway'));
-    await instance.page.locator('[data-note="first/one-step"]').fill(instance===a?'Glade only':'Runway only');
+    await saveLegacyNote(instance.page,'first/one-step',instance===a?'Glade only':'Runway only');
     await waitFor(async()=>{
       const notes=await (await fetch(`${instance.url}api/boards/first-steps/notes`)).json();
       return notes['first/one-step']?.note===(instance===a?'Glade only':'Runway only');
@@ -140,7 +141,7 @@ try{
   const manifestBefore=await readFile(path.join(a.boards,'first-steps/rounds.json'),'utf8');
   const notesBefore=await readFile(path.join(a.boards,'first-steps/.state/notes.json'),'utf8');
   await a.page.evaluate(()=>Object.defineProperty(navigator,'clipboard',{configurable:true,value:{writeText:async text=>{window.copiedPrompt=text;}}}));
-  await a.page.locator('[data-remove-experiment="first/one-step"]').click();
+  await a.page.locator('[data-legacy-menu="first/one-step"]').click();await a.page.locator('[data-remove-experiment="first/one-step"]').click();
   prompt=await a.page.locator('#agent-prompt-text').inputValue();
   assert(prompt.includes(a.config)&&prompt.includes('"key": "first/one-step"')&&prompt.includes('experiments/one-step/index.html'));
   assert(prompt.includes('Keep the source files, shared assets, notes')&&!prompt.includes(b.config));
@@ -154,7 +155,7 @@ try{
   await a.page.waitForFunction(()=>document.querySelector('#agent-prompt-status').textContent.startsWith('Select and copy'));
   assert.deepEqual(await a.page.locator('#agent-prompt-text').evaluate(el=>[el.selectionStart,el.selectionEnd]),[0,prompt.length]);
   await a.page.locator('.agent-dialog-close').click();
-  assert.equal(await a.page.evaluate(()=>document.activeElement.dataset.removeExperiment),'first/one-step');
+  assert.equal(await a.page.evaluate(()=>document.activeElement.dataset.legacyMenu),'first/one-step');
   assert.equal(await readFile(path.join(a.boards,'first-steps/rounds.json'),'utf8'),manifestBefore);
   assert.equal(await readFile(path.join(a.boards,'first-steps/.state/notes.json'),'utf8'),notesBefore);
   // The header is identity only; board details, export and help live behind the quiet info control.
@@ -174,7 +175,7 @@ try{
   assert.equal(await a.page.evaluate(()=>document.activeElement.id),'board-info-toggle');
   await a.page.setViewportSize({width:400,height:800});
   await a.page.screenshot({path:path.join(evidence,'board-narrow.png')});
-  await a.page.locator('[data-remove-experiment="first/one-step"]').click();
+  await a.page.locator('[data-legacy-menu="first/one-step"]').click();await a.page.locator('[data-remove-experiment="first/one-step"]').click();
   await a.page.screenshot({path:path.join(evidence,'removal-prompt-narrow.png')});
   assert.equal(await a.page.locator('#agent-prompt-dialog').evaluate(el=>el.scrollWidth<=el.clientWidth),true);
   await a.page.locator('.agent-dialog-close').click();
@@ -190,13 +191,13 @@ try{
   await a.page.screenshot({path:path.join(evidence,'home-narrow.png')});
   await a.page.setViewportSize({width:1440,height:960});
   await a.page.goto(`${a.url}boards/first-steps/`);
-  await a.page.locator('[data-note="first/one-step"]').waitFor();
+  await legacyNote(a.page,'first/one-step');
   // Card markup appears before the asynchronous server-note hydration completes.
   await a.page.waitForFunction(()=>document.querySelector('#save-status').textContent==='Notes saved on this Mac');
-  assert.equal(await a.page.locator('[data-note="first/one-step"]').inputValue(),'Glade only');
+  assert.equal(await (await legacyNote(a.page,'first/one-step')).inputValue(),'Glade only');
   // Establish the initial resource revision before editing a mounted reader.
   await a.page.waitForFunction(()=>document.querySelector('#live-status').textContent.startsWith('Live')&&Boolean(document.querySelector('[data-key="first/one-step"]').dataset.liveRevision));
-  await a.page.locator('.card-actions [data-open="first/one-step"]').click();
+  await openLegacyItem(a.page,'first/one-step');
   const frame=a.page.frameLocator('#active-reader');
   await frame.locator('input').fill('A new thought');
   await frame.getByRole('button',{name:'Start writing'}).click();
@@ -253,7 +254,7 @@ try{
   await settledRound(2);
   await a.page.emulateMedia({reducedMotion:'no-preference'});
   // Opening, deep links, and explicit reloads route keys into the experiment body.
-  await a.page.locator('.card-actions [data-open="third/pages"]').click();
+  await openLegacyItem(a.page,'third/pages');
   const keyboardFrame=a.page.frameLocator('#active-reader');
   const readerFocused=()=>a.page.waitForFunction(()=>{const frame=document.querySelector('#active-reader');const doc=frame.contentDocument;return document.activeElement===frame&&doc?.readyState==='complete'&&doc.body?.dataset.experiment===location.hash.slice(1).split('/')[0]&&doc.activeElement?.tagName==='BODY';},null,{timeout:10000}).catch(async error=>{
     const actual=await a.page.evaluate(()=>{const frame=document.querySelector('#active-reader');const doc=frame.contentDocument;return {hash:location.hash,open:document.querySelector('#reader-dialog').open,active:document.activeElement?.id||document.activeElement?.tagName,ready:doc?.readyState,experiment:doc?.body?.dataset.experiment,inner:doc?.activeElement?.tagName,src:frame.src};});
@@ -280,7 +281,7 @@ try{
   assert.equal(await keyboardFrame.locator('input').evaluate(el=>el===document.activeElement),true);
   await a.page.locator('#close-reader').click();
   await a.page.waitForFunction(()=>document.activeElement.id==='viewport');
-  const keyboardNote=a.page.locator('[data-note="third/pages"]');
+  const keyboardNote=await legacyNote(a.page,'third/pages');
   await keyboardNote.fill('Keep this note');
   await keyboardNote.evaluate(el=>el.setSelectionRange(3,7));
   keyboardManifest.rounds[2].title='Third round with notes';
@@ -360,6 +361,7 @@ try{
   await a.page.waitForFunction(()=>document.querySelector('#live-status').textContent.startsWith('Live ·'));
   const shellDocument=await a.page.evaluate(()=>window.__shellFixtureDocument=crypto.randomUUID());
   // Click the visible scaled card directly, without Playwright scrolling its transformed ancestors.
+  await a.page.locator('[data-legacy-menu="third/pages"]').click();
   const promptButton=await a.page.locator('[data-remove-experiment="third/pages"]').boundingBox();
   const canvasTransforms=()=>({pan:document.querySelector('#plane').style.transform,zoom:document.querySelector('#world').style.transform});
   const beforePrompt=await a.page.evaluate(canvasTransforms);
@@ -506,7 +508,7 @@ try{
   pan=await canvasState();
   assert(near(pan.bottom,80)&&near(pan.right,80),`Dragging up passes the board's bottom edge: ${JSON.stringify(pan)}`);
   // Keyboard focus (and find-in-page, which reveals the same way) brings a control into view from any side.
-  const opener=h.locator('.card-actions [data-open="alpha/one"]:not([data-revision])');
+  const opener=h.locator('[data-legacy-menu="alpha/one"]');
   await opener.focus();
   // The browser's scroll arrives as a scroll event on the next frame and becomes a pan.
   await h.waitForFunction(()=>{const v=document.querySelector('#viewport');return v.scrollLeft===100000&&v.scrollTop===100000;});
@@ -553,12 +555,12 @@ try{
   await h.locator('#viewport').focus();
   await h.keyboard.press('Home');
   await h.locator('.shortlist[data-star="alpha/two"]').click();
-  await h.locator('[data-note="alpha/two"]').fill('Card note');
+  await saveLegacyNote(h,'alpha/two','Card note');
   assert.equal(await length(),base);
   assert.equal(await historyLength(),baseHistoryLength);
   assert.equal(await hashNow(),'');
   // Star and note on the card appear in the experiment view, and back.
-  await h.locator('.card-actions [data-open="alpha/one"]:not([data-revision])').click();
+  await openLegacyItem(h,'alpha/one');
   await waitReader('One');
   assert.equal(await hashNow(),'#alpha/one');
   assert.equal(await length(),base+1);
@@ -633,7 +635,7 @@ try{
   await h.keyboard.type('Shared from the reader');
   await h.waitForFunction(()=>document.querySelector('#reader-save-status').textContent==='Notes saved on this Mac'&&document.querySelector('#save-status').dataset.state==='saved');
   assert.equal(await h.locator('.note-dot').isVisible(),true);
-  assert.equal(await h.locator('[data-note="alpha/one"]').inputValue(),'Shared from the reader');
+  assert.equal(await h.locator('#reader-note').inputValue(),'Shared from the reader');
   await waitFor(async()=>(await saved(path.join(a.boards,'history/.state/notes.json')))['alpha/one']?.note==='Shared from the reader','Reader note persisted to .state/notes.json');
   const noOverlap=()=>h.evaluate(()=>{const stage=document.querySelector('.reader-stage').getBoundingClientRect();const panel=document.querySelector('#notes-panel').getBoundingClientRect();const viewer=document.querySelector('#reader-window').getBoundingClientRect();const footer=document.querySelector('.reader-footer').getBoundingClientRect();const side=panel.left>=stage.right-.5&&panel.top<stage.bottom;const below=panel.top>=stage.bottom-.5;return {separate:side||below,mode:side?'side':below?'sheet':'overlap',viewerInside:viewer.left>=stage.left-.5&&viewer.right<=stage.right+.5&&viewer.top>=stage.top-.5&&viewer.bottom<=stage.bottom+.5,aboveFooter:panel.bottom<=footer.top+.5,width:Math.round(panel.width)};});
   assert.deepEqual(await noOverlap(),{separate:true,mode:'side',viewerInside:true,aboveFooter:true,width:320});
@@ -736,7 +738,7 @@ try{
   await waitBoard();
   await landedOn('beta/three',leftView);
   // Dots: click, keyboard and drag-scrub each add one entry; re-selecting the current experiment adds none.
-  await h.locator('.card-actions [data-open="alpha/one"]:not([data-revision])').evaluate(button=>button.click());
+  await openLegacyItem(h,'alpha/one');
   await waitReader('One');
   let entries=await length();
   await h.locator('[data-dot="alpha/one"]').click();
@@ -1033,7 +1035,7 @@ try{
   await main(['stop','--config',b.config]);
   await writeFile(b.config,JSON.stringify({...await saved(b.config),port:a.port,portMode:'fixed'}));
   await main(['start','--config',b.config]);
-  await stalePage.locator('[data-note="first/one-step"]').fill('Stale Glade tab must not write to Runway');
+  await (await legacyNote(stalePage,'first/one-step')).fill('Stale Glade tab must not write to Runway');await stalePage.locator('.tile-notes [type=submit]').click();
   await stalePage.waitForFunction(()=>document.querySelector('#save-status').textContent.includes('Saved in this browser'));
   const otherNotes=await (await fetch(`${a.url}api/boards/first-steps/notes`)).json();
   assert.equal(otherNotes['first/one-step'].note,'Runway only');
@@ -1041,7 +1043,7 @@ try{
   await a.page.goto(`${a.url}boards/first-steps/`);
   await a.page.waitForFunction(()=>document.querySelector('.canvas-header .brand').title.includes('Runway'));
   await a.page.waitForFunction(()=>document.querySelector('#save-status').textContent==='Notes saved on this Mac');
-  assert.equal(await a.page.locator('[data-note="first/one-step"]').inputValue(),'Runway only');
+  assert.equal(await (await legacyNote(a.page,'first/one-step')).inputValue(),'Runway only');
   assert.equal(errors.length,0,errors.join('\n'));
   const checks=['two simultaneous labels and URLs','folder discovery and empty new boards','new-board prompt','board and experiment removal prompts, copy and clipboard fallback','board cover prompts, custom images, live image updates and missing-image fallback','open prompts survive shell updates without losing the canvas position','isolated notes, same-origin port reuse and stale-tab write rejection','Home and current-title header, Tools popover with export and help, narrow layouts and prompts','removed top-bar controls stay absent','board footer zoom slider synced with Control-wheel, keyboard, Safari gesture and touch pinch','wheel and drag pan, and free pan past every edge of the board to an 80px bound','keyboard pan with arrows, Page Down, Home and End','focus revealing controls from any side, zoom anchored near an edge, centred Fit after panning away, and round links after panning away','independent experiment interaction','previous/next across rounds, boundaries, live availability, retained settings and narrow viewer','dot track order, grouping, click, keyboard, hover titles and drag-scrub','reader footer Type, Fit, Light, size popover with Version and Custom, and Open standalone','star and notes shared between card and reader and saved to .state/notes.json','notes panel beside the stage on desktop and below it on phones','browser history: home, board, experiments, versions, Escape/Back/breadcrumb, rounds, re-selection, view-only changes, deep links and reload','board view restored on Back from an experiment','active preview safely offers reload','round deep links in tall and zoomed-out canvases','canvas and experiment keyboard focus on entry, return and reload','toolbar keyboard access and note/experiment focus preserved during manifest updates','one-row reader and board footers and both headers at seven widths from 320 to 1920px: no overlap, nothing off screen or clipped, arrows hugging the dot strip, current dot in view, Back distinct from Previous and 44px targets','fixed dot strip: centred current dot, edge fades, Home/End/arrows, endpoints and edge-scrolling drag-scrub','View popover at all widths: every view control inside, keyboard focus, Escape and outside click'];
   console.log(JSON.stringify({passed:true,assertions:assertCount(),checkGroups:checks.length,evidence,checks,browserErrors:errors},null,2));

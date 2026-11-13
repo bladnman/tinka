@@ -1,3 +1,4 @@
+import {openItemDetails} from './tile-test-helpers.mjs';
 // Focused appearance acceptance: real app + external disposable mixed workspace.
 import assert from 'node:assert/strict';
 import {mkdtemp,mkdir,writeFile,rm} from 'node:fs/promises';
@@ -78,7 +79,7 @@ try{
   const authoredColors=await page.locator(`[data-placement="${placements.review}"] iframe`).evaluate(frame=>{const doc=frame.contentDocument,body=doc.querySelector('iframe')?.contentDocument?.body||doc.body;return {color:getComputedStyle(body).color,background:getComputedStyle(body).backgroundColor};});
   assert.deepEqual(authoredColors,{color:'rgb(36, 59, 88)',background:'rgb(255, 247, 231)'});
   await page.screenshot({path:path.join(evidence,'mixed-dark-wide.png')});
-  await page.locator(`[data-placement="${placements.town}"] [data-item-controls]`).click();await page.locator('#workspace-item-controls').waitFor({state:'visible'});
+  await openItemDetails(page.locator(`[data-placement="${placements.town}"] [data-item-controls]`));await page.locator('#workspace-item-controls').waitFor({state:'visible'});
   await check('.workspace-context-note','#workspace-item-controls');
   await check('#workspace-item-controls textarea',null);
   const boundary=await page.locator('#workspace-item-controls textarea').evaluate(el=>({border:getComputedStyle(el).borderTopColor,background:getComputedStyle(el).backgroundColor}));
@@ -102,7 +103,7 @@ try{
   await page.locator('#board-info-toggle').click();
   await page.setViewportSize({width:390,height:844});await page.goto(base+`/boards/round/?reveal=${placements.town}`);await page.locator(`[data-placement="${placements.town}"]`).waitFor();await page.waitForFunction(()=>document.querySelector('#zoom-slider').value>50);await page.locator('#workspace-toast').waitFor({state:'hidden'});
   await page.screenshot({path:path.join(evidence,'mixed-dark-narrow.png')});
-  await page.locator(`[data-placement="${placements.town}"] [data-item-controls]`).click();await page.screenshot({path:path.join(evidence,'item-popup-dark-narrow.png')});await page.locator('[data-context-close]').click();
+  await openItemDetails(page.locator(`[data-placement="${placements.town}"] [data-item-controls]`));await page.screenshot({path:path.join(evidence,'item-popup-dark-narrow.png')});await page.locator('[data-context-close]').click();
   await page.getByRole('button',{name:'Navigator',exact:true}).click();await page.locator('#project-navigator').waitFor({state:'visible'});await page.getByText('Loading project boards…',{exact:true}).waitFor({state:'hidden'});await check('.navigator-status','#project-navigator');
   await page.screenshot({path:path.join(evidence,'navigator-dark-narrow.png')});await page.keyboard.press('Escape');
   await page.goto(base+'/');assert.equal(await page.getByRole('combobox',{name:'Appearance'}).inputValue(),'system');

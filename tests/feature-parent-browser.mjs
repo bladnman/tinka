@@ -1,3 +1,4 @@
+import {openItemDetails} from './tile-test-helpers.mjs';
 import assert from 'node:assert/strict';
 import {mkdtemp,mkdir,writeFile,rm} from 'node:fs/promises';
 import os from 'node:os';
@@ -54,7 +55,7 @@ try{
   await page.waitForFunction(id=>{const doc=document.querySelector(`[data-placement="${id}"] iframe`)?.contentDocument;return doc?.body?.textContent?.includes('Work worth seeing')||doc?.querySelector('iframe')?.contentDocument?.body?.textContent?.includes('Work worth seeing');},featured.id);
   await page.screenshot({path:path.join(evidence,'parent-feature-dark.png')});
   const card=page.locator(`[data-placement="${featured.id}"]`);
-  await card.locator('[data-item-controls]').click();await page.locator('#workspace-item-controls textarea').waitFor();
+  await openItemDetails(card.locator('[data-item-controls]'));await page.locator('#workspace-item-controls textarea').waitFor();
   await page.screenshot({path:path.join(evidence,'item-controls-dark.png')});
   await page.locator('#workspace-item-controls textarea').fill('Reviewed on the parent board');
   const save=page.waitForResponse(r=>r.url().endsWith('/api/operations')&&r.request().postDataJSON()?.type==='review'&&r.status()===200);
@@ -72,4 +73,4 @@ try{
   await page.locator(`[data-placement="${featured.id}"] .workspace-feature-source`).filter({hasText:'Not currently in source'}).waitFor();
   await page.goto(base+'/');assert.equal(await page.getByRole('combobox',{name:'Appearance'}).inputValue(),'light');
   assert.deepEqual(errors,[]);console.log(JSON.stringify({passed:true,evidence,checks:['system dark','multiple parents','cancel and failed-save recovery','feature a full-size shared item','source geometry preserved','shared note and comment editing','source and stale-membership links','unclipped numbered featured caption','light preference across Home and board','narrow layout'],errors}));
-}finally{await browser?.close();if(server)await closeAppServer(server);await rm(root,{recursive:true,force:true});}
+}finally{await browser?.close();if(server)await closeAppServer(server);await rm(root,{recursive:true,force:true,maxRetries:5,retryDelay:100});}

@@ -1,3 +1,4 @@
+import {openItemDetails} from './tile-test-helpers.mjs';
 // Arrangement actions survive an unrelated workspace revision change, while real
 // conflicts still reject visibly. Each case injects a server write exactly when the
 // action's request arrives. Isolated fixture, headless browser, port 0.
@@ -97,7 +98,7 @@ try{
   await lost('nudge-sticky','updateDecoration',()=>page.keyboard.press('ArrowDown'),async()=>(await decoration('start')).y===sy+1);
   // 6. Move / resize dialogs: a card and a sticky.
   await page.keyboard.press('Escape');await page.keyboard.press('Escape');
-  await page.locator(`[data-placement="${A.id}"] [data-item-controls]`).click();await page.locator('[data-context-geometry]').click();
+  await openItemDetails(page.locator(`[data-placement="${A.id}"] [data-item-controls]`));await page.locator('[data-context-geometry]').click();
   await page.locator('dialog[open] input[name=x]').fill('40');
   await lost('dialog-card','updatePlacement',()=>page.locator('dialog[open] button[type=submit]').click(),async()=>(await placement(P,A.id)).x===40);
   await page.locator('[data-decoration=start] [data-decoration-label]').click();await page.locator('[data-whiteboard-action=more]').click();await page.locator('[data-whiteboard-action=inspect]').click();
@@ -146,7 +147,7 @@ try{
     ()=>page.keyboard.press('ArrowDown'),{expect:async()=>(await decoration('then')).x===620&&(await decoration('then')).y===320,message:'dialog'});
   await page.keyboard.press('Escape');await page.evaluate(()=>document.activeElement?.blur());
   // Record a fresh movement to undo, then let another writer change the same board.
-  await page.locator(`[data-placement="${A.id}"] [data-item-controls]`).click();await page.locator('[data-context-geometry]').click();
+  await openItemDetails(page.locator(`[data-placement="${A.id}"] [data-item-controls]`));await page.locator('[data-context-geometry]').click();
   await page.locator('dialog[open] input[name=x]').fill('80');await page.locator('dialog[open] button[type=submit]').click();
   await until(async()=>(await placement(P,A.id)).x===80);await page.keyboard.press('Escape');await page.evaluate(()=>document.activeElement?.blur());await settle();
   await page.waitForFunction(()=>document.getElementById('workspace-undo')?.disabled===false);

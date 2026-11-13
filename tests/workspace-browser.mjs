@@ -1,3 +1,4 @@
+import {openItemDetails,exposedTileBodyPoint} from './tile-test-helpers.mjs';
 // Focused graph UI acceptance. Uses external temporary fixtures and existing Playwright.
 import strictAssert from "node:assert/strict";
 let assertions = 0;
@@ -162,7 +163,7 @@ try {
   };
   const cardNote = async () => {
     const note = page.locator("#workspace-item-controls [data-note]");
-    if (!(await note.count())) await page.locator('[data-controls-focus="notes"]').first().click();
+    if (!(await note.count())) await openItemDetails(page.locator('[data-controls-focus="menu"]').first());
     return note;
   };
   const dragPointer = async (box, dx, dy) => {
@@ -210,22 +211,22 @@ try {
   );
   const cardFrames = page.locator(".workspace-live-preview iframe");
   assert.equal(await cardFrames.count(), 4);
-  assert(
-    await page
-      .getByText("QUIET DIRECTION", { exact: false })
-      .first()
-      .isVisible(),
-  );
+  const retainedItem = await (await fetch(base + `/api/items/${first.id}`)).json();
+  assert.equal(retainedItem.category, "QUIET DIRECTION", "Quiet tile chrome retains canonical category metadata");
+  assert.equal(await page.getByText("QUIET DIRECTION", { exact: false }).count(), 0, "Category is absent from resting tile chrome");
   assert(
     await page
       .getByText("Does the first step feel clear?", { exact: true })
       .isVisible(),
   );
-  assert(
-    await page
-      .getByRole("link", { name: "Handoff ↗", exact: true })
-      .isVisible(),
-  );
+  await page.locator(`[data-placement="${firstPlacement.id}"] [data-item-controls]`).click();
+  const handoff = page.getByRole("menuitem", {name:"Handoff", exact:true});
+  assert(await handoff.isVisible(), "Handoff remains discoverable in the tile action menu");
+  const resource = retainedItem.resources.find(entry => entry.role === "handoff").resource;
+  assert.equal(await handoff.getAttribute("href"), `/resources/${encodeURIComponent(resource.rootId)}/${resource.path.split("/").map(encodeURIComponent).join("/")}`);
+  await page.keyboard.press("Escape");
+  await page.keyboard.press("Escape");
+  assert.equal(await page.locator(".workspace-card.selected").count(), 0, "Menu target selection is reset before the next case");
   const building = page.locator('.workspace-card[data-build-state="building"]');
   assert.equal(await building.locator("iframe").count(), 0);
   assert(await building.locator(".workspace-preview-launch").isDisabled());
@@ -1061,7 +1062,7 @@ try {
     // The Inspector sits over the right of the canvas; close it before using the tile's own toolbar.
     await page.locator("#workspace-item-controls [data-context-close]").click();
     await page.locator("[data-star]").first().click();
-    await page.locator('[data-controls-focus="notes"]').first().click();
+    await openItemDetails(page.locator('[data-controls-focus="menu"]').first());
     await page.getByRole("button", { name: "Edit item…", exact: true }).click();
     await page
       .getByRole("heading", { name: "Edit item", exact: true })
@@ -1186,8 +1187,8 @@ try {
     assert.equal(await page.locator("#canvas-header .brand").getAttribute("href"), "/");
     assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
     assert.equal(await page.locator("#board-title").evaluate(el => el.scrollWidth <= el.clientWidth + 1 && getComputedStyle(el).textOverflow !== "ellipsis"), true, "Complete current title wraps at " + width);
-    // Item actions moved from the footer to each tile's floating toolbar.
-    assert.equal(await page.locator(".workspace-tile-toolbar [data-item-controls]").count(), 2);
+    // Each tile has one independent menu target beside its title.
+    assert.equal(await page.locator(".workspace-tile-more[data-item-controls]").count(), 2);
     assert.equal(await page.locator(".workspace-tile-toolbar").filter({ hasText: "Notes" }).count(), 0, "Only one details trigger per tile");
     await page.screenshot({ path: path.join(evidence, `quiet-header-${width}.png`) });
     await page.locator("#board-info-toggle").focus();
@@ -1273,7 +1274,9 @@ try {
   await waitStablePlacement({ x: p.x + 10 });
   await identity("selection and keyboard nudge preserve mounted previews");
   await stableCard.locator("[data-star]").click();
-  await stableCard.locator("[data-item-controls]").click();
+  // The resize/nudge deliberately overlaps the higher-z sibling at this corner.
+  // Use the selected tile's viewport action while preserving that arrangement.
+  await page.getByRole("button", {name:"Item details", exact:true}).click();
   await page.locator("#workspace-item-controls [data-note]").fill("Stable mounted notes");
   await page.waitForFunction(() => document.getElementById("save-status").textContent === "Item notes saved on this Mac");
   await identity("star and note preserve mounted previews");
@@ -1329,7 +1332,7 @@ try {
   await post("/api/operations", { type: "updateBoard", boardId: stableBoard.boardId, patch: { reviewOrder: reversed } });
   await page.waitForFunction(id => document.querySelector(".workspace-card").dataset.placement === id, reversed[0]);
   assert.equal(await page.evaluate(() => window.gridProof.every(p => document.querySelector(`[data-placement="${p.id}"]`) === p.card && p.card.querySelector("iframe") === p.frame && p.frame.contentDocument === p.doc)), true, "Grid external review order preserves both preview documents");
-  await page.locator(".workspace-card [data-item-controls]").first().click();
+  await openItemDetails(page.locator(".workspace-card [data-item-controls]").first());
   for (const [mode, className] of [["card", "workspace-compact"], ["icon", "workspace-icon"], ["panel", "workspace-panel"]]) {
     await page.locator(`#workspace-item-controls [data-presentation="${mode}"]`).click();
     await page.waitForFunction(className => document.querySelector(".workspace-card").classList.contains(className), className);
@@ -1499,8 +1502,8 @@ try {
   };
   const beginDrag = async (source,target,offset={x:0,y:0}) => {
     const a=await source.locator(".workspace-preview-launch").boundingBox(),b=await target.boundingBox();
-    await page.mouse.move(a.x+a.width/2,a.y+a.height/2);
-    await page.mouse.down();
+    const point=await exposedTileBodyPoint(source,{x:a.x+a.width/2,y:a.y+a.height/2});
+    await page.mouse.move(point.x,point.y);await page.mouse.down();
     await page.mouse.move(b.x+b.width/2+offset.x,b.y+Math.min(70,b.height/3)+offset.y,{steps:12});
     await page.waitForTimeout(80); // Actual pressed-button hover must precede pointerup.
   };
@@ -1727,8 +1730,35 @@ try {
     const references=[];for(const child of children)references.push(await op("reference",{sourceBoardId:parent.boardId,placementIds:child.placementIds,targetBoardId:second.boardId}));return {parent,group,kept,children,references};
   };
   const bringControl=async control=>{const b=await control.boundingBox(),vp=await page.locator("#viewport").boundingBox();let dx=0,dy=0;if(b.x+b.width/2<vp.x+15||b.x+b.width/2>vp.x+vp.width-15)dx=b.x+b.width/2-(vp.x+vp.width/2);if(b.y+b.height/2<vp.y+15||b.y+b.height/2>vp.y+vp.height-15)dy=b.y+b.height/2-(vp.y+vp.height/2);if(dx||dy){await page.mouse.move(vp.x+vp.width-8,vp.y+vp.height-8);await page.mouse.wheel(dx,dy);await page.waitForFunction(el=>{const b=el.getBoundingClientRect(),v=document.getElementById("viewport").getBoundingClientRect();return b.x+b.width/2>v.left+10&&b.x+b.width/2<v.right-10&&b.y+b.height/2>v.top+10&&b.y+b.height/2<v.bottom-10;},await control.elementHandle());}};
-  const selectMany=async ids=>{for(const id of ids){const button=page.locator(`[data-placement-select="${id}"]`);await bringControl(button);if(await button.getAttribute("aria-pressed")!=="true")await button.click();}assert.equal(await page.locator(".workspace-card.selected").count(),ids.length);};
-  const beginMany=async(id,target,right=false)=>{const preview=cardFor(id).locator(".workspace-preview-launch");await bringControl(preview);const a=await preview.boundingBox(),b=await target.boundingBox();await page.mouse.move(right?a.x+a.width-12:a.x+a.width/2,a.y+a.height/2);await page.mouse.down();await page.mouse.move(b.x+b.width/2,b.y+Math.min(65,b.height/3),{steps:12});await page.waitForTimeout(70);};
+  const selectMany=async ids=>{
+    for(const id of ids){
+      const button=page.locator(`[data-placement-select="${id}"]`);await bringControl(button);
+      if(await button.getAttribute("aria-pressed")==="true")continue;
+      const exposed=await button.evaluate(el=>{const r=el.getBoundingClientRect();return el.contains(document.elementFromPoint(r.x+r.width/2,r.y+r.height/2));});
+      if(exposed)await button.click();
+      else {
+        // These fixtures deliberately overlap. Select a visible part of the
+        // lower card with the public modifier gesture, keeping saved stacking.
+        const point=await cardFor(id).locator('.workspace-preview-launch').evaluate(el=>{
+          const r=el.getBoundingClientRect(),v=document.getElementById('viewport').getBoundingClientRect();
+          for(let y=Math.min(r.bottom,v.bottom)-5;y>Math.max(r.top,v.top)+4;y-=8)
+            for(let x=Math.min(r.right,v.right)-5;x>Math.max(r.left,v.left)+4;x-=8)
+              if(el.contains(document.elementFromPoint(x,y)))return {x,y};
+          return null;
+        });
+        assert(point,"Overlapping selection fixture retains an exposed preview target");
+        await page.keyboard.down('Shift');try{await page.mouse.click(point.x,point.y);}finally{await page.keyboard.up('Shift');}
+      }
+      assert.equal(await button.getAttribute('aria-pressed'),'true');
+    }
+    assert.equal(await page.locator(".workspace-card.selected").count(),ids.length);
+  };
+  const beginMany=async(id,target,right=false)=>{
+    const preview=cardFor(id).locator(".workspace-preview-launch");await bringControl(preview);
+    const a=await preview.boundingBox();await page.mouse.move(right?a.x+a.width-12:a.x+a.width/2,a.y+a.height/2);
+    const point=await exposedTileBodyPoint(cardFor(id),{x:right?a.x+a.width-12:a.x+a.width/2,y:a.y+a.height/2});
+    const b=await target.boundingBox();await page.mouse.move(point.x,point.y);await page.mouse.down();await page.mouse.move(b.x+b.width/2,b.y+Math.min(65,b.height/3),{steps:12});await page.waitForTimeout(70);
+  };
   const activeBoard=(ws,id)=>ws.boards.find(b=>b.id===id);
   const activePlacements=(ws,id)=>activeBoard(ws,id).placements.filter(p=>!p.removedAt&&!p.archivedAt);
   const assertCanonical=(before,after,ids)=>{for(const id of ids)assert.deepEqual(after.items.find(i=>i.id===id),before.items.find(i=>i.id===id),"Batch gesture retains canonical content/review/star/build/resources");};
@@ -1750,7 +1780,7 @@ try {
   }
   // Representative ordinary geometry, cancellation, and held-child compatibility.
   const f=await makeMulti("Selected controls fixture");revision=(await snapshot()).revision;const single=await op("createItem",{boardId:f.parent.boardId,item:{title:"Unselected",content:first.content},placement:{x:0,y:260,width:190,height:160}});await showBoard(f.parent.boardId,1440,100);await coverReady(f);const ids=f.children.map(c=>c.placementIds[0]);await selectMany(ids);
-  let before=await snapshot(),start=writes.length;const lead=cardFor(ids[0]),a=await lead.locator(".workspace-preview-launch").boundingBox();await page.mouse.move(a.x+a.width/2,a.y+a.height/2);await page.mouse.down();await page.mouse.move(a.x+a.width/2+25,a.y+a.height/2+30,{steps:8});await page.mouse.up();let after=await waitGraph(ws=>ws.revision>before.revision);assert.deepEqual(writes.slice(start).map(w=>w?.type),["translatePlacements"],"Selected canvas move is one atomic geometry transaction");assert.equal(after.revision,before.revision+1);for(const id of ids){const p=activeBoard(before,f.parent.boardId).placements.find(p=>p.id===id),q=activeBoard(after,f.parent.boardId).placements.find(p=>p.id===id);assert.deepEqual([q.x-p.x,q.y-p.y],[25,30]);}
+  let before=await snapshot(),start=writes.length;const lead=cardFor(ids[0]),a=await exposedTileBodyPoint(lead);await page.mouse.move(a.x,a.y);await page.mouse.down();await page.mouse.move(a.x+25,a.y+30,{steps:8});await page.mouse.up();let after=await waitGraph(ws=>ws.revision>before.revision);assert.deepEqual(writes.slice(start).map(w=>w?.type),["translatePlacements"],"Selected canvas move is one atomic geometry transaction");assert.equal(after.revision,before.revision+1);for(const id of ids){const p=activeBoard(before,f.parent.boardId).placements.find(p=>p.id===id),q=activeBoard(after,f.parent.boardId).placements.find(p=>p.id===id);assert.deepEqual([q.x-p.x,q.y-p.y],[25,30]);}
   before=after;start=writes.length;await dragPointer(await cardFor(single.placementIds[0]).locator(".workspace-preview-launch").boundingBox(),15,10);after=await waitGraph(ws=>ws.revision>before.revision);assert.deepEqual(writes.slice(start).map(w=>w?.type),["updatePlacement"],"Unselected card still drags singly");for(const id of ids)assert.deepEqual(activeBoard(after,f.parent.boardId).placements.find(p=>p.id===id),activeBoard(before,f.parent.boardId).placements.find(p=>p.id===id));await selectMany(ids);
   before=after;start=writes.length;await dragPointer(await lead.locator(".workspace-resize").boundingBox(),15,10);after=await waitGraph(ws=>ws.revision>before.revision);assert.deepEqual(writes.slice(start).map(w=>w?.type),["updatePlacement"],"Resize remains one selected card only");assert.deepEqual(activeBoard(after,f.parent.boardId).placements.find(p=>p.id===ids[1]),activeBoard(before,f.parent.boardId).placements.find(p=>p.id===ids[1]));
   for(const cancel of ["Escape","pointercancel"]){await selectMany(ids);before=await snapshot();start=writes.length;await beginMany(ids[0],cardFor(f.group.placementIds[0]));await page.locator(".workspace-drop-target").waitFor();if(cancel==="Escape")await page.keyboard.press("Escape");else await page.evaluate(()=>document.getElementById("viewport").dispatchEvent(new PointerEvent("pointercancel",{pointerId:1,pointerType:"mouse",bubbles:true})));await page.mouse.up();assert.equal(writes.length,start);assert.equal((await snapshot()).revision,before.revision);assert.equal(await page.locator(".workspace-card.selected").count(),2,`${cancel} preserves the selected pair`);}
@@ -1814,7 +1844,7 @@ try {
     const hcommit=async(action,type)=>{const before=await hsnapshot(),start=hwrites.length,response=hp.waitForResponse(r=>r.request().method()==="POST"&&r.url()===base+"/api/operations"&&r.request().postDataJSON()?.type===type);await action();const r=await response,d=await r.json();assert.equal(r.status(),200,JSON.stringify(d));assert(d.history,"Successful movement returns reciprocal history");await hp.waitForFunction(({key,receipt})=>{const s=JSON.parse(sessionStorage.getItem(key)||"{}");return [...s.undo||[],...s.redo||[]].some(e=>JSON.stringify(e.history)===JSON.stringify(receipt));},{key:hkey,receipt:d.history});await hp.waitForFunction(()=>document.getElementById("workspace-paste")?.disabled===false);const after=await hsnapshot();assert.equal(after.revision,before.revision+1,"Movement history commits in one revision");assert.deepEqual(hwrites.slice(start).map(w=>w.type),[type]);hreceipts.push({type,before:before.revision,after:after.revision,placementIds:hwrites[start].placementIds});return {before,after};};
     const hreplay=async redo=>await hcommit(async()=>{await hp.evaluate(()=>document.activeElement?.blur());await hp.keyboard.press(redo?"Meta+Shift+z":"Meta+z");},"restoreMovement");
     const hdrag=async(locator,dx,dy,release=true)=>{const p=await locator.boundingBox();await hp.mouse.move(p.x+p.width/2,p.y+p.height/2);await hp.mouse.down();await hp.mouse.move(p.x+p.width/2+dx,p.y+p.height/2+dy,{steps:10});if(release)await hp.mouse.up();};
-    const hdrop=async(id,target)=>{const p=await hcard(id).locator(".workspace-panel-title,.workspace-preview-launch").first().boundingBox(),t=await target.boundingBox();await hp.mouse.move(p.x+p.width/2,p.y+p.height/2);await hp.mouse.down();await hp.mouse.move(t.x+t.width/2,t.y+Math.min(t.height/3,65),{steps:14});await hp.locator(".workspace-drop-target").waitFor();};
+    const hdrop=async(id,target)=>{const p=await exposedTileBodyPoint(hcard(id)),t=await target.boundingBox();await hp.mouse.move(p.x,p.y);await hp.mouse.down();await hp.mouse.move(t.x+t.width/2,t.y+Math.min(t.height/3,65),{steps:14});await hp.locator(".workspace-drop-target").waitFor();};
     const hselect=async ids=>{const boxes=await Promise.all(ids.map(id=>hcard(id).boundingBox())),a={x:Math.min(...boxes.map(b=>b.x))-10,y:Math.min(...boxes.map(b=>b.y))-10},b={x:Math.max(...boxes.map(b=>b.x+b.width))+10,y:Math.max(...boxes.map(b=>b.y+b.height))+10};const count=hwrites.length;await hp.mouse.move(a.x,a.y);await hp.mouse.down();await hp.mouse.move(b.x,b.y,{steps:12});await hp.locator("#workspace-marquee").waitFor();await hp.mouse.up();assert.deepEqual(await hp.locator(".workspace-card.selected").evaluateAll(cards=>cards.map(c=>c.dataset.placement).sort()),[...ids].sort());assert.equal(hwrites.length,count);};
     const makeHistory=async title=>{const parent=await hfixtureOp("createBoard",{title}),group=await hfixtureOp("createBoard",{title:"READ FIRST",parentBoardId:parent.boardId});await hfixtureOp("updatePlacement",{boardId:parent.boardId,placementId:group.placementIds[0],patch:{x:600,y:0,width:260,height:240}});const kept=await hfixtureOp("createItem",{boardId:group.boardId,item:{title:"Kept child",content:first.content}}),children=[];for(let i=0;i<2;i++)children.push(await hfixtureOp("createItem",{boardId:parent.boardId,item:{title:i?"Notebook":"Focus reader",content:first.content,review:{note:"Retain note "+i,star:true}},placement:{x:i*250,y:0,width:200,height:220,z:i+4,presentation:{mode:"panel",viewport:{width:200,height:174}}}}));return {parent,group,kept,children};};
     const f=await makeHistory("Movement history"),bid=f.parent.boardId,gid=f.group.boardId,ids=f.children.map(i=>i.placementIds[0]);
@@ -1840,7 +1870,7 @@ try {
     // A new movement after undo clears redo; cancellation/no-op creates no entry.
     await hcommit(()=>hdrag(hcard(aid).locator(".workspace-panel-title"),12,8),"updatePlacement");assert.equal((await hstate()).redo.length,0);let state=await hstate(),start=hwrites.length;await hdrag(hcard(aid).locator(".workspace-panel-title"),20,10,false);await hp.keyboard.press("Escape");await hp.mouse.up();assert.deepEqual(await hstate(),state);assert.equal(hwrites.length,start);
     // Text editing keeps native undo rather than invoking movement restoration.
-    await hcard(aid).locator("[data-item-controls]").click();const note=hp.locator("#workspace-item-controls [data-note]");await note.focus();await note.pressSequentially(" temporary");const typedNote=await note.inputValue();start=hwrites.length;await hp.keyboard.press("Meta+z");assert.notEqual(await note.inputValue(),typedNote,"Notes keep native text undo");assert.equal(hwrites.slice(start).some(w=>w.type==="restoreMovement"),false);await hp.keyboard.press("Escape");
+    await openItemDetails(hcard(aid).locator("[data-item-controls]"));const note=hp.locator("#workspace-item-controls [data-note]");await note.focus();await note.pressSequentially(" temporary");const typedNote=await note.inputValue();start=hwrites.length;await hp.keyboard.press("Meta+z");assert.notEqual(await note.inputValue(),typedNote,"Notes keep native text undo");assert.equal(hwrites.slice(start).some(w=>w.type==="restoreMovement"),false);await hp.keyboard.press("Escape");
     // A later arrangement change safely rejects the inverse and retains local drafts.
     const draftKey=`tinka/${cfg.workspaceId}/item-review-drafts`,drafts=JSON.stringify({[f.children[1].itemId]:{note:"Keep local history draft"}});await hp.addInitScript(({key,value})=>{if(window.top===window)localStorage.setItem(key,value);},{key:draftKey,value:drafts});await hp.reload();await hcard(aid).waitFor();await hfixtureOp("updatePlacement",{boardId:bid,placementId:aid,patch:{x:active[0].x+99}});const conflicted=await hsnapshot();state=await hstate();start=hwrites.length;const rejection=hp.waitForResponse(r=>r.url()===base+"/api/operations"&&r.request().postDataJSON()?.type==="restoreMovement");await hp.evaluate(()=>document.activeElement?.blur());await hp.keyboard.press("Meta+z");assert.equal((await rejection).status(),409);await hp.locator("#workspace-toast").waitFor();assert.deepEqual(arrangement(await hsnapshot(),[bid,gid]),arrangement(conflicted,[bid,gid]));assert.deepEqual(await hstate(),state);assert.deepEqual(hwrites.slice(start).map(w=>w.type),["restoreMovement"]);assert.equal(await hp.evaluate(key=>localStorage.getItem(key),draftKey),drafts);
     await writeFile(path.join(evidence,"movement-history-receipt.json"),JSON.stringify({operations:hreceipts,representativeViews:[[1440,100],[1440,125],[390,100]],exactPlacementsAndOrder:true,canonicalReviewPreserved:true,stableNativeDocuments:true,branching:true,cancel:true,textUndo:true,conflictDrafts:true,footerAndContextMenu:true},null,2));await hc.close();

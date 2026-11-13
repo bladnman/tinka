@@ -1,3 +1,4 @@
+import {openItemDetails} from './tile-test-helpers.mjs';
 // Focused, external-fixture QA; synthetic clipboard events never touch the OS clipboard.
 import assert from 'node:assert/strict';
 import { mkdtemp, mkdir, readFile, writeFile } from 'node:fs/promises';
@@ -119,7 +120,7 @@ try {
     await page.evaluate(html=>document.body.insertAdjacentHTML('beforeend',html),markup);await page.locator('#qa-edit').focus();await noWrite(name,()=>page.keyboard.press('Delete'));await page.locator('#qa-edit').evaluate(el=>el.remove());
   }
   await page.locator('#board-info-toggle').click();await page.locator('#workspace-search').focus();await noWrite('search editing',()=>page.keyboard.press('Backspace'));await page.locator('#board-info-toggle').click();
-  await card(ids[0]).locator('[data-item-controls]').click();await page.locator('#workspace-item-controls [data-note]').focus();await noWrite('notes editing',()=>page.locator('#workspace-item-controls [data-note]').evaluate(el=>el.dispatchEvent(new KeyboardEvent('keydown',{key:'Delete',bubbles:true,cancelable:true}))));await page.keyboard.press('Escape');
+  await openItemDetails(card(ids[0]).locator('[data-item-controls]'));await page.locator('#workspace-item-controls [data-note]').focus();await noWrite('notes editing',()=>page.locator('#workspace-item-controls [data-note]').evaluate(el=>el.dispatchEvent(new KeyboardEvent('keydown',{key:'Delete',bubbles:true,cancelable:true}))));await page.keyboard.press('Escape');
   await card(ids[0]).locator('.workspace-panel-title').click();await page.locator('#reader-dialog[open]').waitFor();await noWrite('reader',()=>page.keyboard.press('Delete'));await page.locator('#close-reader').click();
   await page.evaluate(()=>{const d=document.createElement('dialog');d.id='qa-dialog';d.innerHTML='<button>Modal</button>';document.body.append(d);d.showModal();});await noWrite('dialog',()=>page.keyboard.press('Delete'));await page.locator('#qa-dialog').evaluate(d=>d.remove());
   await card(survivor.placementIds[0]).locator('iframe').contentFrame().locator('.item-full-frame').contentFrame().getByRole('textbox',{name:'Prototype input'}).focus();assert.equal(await page.evaluate(()=>document.activeElement.tagName),'IFRAME');await noWrite('iframe focused',()=>page.evaluate(()=>document.body.dispatchEvent(new KeyboardEvent('keydown',{key:'Delete',bubbles:true,cancelable:true}))));await page.evaluate(()=>document.activeElement?.blur());

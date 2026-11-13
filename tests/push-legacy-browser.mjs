@@ -1,3 +1,4 @@
+import {legacyNote} from './tile-test-helpers.mjs';
 import assert from 'node:assert/strict';
 import {mkdtemp,mkdir,writeFile,readFile,rm} from 'node:fs/promises';
 import os from 'node:os';
@@ -25,7 +26,7 @@ try{
  const metadata=JSON.parse(await readFile(path.join(dir,'board.json'),'utf8'));await writeFile(path.join(dir,'board.json'),JSON.stringify({...metadata,title:'Legacy pushed title'}));
  await page.waitForTimeout(1200);assert.equal(await page.locator('#board-title').textContent(),'Legacy');await page.mouse.up();
  await page.waitForFunction(()=>document.querySelector('#board-title').textContent==='Legacy pushed title');assert.equal(await page.evaluate(()=>window.retained===document.querySelector('.concept-card iframe')),true,'legacy metadata keeps mounted preview');
- const note=page.locator('[data-note="one/first"]');await note.fill('Keep this note');await note.evaluate(el=>el.setSelectionRange(3,7));
+ const note=await legacyNote(page,'one/first');await note.fill('Keep this note');await note.evaluate(el=>el.setSelectionRange(3,7));
  const manifest=JSON.parse(await readFile(path.join(dir,'rounds.json'),'utf8'));manifest.rounds[0].title='Live heading with focused note';await writeFile(path.join(dir,'rounds.json'),JSON.stringify(manifest));
  await page.locator('#round-heading-one').filter({hasText:'Live heading with focused note'}).waitFor();assert.deepEqual(await note.evaluate(el=>[el===document.activeElement,el.value,el.selectionStart,el.selectionEnd]),[true,'Keep this note',3,7]);assert.equal(await page.evaluate(()=>window.retained===document.querySelector('.concept-card iframe')),true,'focused note reconciliation keeps mounted preview');
  await writeFile(path.join(dir,'prototype/index.html'),'<h1>Changed legacy resource</h1>');await page.waitForFunction(()=>document.querySelector('.concept-card iframe')?.contentDocument?.body?.textContent.includes('Changed legacy resource'));
