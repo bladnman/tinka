@@ -462,7 +462,7 @@ copy among configs you intend to update independently.
 
 Config, boards, notes, logs, and PID state must stay outside the app directory. Existing version 0.1 configs remain fixed-port configurations; add `"projectLabel": "Your project"` and optionally `"portMode": "auto"`. The legacy `title` property remains accepted but project identity comes from `projectLabel`.
 
-See [operations](docs/README.md), [release packaging](docs/RELEASE.md), and [maintainer guidance](AGENTS.md). No open-source license has been selected for this repository.
+See [operations](docs/README.md), [release packaging](docs/RELEASE.md), and [maintainer guidance](AGENTS.md). Tinka is open source under the [MIT License](LICENSE).
 
 Boards on Home appear newest-created first, including graph and legacy boards
 together. Nested board cards in Grid use the child board’s creation date within
