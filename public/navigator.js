@@ -109,7 +109,7 @@ export class ProjectNavigator {
       if(this.dockedNow())this.button.focus({preventScroll:true});else this.close();
     },true);
     document.addEventListener('pointerdown',event=>{
-      if(!this.isOpen||this.dockedNow()||panel.contains(event.target)||button.contains(event.target))return;
+      if(!this.isOpen||this.dockedNow()||panel.contains(event.target)||this.toggles().some(toggle=>toggle.contains(event.target)))return;
       this.hide({restoreFocus:false});
     },true);
     document.addEventListener('keydown',event=>{
@@ -132,9 +132,23 @@ export class ProjectNavigator {
     if(this.docked&&!narrow())this.open({focus:false});
     return this;
   }
-  modalOpen(){try{return !!document.querySelector('dialog:modal');}catch{return false;}}
+  // An open Tinka is a modal page of its own; the Navigator then lives inside it
+  // (see host) and counts only other modal dialogs as blocking.
+  modalOpen(){try{return [...document.querySelectorAll('dialog:modal')].some(dialog=>!dialog.contains(this.panel));}catch{return false;}}
+  toggles(){return [this.button,this.hostButton].filter(Boolean);}
+  // Move the panel into an open Tinka (container) with its own toggle, or back to the page (null).
+  // While hosted it floats rather than docks; a docked Navigator returns when the Tinka closes.
+  host(container,button=null){
+    if(!this.panel||(this.hostEl||null)===(container||null))return;
+    if(container&&this.isOpen)this.hide({restoreFocus:false});
+    this.hostEl=container||null;this.hostButton=container?button:null;
+    (container||document.body).append(this.panel);
+    for(const toggle of this.toggles())toggle.setAttribute('aria-expanded',String(this.isOpen));
+    this.applyDock();
+    if(!container&&this.dockedNow()&&!this.isOpen)this.open({focus:false});
+  }
   rows(){return [...this.content.querySelectorAll('[data-nav-row]')].filter(el=>!el.disabled&&el.offsetParent!==null);}
-  dockedNow(){return this.docked&&!narrow();}
+  dockedNow(){return this.docked&&!narrow()&&!this.hostEl;}
   persist(){write(sessionStorage,this.storageKey,{query:this.query.value,scope:this.scope});}
   setDocked(value){
     this.docked=!!value; write(localStorage,this.dockKey,this.docked||null);
@@ -155,14 +169,14 @@ export class ProjectNavigator {
   hide({restoreFocus=true}={}){
     if(!this.isOpen)return;
     clearTimeout(this.timer);this.timer=null;this.generation++;this.isOpen=false;this.panel.hidden=true;
-    this.button.setAttribute('aria-expanded','false');this.applyDock();
-    if(restoreFocus)this.button.focus({preventScroll:true});
+    for(const toggle of this.toggles())toggle.setAttribute('aria-expanded','false');this.applyDock();
+    if(restoreFocus)(this.hostButton||this.button).focus({preventScroll:true});
   }
   close(){if(this.docked){this.docked=false;write(localStorage,this.dockKey,null);}this.hide();this.applyDock();}
   dismiss(){if(!this.dockedNow())this.hide();}
   async open({focus=true}={}){
     if(!this.isOpen){this.isOpen=true;this.panel.hidden=false;this.applyDock();}
-    this.button.setAttribute('aria-expanded','true');if(focus)this.query.focus({preventScroll:true});
+    for(const toggle of this.toggles())toggle.setAttribute('aria-expanded','true');if(focus)this.query.focus({preventScroll:true});
     this.revealOnRender=true;
     this.status.textContent='Loading project boards…';
     try{

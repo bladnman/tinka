@@ -20,10 +20,8 @@ a{color:inherit}
 .slash{color:#adb7a0;font-size:22px;flex:none}
 .board-name{font:400 23px/1.15 Georgia,serif;margin:0;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 /* In the reader the experiment name is the page; the board name gives way first. */
-.board-link{text-decoration:none;flex:0 12 auto;padding-block:11px;margin-block:-11px}
-.board-link:hover{text-decoration:underline}
+.info-toggle svg,.icon-button svg{width:18px;height:18px;fill:none;stroke:currentColor;stroke-width:1.5;stroke-linecap:round;stroke-linejoin:round}
 .info-toggle{flex:none;display:inline-flex;align-items:center;justify-content:center;width:44px;height:44px;padding:0;margin:-6px 0;border-color:transparent;background:transparent;color:var(--accent-text);border-radius:7px}
-.info-toggle svg,.icon-button svg,.size-trigger svg{width:18px;height:18px;fill:none;stroke:currentColor;stroke-width:1.5;stroke-linecap:round;stroke-linejoin:round}
 .info-toggle:hover,.info-toggle[aria-expanded="true"]{background:var(--soft);color:var(--ink)}
 .board-info{position:absolute;left:16px;top:calc(100% + 8px);z-index:20;width:min(540px,calc(100vw - 32px));max-height:calc(100dvh - 160px);overflow:auto;padding:18px 20px;background:var(--paper);border:1px solid #b7c4a7;border-radius:10px;box-shadow:0 8px 30px #25301822;font-size:13px;line-height:1.55}
 #board-description{margin:0 0 10px;font:400 17px/1.45 Georgia,serif}
@@ -94,16 +92,14 @@ a{color:inherit}
 .view-tools input[type=range]{width:200px;min-width:56px;height:44px;margin:0;accent-color:var(--accent);cursor:pointer}
 .view-tools button{min-height:44px;min-width:44px;background:transparent;border-color:transparent;padding:8px 12px;font-size:12px;white-space:nowrap}
 .view-tools button:hover{background:var(--hover)}
-.view-tools .fit,.window-fit{border-left:1px solid var(--line);border-radius:0;padding-left:14px;margin-left:4px}
-.view-tools .fit:hover,.window-fit:hover{border-radius:6px}
+.view-tools .fit{border-left:1px solid var(--line);border-radius:0;padding-left:14px;margin-left:4px}
+.view-tools .fit:hover{border-radius:6px}
 
 /* Experiment view */
 #reader-dialog{position:fixed;inset:0;width:100vw;height:100dvh;max-width:none;max-height:none;border:0;margin:0;padding:0;background:var(--canvas);color:var(--ink);overflow:hidden}
 #reader-dialog[open]{display:flex;flex-direction:column}
 #reader-dialog::backdrop{background:#303b2c99}
 .experiment-crumb{font:400 20px/1.15 Georgia,serif;color:#405036;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.item-line{display:flex;align-items:center;gap:4px;min-width:0;flex:0 1 auto}
-.item-actions{display:flex;align-items:center;gap:2px;flex:none;margin:-9px 0 -9px 4px}
 .item-star{min-width:44px;min-height:44px;padding:0;font-size:20px;line-height:1;background:transparent;border-color:transparent;color:var(--accent-text);border-radius:7px}
 .item-star[aria-pressed="true"]{color:#4a602c;background:var(--soft)}
 .notes-toggle{min-height:44px;padding:8px 12px;font-size:12px;background:transparent;border-color:transparent;color:#4d5a42;border-radius:7px;white-space:nowrap}
@@ -111,11 +107,6 @@ a{color:inherit}
 .note-dot{display:inline-block;width:6px;height:6px;border-radius:50%;background:var(--accent);margin-left:6px;vertical-align:2px}
 #reader-update{position:relative;min-height:34px;margin-left:6px;padding:4px 10px;border-color:#a9bd93;background:#e4ecd8;color:#465c32;font-size:10px;font-weight:700;white-space:nowrap}
 .reader-area{flex:1;min-height:0;display:flex;position:relative}
-.reader-stage{flex:1;min-width:0;min-height:0;position:relative;display:flex;align-items:center;justify-content:center;padding:22px 24px;overflow:auto;background-image:radial-gradient(#c2c9b9 .8px,transparent .8px);background-size:20px 20px}
-#reader-window{width:100%;height:100%;resize:both;overflow:hidden;min-width:min(320px,100%);min-height:280px;max-width:100%;max-height:100%;border:1px solid #bac6ad;box-shadow:0 12px 28px #37452b12;border-radius:10px;padding:0 0 12px;background:#c9d2bd}
-#reader-window[data-size="compact"]{width:440px;height:620px}
-#reader-window[data-size="standard"]{width:1000px;height:720px}
-#reader-window[data-size="wide"]{width:1380px;height:840px}
 #active-reader{display:block;width:100%;height:100%;border:0;background:var(--paper);border-radius:9px 9px 0 0}
 .notes-panel{flex:none;width:320px;display:flex;flex-direction:column;gap:12px;padding:18px 20px 16px;background:var(--paper);border-left:1px solid var(--line);overflow:auto}
 .notes-head{display:flex;justify-content:space-between;align-items:flex-start;gap:10px}
@@ -137,87 +128,17 @@ a{color:inherit}
   .reader-stage #reader-window{min-height:0}
 }
 
-/* Reader footer: always one row of back, navigation and view tools. canvas.js measures the space and sets
    --strip-dots, data-back and data-tools; nothing here depends on a fixed breakpoint. */
-.reader-footer{display:grid;grid-template-columns:auto minmax(0,1fr) auto;grid-template-areas:"back nav tools";gap:14px}
-.back{grid-area:back;justify-self:start;min-height:44px;min-width:44px;background:transparent;border-color:transparent;font-size:12px;white-space:nowrap}
-.back:hover{background:var(--hover)}
-.back kbd{font:10px/1 ui-monospace,SFMono-Regular,Menlo,monospace;color:#7b846f;border:1px solid var(--line);border-radius:4px;padding:2px 5px;margin-left:9px;position:relative;top:-1px}
-/* The navigation is as wide as its arrows and dot strip, so the arrows hug the strip. */
-.experiment-navigation{grid-area:nav;display:flex;align-items:center;gap:6px;min-width:0;max-width:100%;justify-self:center;translate:var(--nav-shift,0px) 0}
-.experiment-navigation>button{flex:none;min-width:44px;min-height:44px;border-color:transparent;background:transparent;padding:8px;font-size:15px}
-.experiment-navigation>button:hover{background:var(--hover)}
-.experiment-navigation>button:disabled{opacity:.28;background:transparent}
-/* A small fixed window of dots (fewer with less room, all of them when there are only a few). It keeps the current
    dot centred and fades an edge while more dots lie beyond it. */
-.dot-track{--fade:linear-gradient(90deg,transparent,#000 var(--fade-start,0px),#000 calc(100% - var(--fade-end,0px)),transparent);display:flex;align-items:center;flex:0 1 auto;min-width:0;max-width:calc(var(--strip-dots,9) * 24px);height:44px;overflow-x:auto;overflow-y:hidden;scrollbar-width:none;touch-action:pan-y;justify-content:safe center;-webkit-mask-image:var(--fade);mask-image:var(--fade)}
-.dot-track::-webkit-scrollbar{display:none}
-.experiment-dot{position:relative;flex:none;width:24px;min-width:24px;height:44px;padding:0;border:0;border-radius:0;background:transparent;cursor:pointer;touch-action:none}
-.experiment-dot.group-start:not(:first-child){margin-left:12px}
-.experiment-dot::after{content:'';position:absolute;top:50%;left:50%;width:5px;height:5px;border-radius:50%;background:#aab59d;transform:translate(-50%,-50%)}
-.experiment-dot[aria-pressed="true"]::after{width:9px;height:9px;background:var(--green)}
-.experiment-dot.scrubbing::after{width:9px;height:9px;background:#7f9468}
-.experiment-dot:hover{background:#e5eadc}
-.experiment-dot:hover::after{background:#61744c}
-.experiment-dot:focus-visible{outline:2px solid var(--green);outline-offset:-3px;border-radius:5px}
-.reader-tools{grid-area:tools;position:relative;justify-self:end;width:max-content}
-.view-controls{display:flex;align-items:center;gap:2px}
-.view-toggle{display:none}
-.view-toggle svg{width:18px;height:18px;fill:none;stroke:currentColor;stroke-width:1.5;stroke-linecap:round}
-.reader-tools .view-toggle[aria-expanded="true"]{background:var(--soft)}
-/* Folded: the view controls move into a popover above the View button. */
-.reader-footer[data-tools^="folded"] .view-toggle{display:inline-flex;align-items:center;gap:6px;padding:0 10px;color:#4a5640}
-.reader-footer[data-tools="folded-icon"] .view-toggle{padding:0}
-.reader-footer[data-tools="folded-icon"] .view-label{display:none}
-.reader-footer[data-tools^="folded"] .view-controls{position:absolute;right:0;bottom:calc(100% + 12px);z-index:20;flex-wrap:wrap;justify-content:flex-end;width:max-content;max-width:calc(100vw - 24px);padding:6px;background:var(--paper);border:1px solid #b7c4a7;border-radius:10px;box-shadow:0 8px 30px #25301822}
-.reader-footer[data-tools^="folded"] .view-controls:not(.open){display:none}
-.reader-tools input.type-slider{width:96px}
 .type-glyph{font-family:Georgia,serif;color:#6b7560;line-height:1;padding:0 4px}
 .type-glyph.small{font-size:11px}
 .type-glyph.large{font-size:17px}
-.window-fit[aria-pressed="true"]{color:#3f5230;font-weight:600}
 .icon-button{display:inline-flex;align-items:center;justify-content:center;min-width:44px;min-height:44px;padding:0;color:#4a5640;border-radius:6px}
-.light-toggle .moon,.light-toggle[aria-pressed="true"] .sun{display:none}
-.light-toggle[aria-pressed="true"] .moon{display:block}
-.light-toggle[aria-pressed="true"]{background:var(--soft)}
-.size-wrap{position:relative;display:inline-flex}
-.reader-tools .size-trigger{display:inline-flex;align-items:center;gap:6px;padding:0 8px;color:#4a5640}
-.size-trigger svg{width:16px;height:16px}
-.size-value{font-size:11px;color:#5f6955;max-width:9em;overflow:hidden;text-overflow:ellipsis}
-.chev{font-size:11px;color:#7b846f;position:relative;top:-3px}
-.size-trigger[aria-expanded="true"]{background:var(--soft)}
-.size-menu{position:absolute;right:0;bottom:calc(100% + 12px);z-index:20;width:240px;max-height:calc(100dvh - 140px);overflow:auto;display:flex;flex-direction:column;gap:2px;padding:6px;background:var(--paper);border:1px solid #b7c4a7;border-radius:10px;box-shadow:0 8px 30px #25301822;user-select:none}
-.menu-label{margin:6px 10px 2px;font-size:9.5px;font-weight:600;letter-spacing:.14em;text-transform:uppercase;color:var(--muted)}
 .revision-group{display:flex;flex-direction:column;gap:2px;margin-top:4px;padding-top:4px;border-top:1px solid var(--line)}
 #revision-options{display:flex;flex-direction:column;gap:2px}
-.reader-tools .size-menu button{display:flex;justify-content:space-between;align-items:center;gap:10px;width:100%;min-height:44px;padding:8px 10px;margin:0;border:1px solid transparent;border-radius:7px;font-size:12px;text-align:left}
-.size-menu small{font-size:11px;color:#7b846f;font-weight:400;white-space:nowrap}
-.reader-tools .size-menu button[aria-pressed="true"]{background:var(--soft);font-weight:600}
-.size-hint{margin:6px 10px 4px;font-size:10.5px;line-height:1.45;color:#6b7560}
-.standalone{font-size:15px;line-height:1;text-decoration:none}
-.standalone:hover{background:var(--hover)}
-.dot-tooltip{position:fixed;z-index:30;left:50%;transform:translateX(-50%);width:max-content;max-width:min(430px,calc(100vw - 28px));border:1px solid #bec9af;border-radius:7px;background:var(--paper);padding:10px 13px;box-shadow:0 5px 18px #34452a22;color:#405036;font-size:11px;line-height:1.5;pointer-events:none}
 
-/* Compact Back shows a board glyph with "Board", then the glyph alone, so it never looks like Previous; its name
    and Esc tooltip stay. */
-.board-glyph{display:none;width:16px;height:16px;fill:none;stroke:currentColor;stroke-width:1.5;stroke-linejoin:round}
-.board-label{display:none}
-.reader-footer:is([data-back="board"],[data-back="icon"]) .back{display:inline-flex;align-items:center;justify-content:center;gap:6px}
-.reader-footer:is([data-back="board"],[data-back="icon"]) :is(.back-arrow,.back-label,.back kbd){display:none}
-.reader-footer:is([data-back="board"],[data-back="icon"]) .board-glyph{display:block}
-.reader-footer[data-back="board"] .board-label{display:inline}
-.reader-footer[data-back="icon"] .back{padding:0}
-.reader-header[data-layout="row"] .board-link{min-width:var(--board-min,0px)}
-.reader-header[data-layout="row"] .experiment-crumb{min-width:var(--name-min,0px)}
-/* Reader header without room for the breadcrumb on one line (canvas.js measures): the board name stays beside
    Tinka, the experiment line takes its own row with its actions at the end, and a reload offer below them. */
-.reader-header[data-layout="wrapped"] .identity{flex-wrap:wrap;row-gap:0}
-.reader-header[data-layout="wrapped"] .board-link{flex:1 1 0;margin-block:0}
-.reader-header[data-layout="wrapped"] .experiment-slash{display:none}
-.reader-header[data-layout="wrapped"] .item-line{flex:1 1 100%;order:9;flex-wrap:wrap;gap:2px}
-.reader-header[data-layout="wrapped"] .experiment-crumb{flex:1 1 0}
-.reader-header[data-layout="wrapped"] .item-actions{display:contents}
-.reader-header[data-layout="wrapped"] #reader-update{flex-basis:100%;margin:2px 0 6px}
 @container (max-width:260px){.refresh-detail{display:none}}
 @media(max-width:760px){
   .canvas-header,.reader-header{padding:8px 16px;min-height:56px}
@@ -231,12 +152,10 @@ a{color:inherit}
   #round-status{display:none}
 }
 @media(max-width:650px){
-  .reader-header .experiment-crumb{font-size:17px}
   .reader-area{flex-direction:column}
   .notes-panel{width:auto;height:min(270px,42%);border-left:0;border-top:1px solid var(--line);padding:12px 16px;gap:8px;box-shadow:0 -6px 18px #34452a14}
   .notes-head h2{font-size:17px}
   #reader-note{min-height:70px}
-  .reader-stage{padding:10px}
 }
 @media(max-width:480px){
   .brand span{max-width:96px;overflow:hidden;text-overflow:ellipsis}
@@ -251,20 +170,10 @@ a{color:inherit}
 .canvas-header .board-name{flex:1;overflow:visible;text-overflow:clip;white-space:normal;overflow-wrap:anywhere;font-size:22px;line-height:1.25}
 .info-toggle{width:auto;min-width:54px;margin:0;padding:0 10px;font-size:12px}
 .board-info{left:auto;right:16px;width:min(540px,calc(100vw - 32px));max-height:calc(100dvh - 130px)}
-.reader-header .board-link{flex:none;min-height:44px;padding:12px 0;margin:0;font:12px/20px -apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;overflow:visible}
-.reader-header .item-line{flex:1;align-items:center;gap:8px}
-.reader-header .experiment-crumb{flex:1;overflow:visible;white-space:normal;overflow-wrap:anywhere;line-height:1.3}
-.reader-header .item-actions{margin:0;flex:0 1 auto;min-width:88px;max-width:50%;flex-wrap:wrap;justify-content:flex-end}
-.reader-header #reader-update{white-space:normal;max-width:100%}
-.reader-tools .view-controls{max-height:calc(100dvh - 120px);overflow:auto}
-.reader-tools .size-menu{position:fixed;right:12px;bottom:78px;z-index:30}
 @media(max-width:650px){
   .canvas-header .identity,.reader-header .identity{flex-wrap:wrap;gap:4px 14px}
   .canvas-header .info-toggle{margin-left:auto}
   .canvas-header .board-name{order:9;flex-basis:100%;padding:3px 0 5px;font-size:21px}
-  .reader-header .item-line{flex-basis:100%;padding:2px 0 5px}
-  .reader-header .experiment-crumb{font-size:20px}
-  .reader-header #reader-update{flex-basis:100%;max-width:160px}
 }
 
 .board-help summary{min-height:44px;display:flex;align-items:center;gap:8px;cursor:pointer;color:var(--green);font-size:12px}

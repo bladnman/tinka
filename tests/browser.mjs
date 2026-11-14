@@ -22,7 +22,8 @@ const context=await browser.newContext({viewport:{width:1440,height:960}});
 const errors=[];
 const instances=[];
 const saved=async file=>JSON.parse(await readFile(file,'utf8'));
-const openView=async page=>{if(await page.locator('#view-toggle').getAttribute('aria-expanded')!=='true')await page.locator('#view-toggle').click();};
+// The former View panel's controls live in the opened Tinka's % menu.
+const openView=async page=>{if(await page.locator('#reader-zoom-menu').isHidden())await page.locator('#reader-zoom-toggle').click();};
 const waitFor=async(check,message)=>{for(let i=0;i<80;i++){if(await check())return;await new Promise(r=>setTimeout(r,100));}throw new Error(message);};
 try{
   for(const label of ['Glade','Runway']){
@@ -254,26 +255,26 @@ try{
   await showRound('third');
   await settledRound(2);
   await a.page.emulateMedia({reducedMotion:'no-preference'});
-  // Opening, deep links, and explicit reloads route keys into the experiment body.
+  // Opening, deep links and explicit reloads leave focus on Tinka, so its keys work at once; a click into the
+  // experiment hands it the arrow keys.
   await openLegacyItem(a.page,'third/pages');
   const keyboardFrame=a.page.frameLocator('#active-reader');
-  const readerFocused=()=>a.page.waitForFunction(()=>{const frame=document.querySelector('#active-reader');const doc=frame.contentDocument;return document.activeElement===frame&&doc?.readyState==='complete'&&doc.body?.dataset.experiment===location.hash.slice(1).split('/')[0]&&doc.activeElement?.tagName==='BODY';},null,{timeout:10000}).catch(async error=>{
+  const readerFocused=()=>a.page.waitForFunction(()=>{const frame=document.querySelector('#active-reader');const doc=frame.contentDocument;const active=document.activeElement;return document.querySelector('#reader-dialog').contains(active)&&active!==frame&&doc?.readyState==='complete'&&doc.body?.dataset.experiment===location.hash.slice(1).split('/')[0];},null,{timeout:10000}).catch(async error=>{
     const actual=await a.page.evaluate(()=>{const frame=document.querySelector('#active-reader');const doc=frame.contentDocument;return {hash:location.hash,open:document.querySelector('#reader-dialog').open,active:document.activeElement?.id||document.activeElement?.tagName,ready:doc?.readyState,experiment:doc?.body?.dataset.experiment,inner:doc?.activeElement?.tagName,src:frame.src};});
     throw new Error(`Reader not focused: ${JSON.stringify(actual)}; ${error.message}`);
   });
+  const intoExperiment=()=>keyboardFrame.locator('h1').click();
   await keyboardFrame.locator('h1').waitFor();
   await readerFocused();
+  assert.equal(await a.page.evaluate(()=>document.activeElement.id),'reader-stage');
+  await intoExperiment();
   await a.page.keyboard.press('ArrowRight');
   assert.equal(await keyboardFrame.locator('output').textContent(),'1');
-  assert.equal(await a.page.locator('#reader-fit').getAttribute('aria-pressed'),'true');
-  assert.equal(await a.page.locator('#size-value').textContent(),'Fit');
+  assert.equal(await a.page.locator('#reader-window').getAttribute('data-size'),'fit');
   await a.page.screenshot({path:path.join(evidence,'reader-keyboard-focus.png')});
   await openView(a.page);
-  await a.page.locator('#reader-type').focus();
-  await a.page.keyboard.press('Tab');
-  assert.equal(await a.page.evaluate(()=>document.activeElement.id),'reader-fit');
-  await a.page.keyboard.press('Tab');
-  assert.equal(await a.page.evaluate(()=>document.activeElement.id),'reader-theme');
+  for(const id of ['reader-type','reader-theme','reader-standalone'])assert.equal(await a.page.locator(`#${id}`).isVisible(),true,id);
+  await a.page.keyboard.press('Escape');
   await keyboardFrame.locator('input').fill('Keep my draft');
   keyboardManifest.rounds[2].title='Updated third round';
   await writeFile(path.join(keyboardBoard,'rounds.json'),JSON.stringify(keyboardManifest));
@@ -292,6 +293,7 @@ try{
   await a.page.goto(`${a.url}boards/keyboard/#first/pages`);
   await keyboardFrame.locator('h1').waitFor();
   await readerFocused();
+  await intoExperiment();
   await a.page.keyboard.press('ArrowRight');
   assert.equal(await keyboardFrame.locator('output').textContent(),'1');
   await writeFile(path.join(keyboardBoard,'first.html'),(await readFile(path.join(keyboardBoard,'first.html'),'utf8')).replace('Keyboard pages</h1>','Updated keyboard pages</h1>'));
@@ -299,6 +301,7 @@ try{
   await a.page.locator('#reader-update').click();
   await keyboardFrame.getByRole('heading',{name:'Updated keyboard pages'}).waitFor();
   await readerFocused();
+  await intoExperiment();
   await a.page.keyboard.press('ArrowRight');
   assert.equal(await keyboardFrame.locator('output').textContent(),'1');
   await a.page.keyboard.press('Escape');
@@ -307,45 +310,44 @@ try{
   // Step through experiments without leaving the viewer or changing comparison settings.
   await a.page.goto(`${a.url}boards/keyboard/#first/pages`);
   await readerFocused();
-  const position=()=>a.page.locator('#dot-track').getAttribute('data-position');
-  await a.page.waitForFunction(()=>document.querySelector('#dot-track').dataset.position==='1 / 3');
+  const position=()=>a.page.locator('#reader-count').textContent();
+  await a.page.waitForFunction(()=>document.querySelector('#reader-count').textContent==='1 / 3');
   assert.equal(await a.page.locator('#reader-previous').isDisabled(),true);
   await openView(a.page);
-  await a.page.locator('#size-trigger').click();
-  await a.page.locator('#size-menu [data-size="compact"]').click();
-  await openView(a.page);
+  await a.page.locator('#reader-zoom-menu [data-size="compact"]').click();
   await a.page.locator('#reader-theme').click();
-  await openView(a.page);
   await a.page.locator('#reader-type').focus();
   await a.page.keyboard.press('ArrowRight');
   await a.page.keyboard.press('ArrowRight');
+  await a.page.keyboard.press('Escape');
   await a.page.locator('#reader-next').click();
   await readerFocused();
   assert.equal(await a.page.locator('#reader-name').textContent(),'Pages 2');
   assert.equal(new URL(a.page.url()).hash,'#second/pages');
   assert.equal(await position(),'2 / 3');
-  assert.deepEqual(await a.page.evaluate(()=>[document.querySelector('#size-value').textContent,document.querySelector('#reader-window').dataset.size,document.querySelector('#reader-theme').getAttribute('aria-pressed'),document.querySelector('#reader-type').value]),['Compact','compact','true','130']);
+  assert.deepEqual(await a.page.evaluate(()=>[document.querySelector('#reader-window').dataset.size,document.querySelector('#reader-theme').getAttribute('aria-pressed'),document.querySelector('#reader-type').value]),['compact','true','130']);
   await a.page.locator('#reader-next').click();
   await readerFocused();
   assert.equal(await a.page.locator('#reader-next').isDisabled(),true);
+  // At the end, focus falls back to Tinka; the experiment still gets the arrows once it has focus.
+  await intoExperiment();
   await a.page.keyboard.press('ArrowRight');
   assert.equal(await keyboardFrame.locator('output').textContent(),'1');
   assert.equal(await a.page.locator('#reader-name').textContent(),'Pages 3');
   await a.page.screenshot({path:path.join(evidence,'reader-navigation-wide.png')});
   // Status changes update the sequence without replacing the current preview.
   await main(['status','--config',a.config,'--board','keyboard','second/pages','building','Updating fixture']);
-  await a.page.waitForFunction(()=>document.querySelector('#dot-track').dataset.position==='2 / 2');
-  assert.equal(await a.page.locator('#dot-track [data-dot]').count(),2);
+  await a.page.waitForFunction(()=>document.querySelector('#reader-count').textContent==='2 / 2');
   assert.equal(await keyboardFrame.locator('output').textContent(),'1');
   await a.page.locator('#reader-previous').click();
   await readerFocused();
   assert.equal(await a.page.locator('#reader-name').textContent(),'Pages 1');
   await main(['status','--config',a.config,'--board','keyboard','third/pages','reserved','Reserved fixture']);
-  await a.page.waitForFunction(()=>document.querySelector('#dot-track').dataset.position==='1 / 1');
+  await a.page.waitForFunction(()=>document.querySelector('#reader-count').textContent==='1 / 1');
   assert.equal(await a.page.locator('#reader-next').isDisabled(),true);
   assert.equal(await a.page.locator('#reader-previous').isDisabled(),true);
   for(const id of ['second','third'])await main(['status','--config',a.config,'--board','keyboard',`${id}/pages`,'ready','Keyboard test fixture']);
-  await a.page.waitForFunction(()=>document.querySelector('#dot-track').dataset.position==='1 / 3');
+  await a.page.waitForFunction(()=>document.querySelector('#reader-count').textContent==='1 / 3');
   await a.page.setViewportSize({width:400,height:800});
   await a.page.locator('#reader-next').click();
   await readerFocused();
@@ -449,7 +451,8 @@ try{
   const baseHistoryLength=await historyLength();
   // Removed chrome stays removed; the board footer carries the view controls.
   assert.equal(await h.locator('select:not(#navigator-scope):not([aria-label="Appearance"])').count(),0);
-  assert.equal(await h.getByRole('combobox',{name:'Appearance',includeHidden:true}).count(),1);
+  // One in the board's Inspector, one in an opened Tinka's.
+  assert.equal(await h.getByRole('combobox',{name:'Appearance',includeHidden:true}).count(),2);
   assert.equal(await h.locator('#round-picker, #concept-nav, [data-jump], #zoom-in, #zoom-out, #zoom-level, #overview, #reset-view, #toggle-header, .toolbar, .intro, .reader-bar, .reader-bottom, #reader-size').count(),0);
   assert.equal(await h.locator('#canvas-header button:visible').count(),3);
   // One floating view pill: − · percent menu (with the precise slider) · + · Fit.
@@ -570,63 +573,62 @@ try{
   const readerHistoryLength=await historyLength();
   // The concept's authored number continues inside the item's name.
   assert.equal(await h.title(),'Tinka / Glade / History / 01 · One');
-  assert.equal(await h.locator('#reader-dialog .reader-header #reader-board-link').textContent(),'← Board');
+  // Up names the board, as ‹ Parent does on a board.
+  assert.equal(await h.locator('#reader-dialog .reader-header #reader-up-label').textContent(),'History');
   assert.equal(await h.locator('#reader-hint').textContent(),'Try the first thing.');
-  assert((await h.locator('#reader-name').getAttribute('title')).includes('Try the first thing.'));
+  assert((await h.locator('#reader-path').getAttribute('title')).includes('Try the first thing.'));
   assert.equal(await h.locator('#reader-standalone').getAttribute('href'),'/boards/history/files/alpha-one.html');
   assert.equal(await h.locator('#reader-standalone').getAttribute('target'),'_blank');
-  // Dots: board order, grouped by round, one selected, endpoints disabled.
-  assert.deepEqual(await h.locator('#dot-track [data-dot]').evaluateAll(dots=>dots.map(dot=>[dot.dataset.dot,dot.classList.contains('group-start'),dot.getAttribute('aria-pressed')])),[['alpha/one',true,'true'],['alpha/two',false,'false'],['beta/three',true,'false']]);
-  assert.equal(await h.locator('[data-dot="beta/three"]').getAttribute('aria-label'),'3 of 3: Round 02 · 01 Three');
+  // The stepper and the path's neighbour list follow board order across rounds; endpoints are disabled.
+  assert.equal(await h.locator('#reader-count').textContent(),'1 / 3');
+  await h.locator('#reader-count').click();
+  assert.deepEqual(await h.locator('#reader-path-pop .reader-path-sibs .reader-path-title').allTextContents(),['01 · One','02 · Two','01 · Three']);
+  assert.equal(await h.evaluate(()=>document.activeElement.closest('.reader-path-sibs')?document.activeElement.getAttribute('aria-current'):null),null,'A mouse click leaves focus where it was');
+  await h.keyboard.press('Escape');
+  assert.equal(await h.locator('#reader-path-pop').isVisible(),false);
   assert.equal(await h.locator('#reader-previous').isDisabled(),true);
   assert.equal(await h.locator('#reader-next').isDisabled(),false);
-  // Reader view controls: Type, Fit, Light, size popover (with Version), standalone. None add history entries.
+  // The former View controls (Type, Light, Window with Version, standalone) live in the % menu. None add history entries.
   assert.deepEqual(await frameData(),{experiment:'alpha-one',theme:'paper',scale:'100'});
   await openView(h);
   await h.locator('#reader-type').focus();
   await h.keyboard.press('ArrowRight');
   assert.equal(await h.locator('#reader-type').getAttribute('aria-valuetext'),'115%');
   await h.waitForFunction(()=>document.querySelector('#active-reader').contentDocument.body.dataset.scale==='115');
-  await openView(h);
   await h.locator('#reader-theme').click();
   assert.equal(await h.locator('#reader-theme').getAttribute('aria-pressed'),'true');
   await h.waitForFunction(()=>document.querySelector('#active-reader').contentDocument.body.dataset.theme==='night');
-  await openView(h);
-  await h.locator('#size-trigger').click();
   assert.equal(await h.locator('#size-menu').isVisible(),true);
-  assert.equal(await h.locator('#size-trigger').getAttribute('aria-expanded'),'true');
+  assert.equal(await h.locator('#reader-zoom-toggle').getAttribute('aria-expanded'),'true');
   assert.deepEqual(await h.locator('#size-menu [data-size]:visible').evaluateAll(buttons=>buttons.map(button=>button.dataset.size)),['fit','compact','standard','wide']);
   assert.deepEqual(await h.locator('#revision-options [data-revision-choice]').evaluateAll(buttons=>buttons.map(button=>[button.textContent,button.getAttribute('aria-pressed')])),[['Original','true'],['Second','false']]);
   assert.equal(await h.locator('#revision-group').isVisible(),true);
   await h.screenshot({path:path.join(evidence,'history-size-popover.png')});
   await h.locator('#size-menu [data-size="standard"]').click();
-  assert.equal(await h.locator('#size-menu').isVisible(),false);
-  assert.equal(await h.evaluate(()=>document.activeElement.id),'size-trigger');
-  assert.deepEqual(await h.evaluate(()=>[document.querySelector('#reader-window').dataset.size,document.querySelector('#size-value').textContent,document.querySelector('#reader-fit').getAttribute('aria-pressed')]),['standard','Standard','false']);
-  await openView(h);
-  await h.locator('#size-trigger').click();
+  assert.deepEqual(await h.evaluate(()=>[document.querySelector('#reader-window').dataset.size,document.querySelector('#size-menu [data-size="standard"]').getAttribute('aria-pressed')]),['standard','true']);
+  assert((await h.locator('#reader-zoom-toggle').getAttribute('title')).includes('Window: Standard'));
   await h.keyboard.press('Escape');
   assert.equal(await h.locator('#size-menu').isVisible(),false);
+  assert.equal(await h.evaluate(()=>document.activeElement.id),'reader-zoom-toggle');
   assert.equal(await h.locator('#reader-dialog').evaluate(dialog=>dialog.open),true);
   await openView(h);
-  await h.locator('#size-trigger').click();
   await h.locator('.reader-stage').click({position:{x:8,y:8}});
   assert.equal(await h.locator('#size-menu').isVisible(),false);
   await h.locator('#reader-window').evaluate(el=>{el.style.width='600px';el.style.height='500px';});
-  await h.waitForFunction(()=>document.querySelector('#size-value').textContent==='Custom');
+  await h.waitForFunction(()=>document.querySelector('#size-menu [data-size="custom"]').getAttribute('aria-pressed')==='true');
   await openView(h);
-  await h.locator('#size-trigger').click();
-  assert.equal(await h.locator('#size-menu [data-size="custom"]').getAttribute('aria-pressed'),'true');
+  assert.equal(await h.locator('#size-menu [data-size="custom"]').isVisible(),true);
   assert.equal(await h.locator('#custom-size').textContent(),'600 × 500');
+  await h.locator('#size-menu [data-size="fit"]').click();
+  assert.deepEqual(await h.evaluate(()=>[document.querySelector('#reader-window').dataset.size,document.querySelector('#reader-window').style.width,document.querySelector('#size-menu [data-size="fit"]').getAttribute('aria-pressed')]),['fit','','true']);
   await h.keyboard.press('Escape');
-  await openView(h);
-  await h.locator('#reader-fit').click();
-  assert.deepEqual(await h.evaluate(()=>[document.querySelector('#reader-window').dataset.size,document.querySelector('#reader-window').style.width,document.querySelector('#reader-fit').getAttribute('aria-pressed')]),['fit','','true']);
-  await h.locator('[data-dot="beta/three"]').hover();
-  await h.locator('#dot-tooltip').waitFor({state:'visible'});
-  assert.equal(await h.locator('#dot-tooltip').textContent(),'3 of 3: Round 02 · 01 Three');
+  // Hovering the title shows where you are and what sits beside it.
+  await h.locator('#reader-path').hover();
+  await h.locator('#reader-path-pop').waitFor({state:'visible'});
+  assert.deepEqual(await h.locator('#reader-path-pop .reader-path-ladder .reader-path-title').allTextContents(),['Home','History','01 · One']);
   assert.equal(await h.locator('#reader-name').textContent(),'One');
-  await h.mouse.move(10,10);
+  await h.mouse.move(10,700);
+  await h.locator('#reader-path-pop').waitFor({state:'hidden'});
   assert.equal(await length(),base+1);
   assert.equal(await historyLength(),readerHistoryLength);
   assert.equal(await hashNow(),'#alpha/one');
@@ -640,8 +642,9 @@ try{
   assert.equal(await h.locator('.note-dot').isVisible(),true);
   assert.equal(await h.locator('#reader-note').inputValue(),'Shared from the reader');
   await waitFor(async()=>(await saved(path.join(a.boards,'history/.state/notes.json')))['alpha/one']?.note==='Shared from the reader','Reader note persisted to .state/notes.json');
-  const noOverlap=()=>h.evaluate(()=>{const stage=document.querySelector('.reader-stage').getBoundingClientRect();const panel=document.querySelector('#notes-panel').getBoundingClientRect();const viewer=document.querySelector('#reader-window').getBoundingClientRect();const footer=document.querySelector('.reader-footer').getBoundingClientRect();const side=panel.left>=stage.right-.5&&panel.top<stage.bottom;const below=panel.top>=stage.bottom-.5;return {separate:side||below,mode:side?'side':below?'sheet':'overlap',viewerInside:viewer.left>=stage.left-.5&&viewer.right<=stage.right+.5&&viewer.top>=stage.top-.5&&viewer.bottom<=stage.bottom+.5,aboveFooter:panel.bottom<=footer.top+.5,width:Math.round(panel.width)};});
-  assert.deepEqual(await noOverlap(),{separate:true,mode:'side',viewerInside:true,aboveFooter:true,width:320});
+  // The notes sit beside (or, on a phone, below) the canvas; the window stays inside the canvas and clear of the pill.
+  const noOverlap=()=>h.evaluate(()=>{const stage=document.querySelector('.reader-stage').getBoundingClientRect();const panel=document.querySelector('#notes-panel').getBoundingClientRect();const viewer=document.querySelector('#reader-window').getBoundingClientRect();const pill=document.querySelector('.reader-footer .zoom-pill').getBoundingClientRect();const side=panel.left>=stage.right-.5&&panel.top<stage.bottom;const below=panel.top>=stage.bottom-.5;return {separate:side||below,mode:side?'side':below?'sheet':'overlap',viewerInside:viewer.left>=stage.left-.5&&viewer.right<=stage.right+.5&&viewer.top>=stage.top-.5&&viewer.bottom<=stage.bottom+.5,pillInCanvas:pill.right<=stage.right+.5&&pill.bottom<=stage.bottom+.5,viewerAbovePill:viewer.bottom<=pill.top+.5,width:Math.round(panel.width)};});
+  assert.deepEqual(await noOverlap(),{separate:true,mode:'side',viewerInside:true,pillInCanvas:true,viewerAbovePill:true,width:320});
   await h.screenshot({path:path.join(evidence,'history-reader-notes-wide.png')});
   await h.locator('#reader-next').click();
   await waitReader('Two');
@@ -653,18 +656,20 @@ try{
   assert.equal(await h.locator('#reader-star').getAttribute('aria-pressed'),'false');
   assert.equal(await h.locator('.shortlist[data-star="alpha/two"]').getAttribute('aria-pressed'),'false');
   await waitFor(async()=>(await saved(path.join(a.boards,'history/.state/notes.json')))['alpha/two']?.star===false,'Reader star persisted to .state/notes.json');
-  assert.equal(await length(),base+2);
+  // Stepping replaces the entry: Back walks time (to the board), not the board's order.
+  assert.equal(await length(),base+1);
   assert.equal(await hashNow(),'#alpha/two');
   await h.setViewportSize({width:390,height:844});
-  assert.deepEqual(await noOverlap(),{separate:true,mode:'sheet',viewerInside:true,aboveFooter:true,width:390});
+  await h.evaluate(()=>new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r))));
+  assert.deepEqual(await noOverlap(),{separate:true,mode:'sheet',viewerInside:true,pillInCanvas:true,viewerAbovePill:true,width:390});
   for(const selector of ['.reader-header','.reader-footer'])assert.equal(await h.locator(selector).evaluate(el=>el.scrollWidth<=el.clientWidth),true,selector);
   await h.screenshot({path:path.join(evidence,'history-reader-notes-narrow.png')});
-  // The open notes field follows Back/Forward even while it has focus.
+  // The open notes field follows a step even while it has focus.
   await h.locator('#reader-note').focus();
-  await h.goBack();
+  await h.evaluate(()=>document.querySelector('#reader-previous').click());
   await waitReader('One');
   assert.equal(await h.locator('#reader-note').inputValue(),'Shared from the reader');
-  await h.goForward();
+  await h.evaluate(()=>document.querySelector('#reader-next').click());
   await waitReader('Two');
   assert.equal(await h.locator('#reader-note').inputValue(),'Card note');
   // Escape inside the notes field closes the panel only.
@@ -674,10 +679,7 @@ try{
   assert.equal(await h.locator('#reader-dialog').evaluate(dialog=>dialog.open),true);
   assert.equal(await h.evaluate(()=>document.activeElement.id),'notes-toggle');
   await h.setViewportSize({width:1440,height:960});
-  // Back/Forward walk the experiments, then the board, then home; Forward returns to the exact states.
-  await h.goBack();
-  await waitReader('One');
-  assert.equal(await hashNow(),'#alpha/one');
+  // Back/Forward walk time: the item you opened, then the board, then home; Forward returns to the exact states.
   await h.goBack();
   await waitBoard();
   assert.equal(await hashNow(),'');
@@ -689,17 +691,15 @@ try{
   await h.waitForURL(`${a.url}boards/history/`);
   await waitBoard();
   await h.goForward();
-  await waitReader('One');
-  await h.goForward();
   await waitReader('Two');
   assert.equal(await hashNow(),'#alpha/two');
-  assert.equal(await length(),base+2);
-  // Escape, the Back button and the board breadcrumb each add one entry that browser Back reverses.
+  assert.equal(await length(),base+1);
+  // Escape and ‹ board each add one entry that browser Back reverses.
   await h.locator('#active-reader').focus();
   await h.keyboard.press('Escape');
   await waitBoard();
   assert.match(await hashNow(),/^#round-/);
-  assert.equal(await length(),base+3);
+  assert.equal(await length(),base+2);
   await h.goBack();
   await waitReader('Two');
   await h.locator('#reader-next').focus();
@@ -709,11 +709,7 @@ try{
   await waitReader('Two');
   await h.locator('#close-reader').click();
   await waitBoard();
-  assert.equal(await length(),base+3);
-  await h.goBack();
-  await waitReader('Two');
-  await h.locator('#reader-board-link').click();
-  await waitBoard();
+  assert.equal(await length(),base+2);
   await h.goBack();
   await waitReader('Two');
   await h.goForward();
@@ -731,67 +727,48 @@ try{
   await h.locator('#reader-previous').click();
   await waitReader('Two');
   await h.goBack();
-  await waitReader('Three');
-  await h.goBack();
   await waitBoard();
-  await landedOn('beta/three',leftView);
+  await landedOn('alpha/two',leftView);
   await h.goForward();
-  await waitReader('Three');
+  await waitReader('Two');
   await h.locator('#close-reader').click();
   await waitBoard();
-  await landedOn('beta/three',leftView);
-  // Dots: click, keyboard and drag-scrub each add one entry; re-selecting the current experiment adds none.
+  await landedOn('alpha/two',leftView);
+  // Stepping by button, key or the path list adds no entries; re-choosing the current one changes nothing.
   await openLegacyItem(h,'alpha/one');
   await waitReader('One');
   let entries=await length();
-  await h.locator('[data-dot="alpha/one"]').click();
   await openView(h);
-  await h.locator('#size-trigger').click();
-  await h.locator('[data-revision-choice="original"]').click();
+  await h.locator('#revision-options [data-revision-choice="original"]').click();
   assert.equal(await length(),entries);
-  await h.locator('[data-dot="beta/three"]').click();
+  assert.equal(await h.locator('#reader-zoom-menu').isVisible(),false,'Choosing a version closes the menu');
+  await h.locator('#reader-count').click();
+  await h.locator('#reader-path-pop .reader-path-sibs [data-path-go]').nth(2).click();
   await waitReader('Three');
-  assert.equal(await length(),entries+1);
   assert.equal(await h.locator('#reader-next').isDisabled(),true);
   assert.equal(await h.locator('#reader-previous').isDisabled(),false);
-  await h.locator('[data-dot="beta/three"]').focus();
-  await h.keyboard.press('Home');
+  await h.locator('#reader-stage').focus();
+  await h.keyboard.press('[');
+  await waitReader('Two');
+  await h.keyboard.press('ArrowLeft');
   await waitReader('One');
-  assert.equal(await h.evaluate(()=>document.activeElement.dataset.dot),'alpha/one');
-  await h.keyboard.press('Home');
   await h.keyboard.press('ArrowLeft');
-  assert.equal(await length(),entries+2);
-  await h.keyboard.press('ArrowRight');
+  await h.keyboard.press(`${await h.evaluate(()=>/mac/i.test(navigator.userAgentData?.platform||navigator.platform))?'Alt':'Control'}+ArrowRight`);
   await waitReader('Two');
-  await h.keyboard.press('End');
+  await h.keyboard.press(']');
   await waitReader('Three');
-  await h.keyboard.press('ArrowLeft');
-  await waitReader('Two');
-  assert.equal(await length(),entries+5);
+  assert.equal(await length(),entries);
   await h.goBack();
-  await waitReader('Three');
-  await h.goBack();
-  await waitReader('Two');
+  await waitBoard();
   await h.goForward();
-  await h.goForward();
-  await waitReader('Two');
-  entries=await length();
-  const first=await h.locator('[data-dot="alpha/one"]').boundingBox();
-  const last=await h.locator('[data-dot="beta/three"]').boundingBox();
-  await h.mouse.move(first.x+first.width/2,first.y+first.height/2);await h.mouse.down();
-  await h.mouse.move(last.x+last.width/2,last.y+last.height/2,{steps:8});
-  assert.equal(await h.locator('#dot-tooltip').textContent(),'3 of 3: Round 02 · 01 Three');
-  assert.equal(await h.locator('#reader-name').textContent(),'Two');
-  await h.mouse.up();
   await waitReader('Three');
-  assert.equal(await length(),entries+1);
   // Switching versions is one entry; Back returns to the original.
-  await h.locator('[data-dot="alpha/one"]').click();
+  await h.locator('#reader-count').click();
+  await h.locator('#reader-path-pop .reader-path-sibs [data-path-go]').nth(0).click();
   await waitReader('One');
   entries=await length();
   await openView(h);
-  await h.locator('#size-trigger').click();
-  await h.locator('[data-revision-choice="v2"]').click();
+  await h.locator('#revision-options [data-revision-choice="v2"]').click();
   await waitReader('One · Second');
   assert.equal(await hashNow(),'#alpha/one~v2');
   assert.equal(await length(),entries+1);
@@ -806,7 +783,7 @@ try{
   // Deep links and reloads restore board, round, experiment and version; bad addresses are normalized in place.
   await h.reload();
   await waitReader('One · Second');
-  assert.equal(await h.locator('[data-revision-choice="v2"]').getAttribute('aria-pressed'),'true');
+  assert.equal(await h.locator('#revision-options [data-revision-choice="v2"]').getAttribute('aria-pressed'),'true');
   entries=await length();
   await h.goto(`${a.url}boards/history/#alpha/one~missing`);
   await waitReader('One');
@@ -865,150 +842,108 @@ try{
     await writeFile(path.join(dir,'rounds.json'),JSON.stringify({rounds:sweepRounds,revisions:{[sweepKey(perRound,current)]:[{id:'v2',name:'Second',path:'v2.html'}]}}));
     for(let i=0;i<count;i++)await main(['status','--config',a.config,'--board',slug,sweepKey(perRound,i),'ready','Sweep fixture']);
   }
-  // Problems in one region at the current width. Controls inside the dot strip are clipped to it first.
+  // Problems in one region at the current width.
   const layoutIssues=spec=>h.evaluate(spec=>{
     const issues=[];const vw=document.documentElement.clientWidth;
     const root=document.querySelector(spec.root);
     const shown=el=>{const style=getComputedStyle(el);const box=el.getBoundingClientRect();return style.display!=='none'&&style.visibility!=='hidden'&&box.width>0&&box.height>0;};
-    const rect=(el,clip)=>{const b=el.getBoundingClientRect();const r={left:b.left,right:b.right,top:b.top,bottom:b.bottom};if(clip){const c=clip.getBoundingClientRect();r.left=Math.max(r.left,c.left);r.right=Math.min(r.right,c.right);}return r;};
+    const rect=el=>{const b=el.getBoundingClientRect();return {left:b.left,right:b.right,top:b.top,bottom:b.bottom};};
     const overlap=(p,q)=>Math.min(p.right,q.right)-Math.max(p.left,q.left)>.5&&Math.min(p.bottom,q.bottom)-Math.max(p.top,q.top)>.5;
-    const name=el=>el.id?`#${el.id}`:el.dataset.dot?`dot ${el.dataset.dot}`:`.${[...el.classList].join('.')}`;
+    const name=el=>el.id?`#${el.id}`:`.${[...el.classList].join('.')}`;
     if(root.scrollWidth>root.clientWidth+.5)issues.push(`${spec.root} scrolls sideways`);
+    if(spec.withinWindow){const r=root.getBoundingClientRect();if(r.left<-.5||r.right>vw+.5)issues.push(`${spec.root} leaves the window`);}
     const groups=(spec.groups||[]).map(selector=>root.querySelector(selector)).filter(el=>el&&shown(el));
     groups.forEach((g,i)=>groups.slice(i+1).forEach(other=>{if(overlap(rect(g),rect(other)))issues.push(`${name(g)} overlaps ${name(other)}`);}));
     // One row: every group is centred on the same line.
     if(spec.oneRow){const centres=groups.map(g=>{const b=g.getBoundingClientRect();return (b.top+b.bottom)/2;});if(Math.max(...centres)-Math.min(...centres)>1.5)issues.push(`groups are not in one row (${centres.map(Math.round)})`);}
     const controls=[];
-    for(const el of root.querySelectorAll('button,input,a[href],textarea')){
-      if(!shown(el)||el.closest('[hidden],.size-menu,.board-info'))continue;
-      const scroller=el.closest('.dot-track');const r=rect(el,scroller);
-      if(r.right-r.left<1)continue;
+    for(const el of root.querySelectorAll('button,input,a[href],textarea,select')){
+      if(!shown(el)||el.closest('[hidden],.board-info'+(spec.menus?'':',.zoom-menu')))continue;
+      const r=rect(el);
       controls.push({el,r});
       if(r.left<-.5||r.right>vw+.5)issues.push(`${name(el)} leaves the window`);
-      // Ancestors that hide overflow (other than the dot strip) must not clip a control.
-      for(let parent=el.parentElement;parent&&parent!==document.body;parent=parent.parentElement){
-        if(parent===scroller)break;
+      // Ancestors that hide overflow must not clip a control.
+      for(let parent=el.parentElement;parent&&parent!==document.body&&parent!==root.parentElement;parent=parent.parentElement){
         const style=getComputedStyle(parent);
+        // A menu scrolls its own rows; anything else that hides overflow must not clip a control.
+        if(spec.menus&&parent===root)continue;
         if(style.overflowX!=='visible'||style.overflowY!=='visible'){const p=parent.getBoundingClientRect();if(r.left<p.left-.5||r.right>p.right+.5||r.top<p.top-.5||r.bottom>p.bottom+.5)issues.push(`${name(el)} clipped by ${name(parent)}`);}
       }
-      // Dots are 24 by 44 by design; the small status buttons carry a 44px hit area on a pseudo-element.
-      const b=el.getBoundingClientRect();const minWidth=el.matches('.experiment-dot')?24:44;
-      if(!el.matches(spec.pseudoTargets||'#none')&&(b.height<43.5||b.width<minWidth-.5))issues.push(`${name(el)} target ${Math.round(b.width)}×${Math.round(b.height)}`);
+      // Chrome targets are 44px; the small status buttons carry a 44px hit area on a pseudo-element; menu rows are menu-sized.
+      const b=el.getBoundingClientRect();
+      if(!spec.menus&&!el.matches(spec.pseudoTargets||'#none')&&(b.height<43.5||b.width<43.5))issues.push(`${name(el)} target ${Math.round(b.width)}×${Math.round(b.height)}`);
     }
-    controls.forEach((c,i)=>controls.slice(i+1).forEach(d=>{if(overlap(c.r,d.r))issues.push(`${name(c.el)} overlaps ${name(d.el)}`);}));
-    const result={issues,height:Math.round(root.getBoundingClientRect().height),layout:spec.navigation?`${root.dataset.back}/${root.dataset.tools}/${getComputedStyle(root).getPropertyValue('--strip-dots').trim()}`:''};
-    if(spec.navigation){
-      const prev=document.querySelector('#reader-previous').getBoundingClientRect();
-      const next=document.querySelector('#reader-next').getBoundingClientRect();
-      const strip=document.querySelector('#dot-track').getBoundingClientRect();
-      const dots=controls.filter(c=>c.el.matches('.experiment-dot'));
-      if(!dots.length)issues.push('no visible dots');
-      else{
-        const before=dots[0].r.left-prev.right;const after=next.left-dots.at(-1).r.right;
-        if(before<-.5||before>24)issues.push(`Previous is ${Math.round(before)}px from the first dot`);
-        if(after<-.5||after>24)issues.push(`Next is ${Math.round(after)}px from the last dot`);
-      }
-      // Compact Back never looks like Previous: different visible text, or the board glyph when it has none.
-      const backButton=document.querySelector('#close-reader');const backText=backButton.innerText.trim();
-      if(backText===document.querySelector('#reader-previous').innerText.trim()||backText==='←'||(!backText&&!shown(backButton.querySelector('.board-glyph'))))issues.push(`Back shows "${backText}" like Previous`);
-      const current=document.querySelector('#dot-track [aria-pressed="true"]').getBoundingClientRect();
-      if(current.left<strip.left-.5||current.right>strip.right+.5)issues.push('the current dot is not fully in the strip');
-      if(strip.width>9*24+.5)issues.push(`the strip is ${Math.round(strip.width)}px wide`);
-      // Centred on the page when there is room; otherwise against a neighbouring group.
-      const nav=document.querySelector('.experiment-navigation').getBoundingClientRect();
-      const centre=Math.abs((nav.left+nav.right)/2-vw/2);
-      const back=document.querySelector('#close-reader').getBoundingClientRect();const tools=document.querySelector('.reader-tools').getBoundingClientRect();
-      const gap=parseFloat(getComputedStyle(root).columnGap)||0;
-      if(centre>1.5&&nav.left-back.right>gap+1.5&&tools.left-nav.right>gap+1.5)issues.push(`navigation is ${Math.round(centre)}px off centre`);
-    }
-    return result;
+    if(!spec.menus)controls.forEach((c,i)=>controls.slice(i+1).forEach(d=>{if(overlap(c.r,d.r))issues.push(`${name(c.el)} overlaps ${name(d.el)}`);}));
+    return {issues,height:Math.round(root.getBoundingClientRect().height)};
   },spec);
   const settle=()=>h.evaluate(()=>new Promise(requestAnimationFrame));
   const sweep=async(label,spec)=>{
-    let height=null;const layouts=new Set();
+    let height=null;
     for(const width of [320,390,768,1024,1244,1440,1920]){
       await h.setViewportSize({width,height:860});await settle();
-      const result=await layoutIssues(spec);layouts.add(result.layout);
-      // A one-row footer keeps the same height at every width.
+      const result=await layoutIssues(spec);
+      // A one-row bar keeps the same height at every width.
       if(spec.oneRow){height??=result.height;if(result.height!==height)result.issues.push(`height ${result.height}px instead of ${height}px`);}
       assert.deepEqual(result.issues,[],`${label} at ${width}px`);
     }
-    return [...layouts];
   };
-  const readerSpec={root:'.reader-footer',groups:['.back','.experiment-navigation','.reader-tools'],navigation:true,oneRow:true};
+  // The opened Tinka's pill is the board's: one row, 44px targets, at every width.
+  const readerSpec={root:'.reader-footer',groups:['.zoom-pill'],oneRow:true};
   const footerShot=async(name,width)=>{await h.setViewportSize({width,height:860});await settle();await h.locator('.reader-footer').screenshot({path:path.join(evidence,`${name}-${width}.png`)});};
-  // A short track with "Fit", and a long track with a mid-track current item, a Custom size and a Version entry.
+  // A short board, and a long one opened mid-way with a Custom size and a Version entry.
   for(const [slug,,count,perRound,,current] of sweepBoards){
     await h.setViewportSize({width:1440,height:860});
     await h.goto(`${a.url}boards/${slug}/#${sweepKey(perRound,current)}`);
-    await h.waitForFunction(([count,key])=>document.querySelector('#reader-dialog').open&&document.querySelectorAll('#dot-track [data-dot]').length===count&&document.querySelector('#dot-track [aria-pressed="true"]')?.dataset.dot===key,[count,sweepKey(perRound,current)]);
+    await h.waitForFunction(([count,current])=>document.querySelector('#reader-dialog').open&&document.querySelector('#reader-count').textContent===`${current+1} / ${count}`,[count,current]);
     if(slug==='sweep-long'){
-      assert.equal(await h.locator('#revision-group').evaluate(el=>el.hidden),false,'the long-track experiment has a Version entry');
+      assert.equal(await h.locator('#revision-group').evaluate(el=>el.hidden),false,'the long-board experiment has a Version entry');
       await h.locator('#reader-window').evaluate(el=>{el.style.width='600px';});
-      await h.waitForFunction(()=>document.querySelector('#size-value').textContent==='Custom');
+      await h.waitForFunction(()=>document.querySelector('#size-menu [data-size="custom"]').getAttribute('aria-pressed')==='true');
     }
-    const layouts=await sweep(`reader footer, ${slug}`,readerSpec);
-    // View controls remain in their popover at every width.
-    assert(layouts.every(layout=>layout.includes('/folded')),`${slug} used ${layouts}`);
+    await sweep(`reader pill, ${slug}`,readerSpec);
     for(const width of slug==='sweep-short'?[390,320,768,1244]:[320,1244])await footerShot(slug==='sweep-short'?'reader-footer':'reader-footer-long-mid',width);
   }
-  // The strip keeps the current dot centred and fades the edges that have more beyond them; the arrows, keys and
-  // endpoints still walk the whole sequence.
+  // The stepper walks the whole long board from the middle, by button and key.
   await h.setViewportSize({width:1244,height:860});
   await h.goto(`${a.url}boards/sweep-long/#r1/c9`);
-  await h.waitForFunction(()=>document.querySelector('#dot-track [aria-pressed="true"]')?.dataset.dot==='r1/c9');
-  await settle();
-  const stripState=()=>h.evaluate(()=>{const track=document.querySelector('#dot-track');const strip=track.getBoundingClientRect();const dot=track.querySelector('[aria-pressed="true"]').getBoundingClientRect();return {offset:Math.round((dot.left+dot.right)/2-(strip.left+strip.right)/2),fade:[track.style.getPropertyValue('--fade-start'),track.style.getPropertyValue('--fade-end')],dots:Math.round(strip.width/24)};});
-  assert.deepEqual(await stripState(),{offset:0,fade:['16px','16px'],dots:9});
-  await h.locator('#dot-track [aria-pressed="true"]').focus();
-  await h.keyboard.press('Home');
-  await h.waitForFunction(()=>document.querySelector('#dot-track [aria-pressed="true"]')?.dataset.dot==='r0/c0'&&document.activeElement?.dataset.dot==='r0/c0');
-  assert.deepEqual((await stripState()).fade,['0px','16px']);
-  assert.equal(await h.locator('#reader-previous').isDisabled(),true);
-  await h.keyboard.press('End');
-  await h.waitForFunction(()=>document.querySelector('#dot-track [aria-pressed="true"]')?.dataset.dot==='r3/c19');
-  assert.deepEqual((await stripState()).fade,['16px','0px']);
+  await h.waitForFunction(()=>document.querySelector('#reader-count').textContent==='10 / 20');
+  await h.locator('#reader-next').click();
+  await h.waitForFunction(()=>document.querySelector('#reader-count').textContent==='11 / 20');
+  await h.locator('#reader-stage').focus();
+  await h.keyboard.press('[');await h.keyboard.press('[');
+  await h.waitForFunction(()=>document.querySelector('#reader-count').textContent==='9 / 20');
+  // The path's neighbour list reaches any of the twenty, scrolled to the current one.
+  await h.locator('#reader-count').click();
+  assert.equal(await h.locator('#reader-path-pop .reader-path-sibs [data-path-go]').count(),20);
+  assert.equal(await h.evaluate(()=>document.activeElement?.getAttribute('aria-current')),null);
+  await h.locator('#reader-path-pop .reader-path-sibs [data-path-go]').nth(19).click();
+  await h.waitForFunction(()=>document.querySelector('#reader-count').textContent==='20 / 20');
   assert.equal(await h.locator('#reader-next').isDisabled(),true);
-  await h.keyboard.press('ArrowLeft');
-  await h.waitForFunction(()=>document.querySelector('#dot-track [aria-pressed="true"]')?.dataset.dot==='r3/c18');
-  // Drag-scrub across the strip scrolls it at the edge and lands on a dot that was out of view.
-  const stripBox=await h.locator('#dot-track').boundingBox();
-  await h.mouse.move(stripBox.x+stripBox.width-30,stripBox.y+22);await h.mouse.down();
-  for(let i=0;i<12;i++)await h.mouse.move(stripBox.x+4+(i%2),stripBox.y+22);
-  await h.mouse.up();
-  await h.waitForFunction(()=>{const key=document.querySelector('#dot-track [aria-pressed="true"]')?.dataset.dot;return key&&Number(key.split('/c')[1])<10;});
-  // Phone width folds the view controls into one View popover holding all of them.
+  // At phone width the % menu holds every former View control and fits the window.
   await h.goto(`${a.url}boards/sweep-short/#r0/c0`);
-  await h.waitForFunction(()=>document.querySelector('#reader-dialog').open&&document.querySelectorAll('#dot-track [data-dot]').length===3);
+  await h.waitForFunction(()=>document.querySelector('#reader-dialog').open&&document.querySelector('#reader-count').textContent==='1 / 3');
   await h.setViewportSize({width:390,height:844});await settle();
-  assert.equal(await h.locator('#view-toggle').isVisible(),true);
-  assert.equal(await h.locator('#reader-type').isVisible(),false);
-  await h.locator('#view-toggle').click();
-  assert.equal(await h.locator('#view-toggle').getAttribute('aria-expanded'),'true');
-  assert.equal(await h.evaluate(()=>document.activeElement.id),'reader-type');
-  for(const id of ['reader-type','reader-fit','reader-theme','size-trigger','reader-standalone'])assert.equal(await h.locator(`#${id}`).isVisible(),true,id);
-  assert.deepEqual((await layoutIssues({root:'.view-controls'})).issues,[]);
-  await h.screenshot({path:path.join(evidence,'reader-view-popover-390.png')});
+  await openView(h);
+  for(const id of ['reader-type','reader-theme','reader-standalone','reader-zoom-slider'])assert.equal(await h.locator(`#${id}`).isVisible(),true,id);
+  for(const size of ['fit','compact','standard','wide'])assert.equal(await h.locator(`#size-menu [data-size="${size}"]`).isVisible(),true,size);
+  assert.deepEqual((await layoutIssues({root:'#reader-zoom-menu',menus:true,withinWindow:true})).issues,[]);
+  await h.screenshot({path:path.join(evidence,'reader-view-menu-390.png')});
+  await h.locator('#reader-type').focus();
   await h.keyboard.press('ArrowRight');
   assert.equal(await h.locator('#reader-type').getAttribute('aria-valuetext'),'115%');
-  await openView(h);
   await h.locator('#reader-theme').click();
   assert.equal(await h.locator('#reader-theme').getAttribute('aria-pressed'),'true');
-  await openView(h);
-  await h.locator('#size-trigger').click();
   await h.locator('#size-menu [data-size="compact"]').click();
-  assert.equal(await h.locator('#size-value').textContent(),'Compact');
-  assert.equal(await h.locator('#view-toggle').getAttribute('aria-expanded'),'true');
+  assert.equal(await h.locator('#reader-window').getAttribute('data-size'),'compact');
   await h.keyboard.press('Escape');
-  assert.equal(await h.locator('#view-toggle').getAttribute('aria-expanded'),'false');
-  assert.equal(await h.evaluate(()=>document.activeElement.id),'view-toggle');
+  assert.equal(await h.locator('#reader-zoom-toggle').getAttribute('aria-expanded'),'false');
+  assert.equal(await h.evaluate(()=>document.activeElement.id),'reader-zoom-toggle');
   assert.equal(await h.locator('#reader-dialog').evaluate(el=>el.open),true);
-  await h.locator('#view-toggle').click();
+  await h.locator('#reader-zoom-toggle').click();
   await h.locator('#reader-name').click();
-  assert.equal(await h.locator('#view-toggle').getAttribute('aria-expanded'),'false');
+  assert.equal(await h.locator('#reader-zoom-toggle').getAttribute('aria-expanded'),'false');
+  await h.keyboard.press('Escape');
   await h.setViewportSize({width:1440,height:860});await settle();
-  assert.equal(await h.locator('#view-toggle').isVisible(),true);
-  assert.equal(await h.locator('#reader-type').isVisible(),false);
   // Long titles in both headers, with the live "New version available" banner after the experiment changes.
   await h.goto(`${a.url}boards/sweep-long/#r0/c1`);
   await h.waitForFunction(()=>document.querySelector('#reader-dialog').open&&document.querySelector('#reader-name').textContent.startsWith('An unusually long'));
@@ -1018,8 +953,7 @@ try{
   // A long project label too (labels come from the project's config; this instance's is short).
   const longLabel=()=>h.evaluate(()=>{for(const el of document.querySelectorAll('.brand'))el.title='Tinka / A rather long project label';});
   await longLabel();
-  const headerSpec={groups:['.brand','.board-name','.item-line'],pseudoTargets:'#reader-update'};
-  await sweep('reader header, long titles and reload banner',{...headerSpec,root:'.reader-header'});
+  await sweep('reader header, long titles and reload banner',{root:'.reader-header',groups:['.brand','#close-reader','.reader-title-row','.chrome-actions'],pseudoTargets:'#reader-update'});
   await h.goto(`${a.url}boards/sweep-long/`);
   await h.waitForFunction(()=>!document.querySelector('#reader-dialog').open&&document.querySelector('#live-status').textContent.startsWith('Live'));
   await longLabel();

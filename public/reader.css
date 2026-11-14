@@ -1,0 +1,141 @@
+/* An opened Tinka: the board's header pattern and the same floating zoom pill, over a
+   canvas of its own. Loaded after calm.css; the header and pill rules are shared there. */
+#reader-dialog { background: var(--bg-canvas); color: var(--ink); }
+#reader-header { flex: none; }
+#reader-header .reader-up { flex: 0 1 auto; min-width: 44px; max-width: min(26vw, 260px); gap: 2px; }
+#reader-header .reader-up svg { width: 16px; height: 16px; flex: none; fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; }
+#reader-header .reader-up-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#reader-header .reader-title-row { display: flex; align-items: center; gap: 2px; min-width: 0; flex: 1 1 auto; }
+#reader-header .reader-path {
+  display: inline-flex; align-items: center; gap: 6px; flex: 0 1 auto; min-width: 0; box-sizing: border-box;
+  height: 44px; min-height: 44px; margin: 0 0 0 2px; padding: 0 8px; border: 6px solid transparent; background-clip: padding-box;
+  border-radius: 14px; background-color: transparent; color: var(--ink); cursor: pointer; text-align: left;
+}
+#reader-header .reader-path:hover, #reader-header .reader-path[aria-expanded="true"] { background-color: var(--hover); }
+#reader-header .reader-path .experiment-crumb { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: 500 19px/1.2 var(--font-display); letter-spacing: -.01em; color: var(--ink); }
+#reader-header .reader-path .reader-number { margin: 0; font-size: 19px; }
+#reader-header .reader-chev { width: 14px; height: 14px; flex: none; fill: none; stroke: var(--ink-3); stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; }
+#reader-header .reader-stepper { display: inline-flex; align-items: center; flex: none; }
+#reader-header .reader-stepper svg, #reader-header .reader-down svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; }
+#reader-header .reader-stepper .tk-btn:disabled { opacity: .35; }
+#reader-header .reader-count { min-width: 52px; padding: 0 6px; color: var(--ink-2); font: 500 var(--t-sm)/1 var(--font-ui); font-variant-numeric: tabular-nums; }
+#reader-header .reader-count[aria-expanded="true"] { background-color: var(--hover); }
+#reader-header .reader-down { flex: none; gap: 4px; padding: 0 8px; background-color: var(--hover); color: var(--ink-2); font: 500 var(--t-sm)/1 var(--font-ui); white-space: nowrap; }
+#reader-header .reader-down:hover { background-color: var(--press); color: var(--ink); }
+#reader-header .item-actions { display: inline-flex; align-items: center; gap: 0; margin: 0; }
+#reader-header .item-star { font-size: 18px; line-height: 1; }
+#reader-header .reader-path { min-width: 96px; }
+/* A changed source offers a reload at the top of the canvas, never crowding the header. */
+#reader-dialog #reader-update.reader-update {
+  position: absolute; top: 12px; left: 50%; transform: translateX(-50%); z-index: 7; max-width: calc(100% - 24px);
+  min-height: 32px; margin: 0; padding: 6px 14px; border: 0; border-radius: var(--r-pill);
+  background: var(--accent); color: var(--on-accent); box-shadow: var(--e3); font: 600 var(--t-sm)/1.25 var(--font-ui); white-space: normal; cursor: pointer;
+}
+#reader-dialog #reader-update.reader-update[hidden] { display: none; }
+
+/* Where you are: the path ladder, then the neighbours on this board. */
+.reader-path-pop {
+  position: fixed; z-index: 70; width: min(380px, calc(100vw - 16px)); box-sizing: border-box; overflow: auto; overscroll-behavior: contain;
+  padding: 6px; background: var(--surface-2); color: var(--ink); border-radius: var(--r-lg); box-shadow: var(--e3);
+  font: var(--t-md)/1.35 var(--font-ui); animation: reader-pop-in .12s var(--ease, ease-out);
+}
+.reader-path-pop[hidden] { display: none; }
+@keyframes reader-pop-in { from { opacity: 0; transform: translateY(-4px); } }
+.reader-path-section { display: grid; gap: 2px; padding: 4px 0; }
+.reader-path-section + .reader-path-section { border-top: 1px solid var(--line); margin-top: 2px; padding-top: 8px; }
+.reader-path-section .tk-eyebrow { padding: 2px 10px 4px; }
+.reader-path-pop ol { list-style: none; margin: 0; padding: 0; display: grid; gap: 1px; }
+.reader-path-row {
+  display: flex; align-items: center; gap: 8px; width: 100%; min-height: 36px; box-sizing: border-box;
+  padding: 4px 10px 4px calc(10px + var(--depth, 0) * 12px); border: 0; border-radius: var(--r-sm);
+  background: transparent; color: var(--ink); font: inherit; text-align: left; cursor: pointer;
+}
+.reader-path-ladder .reader-path-row::before { content: ''; flex: none; width: 6px; height: 6px; border-radius: 50%; background: var(--line-strong); }
+.reader-path-sibs .reader-path-row, .reader-path-section:not(.reader-path-sibs):not(:first-child) .reader-path-row { padding-left: 10px; }
+.reader-path-row:hover, .reader-path-row:focus-visible { background: var(--hover); outline: none; }
+.reader-path-row:focus-visible { box-shadow: inset 0 0 0 2px var(--accent); }
+.reader-path-row.is-current { background: var(--accent-soft); color: var(--accent-text); font-weight: 600; }
+.reader-path-row.is-current::before { background: var(--accent); }
+.reader-path-n { flex: none; min-width: 20px; color: var(--ink-3); font-variant-numeric: tabular-nums; }
+.reader-path-title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.reader-path-kind { flex: none; color: var(--ink-3); font-size: var(--t-xs); }
+.reader-path-row.is-current .reader-path-kind { color: var(--accent-text); }
+@media (pointer: coarse) { .reader-path-row { min-height: 44px; } }
+
+/* The canvas: the window is a sheet that pans and zooms; the page never zooms. */
+#reader-dialog .reader-main { position: relative; flex: 1; min-width: 0; min-height: 0; display: flex; }
+#reader-dialog .reader-stage {
+  position: relative; flex: 1; min-width: 0; min-height: 0; display: block; padding: 0; overflow: hidden; outline: none; touch-action: none;
+  background-color: var(--bg-canvas); background-image: radial-gradient(circle, var(--dot) 1.1px, transparent 1.35px);
+  background-size: var(--reader-pattern-step, 20px) var(--reader-pattern-step, 20px); background-position: var(--reader-pattern-x, 0) var(--reader-pattern-y, 0);
+}
+#reader-dialog .reader-stage:focus-visible { box-shadow: inset 0 0 0 2px var(--accent); }
+#reader-dialog .reader-stage.panning, #reader-dialog .reader-stage.space-pan { cursor: grabbing; }
+#reader-dialog .reader-plane { position: absolute; left: 0; top: 0; width: max-content; transform-origin: 0 0; }
+#reader-dialog #reader-window {
+  position: relative; box-sizing: border-box; width: var(--reader-fit-w, 1000px); height: var(--reader-fit-h, 720px);
+  min-width: 240px; min-height: 200px; max-width: none; max-height: none; resize: both; overflow: hidden; padding: 0 0 12px;
+  border: 1px solid var(--line); border-radius: var(--r-lg); background: var(--surface-sunken, var(--hover)); box-shadow: var(--e2);
+}
+#reader-dialog #reader-window[data-size="compact"] { width: 440px; height: 620px; }
+#reader-dialog #reader-window[data-size="standard"] { width: 1000px; height: 720px; }
+#reader-dialog #reader-window[data-size="wide"] { width: 1380px; height: 840px; }
+#reader-dialog #active-reader { border-radius: calc(var(--r-lg) - 1px) calc(var(--r-lg) - 1px) 0 0; }
+.reader-pan-shield { position: absolute; inset: 0; z-index: 2; cursor: grab; }
+.reader-pan-shield[hidden] { display: none; }
+
+/* The same floating pill as on boards, at the lower right of the canvas. */
+#reader-dialog .reader-footer {
+  position: absolute; right: 0; bottom: 0; z-index: 6; display: flex; justify-content: flex-end; align-items: center;
+  padding: 0 12px 12px; background: transparent; border: 0; pointer-events: none;
+}
+#reader-dialog .reader-footer > * { pointer-events: auto; }
+#reader-dialog .reader-zoom-menu { width: 288px; max-height: calc(100dvh - var(--reader-header-h, 56px) - 84px); overflow: auto; overscroll-behavior: contain; }
+#reader-dialog .reader-zoom-menu .reader-sizes { display: flex; }
+#reader-dialog .reader-zoom-menu .reader-custom-size small { margin-left: auto; color: var(--ink-3); font-size: var(--t-xs); }
+#reader-dialog .reader-zoom-menu .reader-custom-size[aria-pressed="true"] { background: var(--accent-soft); color: var(--accent-text); }
+#reader-dialog .reader-zoom-menu a.tk-mi { text-decoration: none; }
+#reader-dialog .reader-zoom-menu .revision-group { margin: 0; padding: 0; border: 0; }
+#reader-dialog .reader-zoom-menu #revision-options { display: grid; gap: 1px; }
+#reader-dialog .reader-zoom-menu #revision-options .tk-mi[aria-pressed="true"] { background: var(--accent-soft); color: var(--accent-text); font-weight: 600; }
+.reader-menu-hint { margin: 2px 10px 6px; color: var(--ink-3); font: var(--t-xs)/1.4 var(--font-ui); }
+.reader-type-row { display: flex; align-items: center; gap: 4px; padding: 2px 10px; }
+.reader-type-row .tk-mlabel { flex: 1; padding: 0; }
+.reader-type-row input[type=range] { width: 110px; accent-color: var(--accent); }
+.reader-type-row .type-glyph { color: var(--ink-3); }
+
+/* The Tinka's Inspector, where the board keeps its own actions too. */
+#reader-info.calm-side {
+  position: fixed; top: calc(var(--reader-header-h, var(--chrome-h)) + 8px); right: 8px; bottom: 8px; left: auto; z-index: 50;
+  width: 360px; max-width: calc(100vw - 16px); max-height: none; margin: 0; padding: 0 0 16px; box-sizing: border-box;
+  display: flex; flex-direction: column; overflow: auto; overscroll-behavior: contain;
+  background: var(--bg-chrome); color: var(--ink); border: 0; border-radius: var(--r-xl); box-shadow: var(--e4);
+  font: var(--t-md)/1.45 var(--font-ui); animation: calm-in-right .18s var(--ease);
+}
+#reader-info.calm-side[hidden] { display: none; }
+#reader-info .calm-side-body { display: grid; gap: 14px; padding: 2px 16px 0; }
+#reader-info .reader-info-body { display: grid; gap: 14px; }
+#reader-info .reader-owned { margin: 0; padding: 10px 12px; border-radius: var(--r-md); background: var(--hover); color: var(--ink-2); font-size: var(--t-sm); line-height: 1.45; }
+#reader-info .inspector-row [aria-pressed="true"] { background: var(--accent-soft); color: var(--accent-text); }
+#reader-info .appearance-control { display: inline-flex; align-items: center; gap: 8px; }
+
+/* The Navigator and the path sit below the reader's header, however tall it wraps. */
+#reader-dialog .project-navigator { top: calc(var(--reader-header-h, var(--chrome-h)) + 8px); }
+
+/* Narrower windows: the title, stepper and ↓ chip get their own row below Navigator, Home, ‹ board and the actions. */
+@media (max-width: 1023px) {
+  #reader-header { flex-wrap: wrap; row-gap: 0; }
+  #reader-header .identity { display: contents; }
+  #reader-header .reader-title-row { order: 9; flex: 1 1 100%; flex-wrap: wrap; }
+  #reader-header .reader-path { flex: 1 1 120px; margin-left: 0; }
+  #reader-header .reader-up { max-width: none; flex: 1 1 auto; }
+  #reader-header .chrome-actions { margin-left: auto; }
+}
+@media (max-width: 720px) {
+  #reader-header .reader-path .experiment-crumb, #reader-header .reader-path .reader-number { font-size: 17px; }
+  #reader-header #reader-search { display: none; }
+  #reader-info.calm-side { left: 8px; right: 8px; width: auto; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .reader-path-pop, #reader-info.calm-side { animation: none; }
+}

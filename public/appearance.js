@@ -18,6 +18,8 @@ export function mountAppearance(host) {
     preference = select.value;
     try { localStorage.setItem(KEY,preference); } catch {}
     apply();
+    // The board's and an opened Tinka's Inspector each carry one; keep them in step.
+    document.querySelectorAll('.appearance-control select').forEach(other => { other.value = preference; });
   });
   host.append(label);
 }

@@ -10,6 +10,8 @@ import {eventFiles,hasFileDrag,validateImportFiles,importLayout,pdfSupported,pdf
 import {CutIntent} from "./cut-intent.js";
 import {MovementHistory} from "./movement-history.js";
 import {timeHTML} from "./relative-dates.js";
+import {navigationGraph} from "./navigator-graph.js";
+import {isMacPlatform,stepModifierLabel} from "./reader-keys.js";
 import {CLIPBOARD_MIME,CLIPBOARD_PREFIX,clipboardBytes,readClipboard,externalClipboard} from "./clipboard.js";
 import {
   WorkspaceClient,
@@ -23,6 +25,8 @@ import {
   toast,
   showFailure,
 } from "./workspace.js";
+// The opened-Tinka step modifier: ⌥ on a Mac, Ctrl elsewhere (see reader-keys.js).
+const MOD = stepModifierLabel(isMacPlatform());
 const $ = (id) => document.getElementById(id);
 // Every placement is still active on the latest board with the geometry an
 // arrangement action started from.
@@ -266,13 +270,6 @@ export class WorkspaceBoard {
     selected.hidden = true;
     selected.setAttribute("aria-label", "Selected placements");
     $("canvas-header").after(selected);
-    const surfaces = document.createElement("div");
-    surfaces.id = "workspace-surfaces";
-    surfaces.className = "workspace-surfaces";
-    surfaces.hidden = true;
-    surfaces.innerHTML =
-      '<button data-surface="content">Content</button><button data-surface="board">Board</button><button data-reader-organize>Organize…</button><button data-reader-edit>Edit item…</button><button data-reader-children>Add board…</button>';
-    $("view-controls").append(surfaces);
     document
       .querySelectorAll("[data-mode]")
       .forEach((b) => (b.onclick = () => this.setMode(b.dataset.mode)));
@@ -328,30 +325,6 @@ export class WorkspaceBoard {
         });
       if (child) this.navigate(child.dataset.childBoard, child.closest("[data-placement]")?.dataset.placement);
     });
-    surfaces.querySelector("[data-surface=content]").onclick = () => {
-      this.surface = "content";
-    this.activeDecoration = null;
-      this.hooks.reloadReader();
-    };
-    surfaces.querySelector("[data-surface=board]").onclick = () => {
-      const active = this.hooks.active();
-      if (active?.graphItem.childBoardId)
-        this.navigate(active.graphItem.childBoardId);
-    };
-    surfaces.querySelector("[data-reader-organize]").onclick = () => {
-      const p = this.hooks.active()?.placement;
-      if (p) {
-        this.selection = new Set([p.id]);
-        this.selectionMenu();
-      }
-    };
-    surfaces.querySelector("[data-reader-edit]").onclick = () =>
-      itemForm(this.client, {
-        item: this.hooks.active()?.graphItem,
-        refresh: () => this.refresh(),
-      });
-    surfaces.querySelector("[data-reader-children]").onclick = () =>
-      this.addChildren(this.hooks.active()?.graphItem);
     $("workspace-retry-drafts").hidden = !this.pendingReview.size;
     $("workspace-retry-drafts").onclick = () => this.saveReview([], {});
     window.addEventListener("pagehide", () => this.persistDrafts());
@@ -660,7 +633,8 @@ export class WorkspaceBoard {
       <dt>Delete / Backspace</dt><dd>Remove selection from this board</dd>
       <dt>⌘/Ctrl-Z · Shift-⌘/Ctrl-Z</dt><dd>Undo · Redo</dd>
       <dt>Arrow keys · Shift-Arrow</dt><dd>Move selection 1 · 10 units</dd>
-      <dt>Escape</dt><dd>Close the newest panel or menu, then cancel a gesture, pending Cut or selection</dd></dl>`);
+      <dt>Escape</dt><dd>Close the newest panel or menu, then cancel a gesture, pending Cut or selection</dd>
+      <dt>On an opened Tinka: ${MOD}← · ${MOD}→ · [ · ]</dt><dd>Previous · next Tinka on this board (${MOD}↑ goes up, ${MOD}↓ into its own board)</dd></dl>`);
     dialog.addEventListener("close", () => {
       if (returnFocus?.isConnected) returnFocus.focus({preventScroll:true});
     });
@@ -1454,22 +1428,45 @@ export class WorkspaceBoard {
       },
     );
   }
+  // The opened Tinka's chrome (its down chip, path and Inspector) follows its item.
   reader(concept) {
     const item = concept?.graphItem || concept;
     if (!item) return;
-    const el = $("workspace-surfaces");
-    el.hidden = false;
-    el.querySelector("[data-surface=content]").hidden = !item.content;
-    el.querySelector("[data-surface=content]").setAttribute(
-      "aria-pressed",
-      "true",
-    );
-    const board = el.querySelector("[data-surface=board]");
-    board.hidden = !item.childBoardId;
-    board.textContent = item.content ? "Board ↗" : "Open board ↗";
-    el.querySelector("[data-reader-children]").hidden = !!item.childBoardId;
     $("notes-for").textContent = "Item notes · shared across placements";
+    this.hooks.readerChanged?.();
   }
+  // The boards from a root to this one, preferring the board it was entered from (?from=).
+  boardPath() {
+    const ws = this.workspaceGraph;
+    if (!ws?.boards) return null;
+    const nav = navigationGraph(ws), id = this.snapshot.id, from = new URLSearchParams(location.search).get("from");
+    const path = from && (nav.parents.get(id) || []).includes(from) && nav.paths.get(from) ? [...nav.paths.get(from), id] : nav.paths.get(id) || [id];
+    return path.map(board => ({ id: board, title: nav.boards.get(board)?.title || (board === id ? this.snapshot.title : "") || "Untitled board" }));
+  }
+  // Other boards that also show this item, for "Also on" in the path.
+  alsoOn(itemId) {
+    return (this.workspaceGraph?.boards || []).flatMap(board => {
+      if (board.id === this.snapshot.id) return [];
+      const p = (board.placements || []).find(p => p.itemId === itemId && !p.removedAt && !p.archivedAt && !p.deletedAt);
+      return p ? [{ id: board.id, title: board.title || "Untitled board", placementId: p.id }] : [];
+    });
+  }
+  // An item's own board: its title and how many items it holds.
+  childInfo(item) {
+    if (!item?.childBoardId) return null;
+    const child = this.snapshot.childBoards?.[item.childBoardId] || this.workspaceGraph?.boards?.find(b => b.id === item.childBoardId);
+    const count = child?.placements ? child.placements.filter(p => !p.removedAt && !p.deletedAt && !p.archivedAt).length : null;
+    return { id: item.childBoardId, title: child?.title || item.title, count };
+  }
+  // Organize one opened Tinka: move it, reference it elsewhere or show it on a parent board.
+  async organize(type, placementId) {
+    const placementIds = [placementId];
+    if (type === "feature")
+      return featureOnParentDialog(this.client, { sourceBoardId: this.snapshot.id, placementIds, refresh: () => this.refresh({ saveReview: false }) });
+    return destinationDialog(this.client, { sourceBoardId: this.snapshot.id, placementIds, kind: type,
+      refresh: async () => { if (type === "move") this.hooks.closeReader(); await this.refresh({ saveReview: false }); } });
+  }
+  editItem(item) { if (item) itemForm(this.client, { item, refresh: () => this.refresh() }); }
   itemControls(id, focus = "notes") {
     if (this.contextPlacement === id) { this.closeContext(); return; }
     this.closeContext();

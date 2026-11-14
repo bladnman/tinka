@@ -387,27 +387,6 @@
   color: #71825f;
   padding: 35px;
 }
-.workspace-surfaces {
-  display: flex;
-  gap: 5px;
-  align-items: center;
-  flex-wrap: wrap;
-  padding: 6px 18px;
-  background: #f1f4e9;
-  border-bottom: 1px solid #cbd4bf;
-  flex: none;
-}
-.workspace-surfaces button {
-  min-height: 40px;
-  font-size: 11px;
-}
-.workspace-surfaces button[aria-pressed="true"] {
-  background: #e0e8d4;
-  border-color: #bdcaae;
-}
-.workspace-surfaces [data-reader-organize] {
-  margin-left: auto;
-}
 .workspace-toast {
   position: fixed;
   bottom: 25px;
@@ -779,18 +758,6 @@ html[data-theme="night"] .item-representation p {
   .workspace-board[data-board-layout="grid"] .workspace-cards {
     grid-template-columns: repeat(auto-fill, minmax(min(290px, 100%), 1fr));
     gap: 18px;
-  }
-  .workspace-surfaces {
-    padding: 6px 10px;
-    gap: 4px;
-  }
-  .workspace-surfaces button {
-    font-size: 10px;
-    padding: 7px 9px;
-    min-height: 40px;
-  }
-  .workspace-surfaces [data-reader-organize] {
-    margin-left: 0;
   }
   .workspace-parent {
     max-width: 100px;
@@ -1191,13 +1158,10 @@ html[data-theme="night"] .item-representation p {
 
 /* HEADER / NAV: board organization lives in the Tools drawer. */
 .workspace-board .canvas-header{z-index:5}
-.workspace-board .reader-header .board-link{font-size:12px}
 .board-info .workspace-toolbar{position:static;border:0;border-bottom:1px solid var(--line);padding:0 0 16px;margin:0 0 16px;gap:8px}
 .board-info .workspace-search{flex-basis:100%;max-width:none;order:2}
 .board-info #workspace-add{min-height:44px;font-size:13px;background:var(--soft);margin-right:auto}
 .canvas-header .workspace-parent{flex:none;display:inline-flex;align-items:center;min-height:44px;max-width:none;overflow:visible;font:12px/1.4 -apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;white-space:nowrap}
-.reader-tools .workspace-surfaces{flex-basis:100%;padding:8px 0 0;margin:4px 0 0;gap:4px;border-top:1px solid var(--line);border-bottom:0;background:transparent;justify-content:flex-start}
-.reader-tools .view-controls:has(.workspace-surfaces:not([hidden])){width:360px;max-width:calc(100vw - 24px)}
 
 /* Collection covers show complete designs, with no recursive board previews. */
 .board-collage {

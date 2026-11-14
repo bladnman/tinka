@@ -76,7 +76,10 @@ try {
   await page.screenshot({path:path.join(evidence,'nested-mixed-grid-1440.png')});
   await page.locator(`[data-placement="${ids[0]}"] .workspace-preview-launch`).click();
   await page.locator('#reader-dialog[open]').waitFor();
-  assert.deepEqual(await page.locator('#dot-track [data-dot]').evaluateAll(dots=>dots.map(dot=>dot.dataset.dot)),ids.map(id=>'items/'+id));
+  // The opened Tinka's neighbour list keeps the saved comparison order; board-only Tinkas open their boards and are not stepped through.
+  await page.locator('#reader-count').click();
+  assert.deepEqual(await page.locator('#reader-path-pop .reader-path-sibs [data-path-go]').evaluateAll(rows=>rows.map(row=>row.dataset.pathGo.slice(5))),[ids[0],ids[2],ids[4],ids[5]].map(id=>'items/'+id));
+  await page.keyboard.press('Escape');
   await page.locator('#close-reader').click();
   // New child appears through the ordinary live refresh and takes the first board slot.
   const live=await op('createBoard',{id:'live-child',title:'ZZZ live child',parentBoardId:bid});

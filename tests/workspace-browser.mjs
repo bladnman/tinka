@@ -159,7 +159,7 @@ try {
   };
   const readerTool = async selector => {
     const control = page.locator(selector);
-    if (!(await control.isVisible())) await page.locator("#view-toggle").click();
+    if (!(await control.isVisible())) await page.locator("#reader-zoom-toggle").click();
     await control.click();
   };
   const cardNote = async () => {
@@ -307,8 +307,7 @@ try {
     .getByText("Active content updated", { exact: true })
     .waitFor();
   assert(await page.locator("#revision-group").isHidden());
-  await readerTool("#size-trigger");
-  await page.locator("[data-revision-choice=second]").click();
+  await readerTool("#revision-options [data-revision-choice=second]");
   await page.waitForURL(/~second$/);
   assert.equal(
     await page.locator("#reader-name").textContent(),
@@ -336,13 +335,12 @@ try {
   );
   await page.locator("#reader-note").fill("Immediate child navigation draft");
   await page.locator("#notes-close").click();
-  await readerTool("[data-surface=board]");
+  await page.locator("#reader-down").click();
   await page.waitForURL(/\/boards\//);
   await boardTool("#workspace-owner");
   await page.locator("#reader-dialog[open]").waitFor();
   assert.equal(await page.locator("#reader-name").textContent(), "One");
-  await readerTool("#size-trigger");
-  await page.locator("[data-revision-choice=second]").click();
+  await readerTool("#revision-options [data-revision-choice=second]");
   assert.equal(
     await page.locator("#reader-name").textContent(),
     "One · Second version",
@@ -1232,8 +1230,8 @@ try {
   await page.locator("#reader-dialog[open]").waitFor();
   await page.locator("#reader-next").click();
   await page.locator("#reader-previous").click();
-  assert.equal(new URL(await page.locator("#reader-board-link").getAttribute("href"), base).pathname + new URL(await page.locator("#reader-board-link").getAttribute("href"), base).search, stableRoute);
-  await page.locator("#reader-board-link").click();
+  assert.equal(new URL(await page.locator("#close-reader").getAttribute("href"), base).pathname + new URL(await page.locator("#close-reader").getAttribute("href"), base).search, stableRoute);
+  await page.locator("#close-reader").click();
   assert.equal(await page.locator("#reader-dialog").isVisible(), false, "Reader Board action ignores internal reader history");
   assert.equal(await page.locator("#workspace-parent").getAttribute("href"), `/boards/${parentB.boardId}/`);
   await page.locator("#workspace-parent").click();

@@ -173,7 +173,7 @@ files. An external URL can open in a separate tab. A stopped local app retains i
 preview and start instructions, with retry when its independently managed server
 returns. Tinka does not run commands from item metadata.
 
-Numbers carry through: when a tile shows a number (for example 07 from the board's manifest or an item's `number`), the reader, browser title and a child board's top bar show it too, and it follows Previous/Next. Leaving an item or child board by any route lands back on its tile with a short pan and a green pulse (no movement with reduced motion).
+Numbers carry through: when a tile shows a number (for example 07 from the board's manifest or an item's `number`), the opened Tinka, browser title and a child board's top bar show it too, and it follows stepping. Leaving an item or child board by any route lands back on its tile with a short pan and a green pulse (no movement with reduced motion).
 
 Version 0.7.0 uses one calm visual language: a single green (the Tinka mark's)
 means on, selected or primary; neutrals are warm, dark mode is a softer warm
@@ -189,8 +189,40 @@ dates and actions. Click-away or Escape closes any temporary panel or menu. Zoom
 lives in one floating pill at the lower right: −, the zoom percentage (a menu with
 50/100/125%, a precise slider, Fit board, Fit selection while something is
 selected, and Dots / Grid / Plain), +, the board map and Fit. The background choice is a per-board view preference kept in this
-browser; it never changes board data. The reader keeps its containing-board return
-beside Home, with comparison settings and item actions in View.
+browser; it never changes board data.
+
+An opened Tinka is one level down and keeps the board's frame: the same header
+(Navigator, Home, **‹ its board**, the Tinka's title, Find and the Inspector) and the
+same pill at the lower right (−, the % menu, +, Back after a fit, and Fit). Its
+content sits on a canvas of its own: ⌘/Ctrl-scroll or pinch zooms it about the
+pointer, also over Tinka's own local content, and the page never zooms; drag the
+background, or hold Space and drag, to pan. Fit (F or ⇧1) shows the whole window
+again, never past 100%, and Back returns to the view before it. Canvas zoom
+magnifies; Window and Type size reflow. The % menu also holds what the old View
+panel did: Window (Fit, Compact, Standard, Wide or a custom size dragged from the
+window's corner) and Version, Light (Paper/Night), Type size and Open standalone.
+The Inspector (⌘/Ctrl-I) holds the Tinka's details and actions: open its board or
+Add board…, Open standalone, Reload, Favorite, Notes, Comments, Vote, Version, Edit
+details…, Move to board…, Add reference…, Show on parent…, Appearance and Keyboard
+shortcuts. Its content belongs to the agent that made it, so adding, dragging,
+resizing and backgrounds stay on boards; the editable place for a Tinka is its own
+board, one level down.
+
+Hover the title (after a moment), click it or tap it for **where you are**: Home →
+the boards above → this board → this Tinka → its own board, then a numbered list of
+what sits beside it on this board, and any other boards that also show it. A
+Tinka placed on several boards uses the board you came from. Choose a row to go
+there. **‹ n / N ›** beside the title steps through the board in review order,
+skipping reserved, building and board-only Tinkas; the count opens the same list,
+and **↓ Board · N** goes down into the Tinka's own board. Keys: ⌥← / ⌥→ on a Mac or
+Ctrl+← / Ctrl+→ on Windows and Linux step, also while Tinka's own local content has
+focus but never inside a text field; [ and ] step too, and plain ← / → step while
+Tinka rather than the content has focus (opening a Tinka leaves focus there).
+⌥↑ / Ctrl+↑ or Escape goes up to the board, and ⌥↓ / Ctrl+↓ goes down. Stepping
+replaces the address instead of adding to the browser history, so Back returns to
+where you opened the Tinka from; opening, going up and going down are one entry
+each. An independent web page in its own frame keeps its keys and scroll; use the
+header buttons, or click Tinka's canvas first.
 
 Tiles rest quietly, showing state badges (favorite, notes, your vote) and one ⋯ menu. On
 hover, keyboard focus or a single selection a small floating toolbar over the preview offers Open,
