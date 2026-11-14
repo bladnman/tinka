@@ -573,20 +573,23 @@ export class WorkspaceBoard {
     guide.textContent = "Keyboard shortcuts";
     guide.onclick = () => this.keyboardShortcuts();
     bar.append(guide);
-    // A tap of F fits the selection, then the board. Held through any pointer press or
-    // drag, its release does nothing more.
-    const releaseFit = () => { this.fitKey = null; document.body.classList.remove("workspace-fit-held"); };
+    // F or Z held while a selection box is released: F fits what the box selected, Z
+    // zooms to the box itself (see pointer()). A tap of F fits the selection, then the
+    // board; held through any pointer press or drag, its release does nothing more. A
+    // bare Z has no other use on a board (⌘/Ctrl-Z stays Undo).
+    const releaseBoxKey = () => { this.boxKey = null; document.body.classList.remove("workspace-box-fit","workspace-box-zoom"); this.refreshMarquee?.(); };
     document.addEventListener("keyup", event => {
-      if (event.key?.toLowerCase() !== "f" || !this.fitKey) return;
-      const held = this.fitKey;
-      releaseFit();
+      const key = event.key?.toLowerCase();
+      if (!this.boxKey || key !== this.boxKey.key) return;
+      const held = this.boxKey;
+      releaseBoxKey();
       event.preventDefault(); event.stopImmediatePropagation();
-      if (held.used || this.mode !== "canvas" || this.pointerGesture || this.decorationGesture || this.boardCommandBlocked(event)) return;
+      if (key !== "f" || held.used || this.mode !== "canvas" || this.pointerGesture || this.decorationGesture || this.boardCommandBlocked(event)) return;
       this.hooks.fit?.("smart");
     }, true);
-    document.addEventListener("pointerdown", () => { this.pointerPressed = true; if (this.fitKey) this.fitKey.used = true; }, true);
+    document.addEventListener("pointerdown", () => { this.pointerPressed = true; if (this.boxKey) this.boxKey.used = true; }, true);
     for (const type of ["pointerup","pointercancel"]) document.addEventListener(type, () => { this.pointerPressed = false; }, true);
-    globalThis.window?.addEventListener("blur", releaseFit);
+    globalThis.window?.addEventListener("blur", releaseBoxKey);
     document.addEventListener("keydown", event => {
       if (event.isComposing || event.keyCode === 229 || event.altKey) return;
       const command = event.metaKey || event.ctrlKey;
@@ -604,16 +607,17 @@ export class WorkspaceBoard {
         if (!event.repeat && !this.boardCommandBlocked(event)) this.duplicateSelection();
         return;
       }
-      // F fits when it is released, so it can also be held through a drag: releasing a
-      // selection box while F is down zooms to that box instead (see pointer()).
-      if (!command && !event.shiftKey && key === "f" && this.mode === "canvas") {
-        if (event.repeat) { if (this.fitKey) { event.preventDefault(); event.stopImmediatePropagation(); } return; }
+      // F fits when it is released, so it (and Z) can be held through a selection box.
+      if (!command && !event.shiftKey && (key === "f" || key === "z") && this.mode === "canvas") {
+        if (event.repeat) { if (this.boxKey) { event.preventDefault(); event.stopImmediatePropagation(); } return; }
         const dragging = !!(this.pointerGesture || this.decorationGesture || this.pointerPressed);
         if (!dragging && this.boardCommandBlocked(event)) return;
         event.preventDefault(); event.stopImmediatePropagation();
-        // Pressed during a drag, F belongs to that drag and never fits on its own.
-        this.fitKey = {used:dragging};
-        document.body.classList.add("workspace-fit-held");
+        // Pressed during a drag, the key belongs to that drag and never fits on its own.
+        this.boxKey = {key,used:dragging};
+        document.body.classList.toggle("workspace-box-fit",key === "f");
+        document.body.classList.toggle("workspace-box-zoom",key === "z");
+        this.refreshMarquee?.();
         return;
       }
       if (event.repeat || this.boardCommandBlocked(event)) return;
@@ -661,7 +665,7 @@ export class WorkspaceBoard {
       <dt>⌘/Ctrl-I</dt><dd>Inspector for the selected Tinka or this board</dd>
       <dt>Shift-click · ⌘/Ctrl-click</dt><dd>Add a Tinka to the selection</dd>
       <dt>F</dt><dd>Fit the selection, then the whole board (⌥-click Fit always fits the board)</dd>
-      <dt>Hold F while drawing a selection box</dt><dd>Zoom to the box when you let go of it</dd>
+      <dt>Hold F · Z while drawing a selection box</dt><dd>When you let go: fit what the box selected · zoom to the box itself</dd>
       <dt>Shift-1 · Shift-2 · Shift-0</dt><dd>Fit the canvas · Fit the selection · Zoom to 100%</dd>
       <dt>M</dt><dd>Show or hide the board map (click or drag in it to move there)</dd>
       <dt>?</dt><dd>Show keyboard shortcuts</dd>
@@ -1796,7 +1800,7 @@ export class WorkspaceBoard {
           if (card.right > box.left && card.left < box.right && card.bottom > box.top && card.top < box.bottom) selected.add(id);
         }
       setSelection(selected);
-      const text = this.fitKey ? `Zoom here · ${selected.size} selected` : `${selected.size} selected`;
+      const text = this.boxKey?.key === "z" ? "Zoom here" : this.boxKey?.key === "f" ? (selected.size ? `Fit ${selected.size} selected` : "Nothing to fit") : `${selected.size} selected`;
       if (marquee.count.textContent !== text) marquee.count.textContent = text;
     };
     const beginMarquee = e => {
@@ -1832,9 +1836,11 @@ export class WorkspaceBoard {
       if (!marquee) return;
       const done = marquee;
       if (done.active && !cancelled) renderMarquee();
-      // Released with F held: zoom to the box that was drawn, after selecting as usual.
-      const area = !cancelled && done.active && this.fitKey && this.mode === "canvas" ? marqueeArea(done) : null;
-      if (done.active && this.fitKey) this.fitKey.used = true;
+      // Released with Z held: zoom to the drawn box; with F held: fit what it selected
+      // (nothing selected, nothing moves). Either way it selects as usual first.
+      const held = !cancelled && done.active && this.mode === "canvas" ? this.boxKey?.key : null;
+      const area = held && marqueeArea(done);
+      if (done.active && this.boxKey) this.boxKey.used = true;
       marquee = null;
       if (cancelled) setSelection(new Set(done.original));
       else if (!done.active) setSelection(new Set(done.additive ? done.original : []));
@@ -1854,8 +1860,10 @@ export class WorkspaceBoard {
       this.updateHistoryControls();
       try { viewport.releasePointerCapture(done.pointerId); } catch {}
       drainRefresh();
-      if (area) this.hooks.fit?.("area",area);
+      if (area && held === "z") this.hooks.fit?.("area",area);
+      else if (area && held === "f" && this.clipboardCandidates().length) this.hooks.fit?.("selection");
     };
+    this.refreshMarquee = () => { if (marquee?.active) renderMarquee(); };
     const hint = document.createElement("div");
     hint.id = "workspace-drop-hint";
     hint.className = "workspace-drop-hint";

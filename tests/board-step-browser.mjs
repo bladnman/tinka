@@ -163,7 +163,7 @@ try{
  await page.keyboard.press('Escape');await pick(2);
  await step('Alt+ArrowRight');assert.deepEqual(await selected(),[row[2]],'An explicit selection wins (2 → 3)');checks++;
 
- // Hold F while drawing a selection box: releasing zooms to the box (Fit selection's margin), once.
+ // Hold Z while drawing a selection box: releasing zooms to the box (Fit selection's margin), once.
  await open('steps');
  const viewNow=()=>page.evaluate(()=>{const m=new DOMMatrix(getComputedStyle(document.getElementById('plane')).transform);return {zoom:new DOMMatrix(getComputedStyle(document.getElementById('world')).transform).a,x:m.e,y:m.f};});
  await page.keyboard.press('Shift+1');await page.waitForTimeout(80);
@@ -173,17 +173,17 @@ try{
  const boxBoard=await page.evaluate(([a,b])=>{const w=document.getElementById('world').getBoundingClientRect(),z=new DOMMatrix(getComputedStyle(document.getElementById('world')).transform).a;
   return {cx:((a.x+b.x)/2-w.left)/z,cy:((a.y+b.y)/2-w.top)/z,w:Math.abs(b.x-a.x)/z,h:Math.abs(b.y-a.y)/z};},[start,end]);
  const beforeArea=await viewNow();
- await page.mouse.move(start.x,start.y);await page.keyboard.down('f');await page.mouse.down();
+ await page.mouse.move(start.x,start.y);await page.keyboard.down('z');await page.mouse.down();
  await page.mouse.move((start.x+end.x)/2,(start.y+end.y)/2,{steps:4});
- await page.keyboard.down('f');await page.keyboard.down('f');// key repeat while held
+ await page.keyboard.down('z');await page.keyboard.down('z');// key repeat while held
  const during=await viewNow();
- ok(during.zoom===beforeArea.zoom&&during.x===beforeArea.x&&during.y===beforeArea.y,'No fit happens while the box is being drawn, F held and repeating');
- ok(await page.evaluate(()=>document.body.classList.contains('workspace-fit-held')&&/Zoom here/.test(document.getElementById('workspace-marquee-count')?.textContent||'')),'The box says it will zoom');
+ ok(during.zoom===beforeArea.zoom&&during.x===beforeArea.x&&during.y===beforeArea.y,'No zoom happens while the box is being drawn, Z held and repeating');
+ ok(await page.evaluate(()=>document.body.classList.contains('workspace-box-zoom')&&/Zoom here/.test(document.getElementById('workspace-marquee-count')?.textContent||'')),'The box says it will zoom');
  await page.mouse.move(end.x,end.y,{steps:4});await page.mouse.up();await page.waitForTimeout(80);
  const zoomed=await viewNow();
- await page.keyboard.up('f');await page.waitForTimeout(80);
+ await page.keyboard.up('z');await page.waitForTimeout(80);
  const afterRelease=await viewNow();
- ok(afterRelease.zoom===zoomed.zoom&&afterRelease.x===zoomed.x,'Letting go of F afterwards does not fit again');
+ ok(afterRelease.zoom===zoomed.zoom&&afterRelease.x===zoomed.x,'Letting go of Z afterwards does nothing more');
  const centre=await page.evaluate(({cx,cy})=>{const w=document.getElementById('world').getBoundingClientRect(),z=new DOMMatrix(getComputedStyle(document.getElementById('world')).transform).a,v=document.getElementById('viewport').getBoundingClientRect(),map=document.getElementById('board-map');
   const right=map&&!map.hidden&&map.offsetWidth&&innerWidth>720?map.offsetWidth+24:0;return {x:w.left+cx*z,y:w.top+cy*z,ax:v.left+(v.width-right)/2,ay:v.top+v.height/2};},boxBoard);
  ok(Math.abs(centre.x-centre.ax)<2&&Math.abs(centre.y-centre.ay)<2,`The drawn box is centred in the canvas: ${JSON.stringify(centre)}`);
@@ -195,9 +195,38 @@ try{
  await page.locator('#view-back').click();await page.waitForTimeout(80);
  const returned=await viewNow();
  ok(Math.abs(returned.zoom-beforeArea.zoom)<1e-9&&Math.abs(returned.x-beforeArea.x)<1&&Math.abs(returned.y-beforeArea.y)<1,'Back returns to the view before the zoom');
- // A tiny box with F held is a click: no zoom.
- await page.mouse.move(start.x,start.y);await page.keyboard.down('f');await page.mouse.down();await page.mouse.move(start.x+10,start.y+8,{steps:3});await page.mouse.up();await page.keyboard.up('f');await page.waitForTimeout(60);
- const tiny=await viewNow();ok(tiny.zoom===returned.zoom&&tiny.x===returned.x,'A tiny box does not zoom, and F released after it does not fit');
+ // Tiny boxes with Z or F held are clicks: nothing moves, and F's release does not fit.
+ for(const k of ['z','f']){await page.mouse.move(start.x,start.y);await page.keyboard.down(k);await page.mouse.down();await page.mouse.move(start.x+10,start.y+8,{steps:3});await page.mouse.up();await page.keyboard.up(k);await page.waitForTimeout(60);
+  const tiny=await viewNow();ok(tiny.zoom===returned.zoom&&tiny.x===returned.x,`A tiny box with ${k.toUpperCase()} held moves nothing`);}
+ // A bare Z tap does nothing on a board.
+ await page.keyboard.press('z');await page.waitForTimeout(60);
+ {const v=await viewNow();ok(v.zoom===returned.zoom&&v.x===returned.x,'A bare Z tap does nothing');}
+ // Hold F: fit what the box selected, exactly as Fit selection would.
+ await page.keyboard.press('Escape');await page.keyboard.press('Shift+1');await page.waitForTimeout(60);
+ const cards=await page.evaluate(()=>[...document.querySelectorAll('#world .workspace-card')].map(c=>{const r=c.getBoundingClientRect();return {id:c.dataset.placement,x:r.x,y:r.y,r:r.right,b:r.bottom};}));
+ const wb=cards.find(c=>c.id===p.west),mb=cards.find(c=>c.id===p.middle);
+ const fStart={x:Math.min(wb.x,mb.x)-6,y:Math.min(wb.y,mb.y)-6},fEnd={x:Math.max(wb.r,mb.r)+6,y:Math.max(wb.b,mb.b)+6};
+ const fBefore=await viewNow();
+ await page.mouse.move(fStart.x,fStart.y);await page.keyboard.down('f');await page.mouse.down();await page.mouse.move((fStart.x+fEnd.x)/2,(fStart.y+fEnd.y)/2,{steps:4});
+ const label=await page.locator('#workspace-marquee-count').textContent();
+ await page.mouse.move(fEnd.x,fEnd.y,{steps:4});
+ ok(/^Fit \d+ selected$/.test(await page.locator('#workspace-marquee-count').textContent()),`Hold F says what it will fit: ${label} → ${await page.locator('#workspace-marquee-count').textContent()}`);
+ await page.mouse.up();await page.waitForTimeout(60);await page.keyboard.up('f');await page.waitForTimeout(60);
+ const fitted=await viewNow();const boxSel=await selected();
+ ok(boxSel.length>=1&&boxSel.includes(p.middle),`The box selected as usual: ${boxSel.length}`);
+ ok(fitted.zoom!==fBefore.zoom||fitted.x!==fBefore.x,'Hold F with items fits them');
+ await page.locator('#view-back').click();await page.waitForTimeout(60);await page.keyboard.press('Shift+2');await page.waitForTimeout(60);
+ const viaShift2=await viewNow();
+ ok(Math.abs(viaShift2.zoom-fitted.zoom)<1e-9&&Math.abs(viaShift2.x-fitted.x)<1&&Math.abs(viaShift2.y-fitted.y)<1,'…exactly as Fit selection (⇧2) frames that selection');
+ // Hold F over empty canvas: nothing selected, nothing moves.
+ await page.keyboard.press('Escape');await page.keyboard.press('Shift+1');await page.waitForTimeout(60);
+ const vb=await page.locator('#viewport').boundingBox();const eStart={x:vb.x+vb.width-260,y:vb.y+20},eEnd={x:vb.x+vb.width-200,y:vb.y+80};
+ const emptyBefore=await viewNow();
+ await page.mouse.move(eStart.x,eStart.y);await page.keyboard.down('f');await page.mouse.down();await page.mouse.move(eEnd.x,eEnd.y,{steps:5});
+ const nothing=await page.locator('#workspace-marquee-count').textContent();
+ await page.mouse.up();await page.keyboard.up('f');await page.waitForTimeout(60);
+ const emptyAfter=await viewNow();
+ ok(nothing==='Nothing to fit'&&emptyAfter.zoom===emptyBefore.zoom&&emptyAfter.x===emptyBefore.x&&emptyAfter.y===emptyBefore.y,`Hold F over empty canvas: "${nothing}", the view stays`);
  // A plain F tap still fits (the board, with nothing selected).
  await page.keyboard.press('Escape');await page.locator('#zoom-plus').click();await page.locator('#zoom-plus').click();
  const zoomedIn=await viewNow();await page.keyboard.press('f');await page.waitForTimeout(60);

@@ -597,5 +597,5 @@ body .canvas-footer.status-yields .status-line { visibility: hidden; }
    shows none, even after a later key press. Tab and keyboard commands keep the ring. */
 [data-pointer-focus]:focus-visible { outline: none !important; }
 
-/* Holding F while drawing a selection box: releasing zooms to the box, so it says so. */
-body.workspace-fit-held #workspace-marquee { border-style: dashed; background: color-mix(in srgb, var(--accent) 12%, transparent); }
+/* Holding F (fit what it selects) or Z (zoom to the box) while drawing a selection box. */
+body:is(.workspace-box-fit, .workspace-box-zoom) #workspace-marquee { border-style: dashed; background: color-mix(in srgb, var(--accent) 12%, transparent); }
