@@ -46,3 +46,18 @@ test('next and previous follow the order, start at the ends and stop there', () 
   assert.equal(step(['sticky'], 1), 'a', 'a selection outside the order counts as nothing selected');
   assert.equal(boardStepTarget([], {direction: 1}), null);
 });
+
+test('with nothing selected, the board cursor stands in; a selection still wins', () => {
+  const order = ['a', 'b', 'skip', 'c', 'd'].map(id => ({id}));
+  const steppable = entry => entry.id !== 'skip';
+  const step = (selected, direction, cursor) => boardStepTarget(order, {selected: new Set(selected), direction, steppable, cursor})?.id ?? null;
+  assert.equal(step([], 1, {id: 'b', index: 1}), 'c', 'next after the cursor');
+  assert.equal(step([], -1, {id: 'c', index: 3}), 'b', 'previous before it');
+  assert.equal(step(['a'], 1, {id: 'c', index: 3}), 'b', 'an explicit selection wins');
+  assert.equal(step([], 1, {id: 'd', index: 4}), null, 'the cursor at the end stops like a selection');
+  assert.equal(step([], 1, {id: 'gone', index: 3}), 'c', 'a vanished cursor continues from where it stood');
+  assert.equal(step([], -1, {id: 'gone', index: 3}), 'b');
+  assert.equal(step([], 1, {id: 'gone', index: 9}), 'a', 'past the end falls back to the first');
+  assert.equal(step([], -1, {id: 'gone', index: 0}), 'd', 'before the start falls back to the last');
+  assert.equal(step([], 1, null), 'a');
+});

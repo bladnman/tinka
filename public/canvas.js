@@ -832,6 +832,7 @@ function openReader(key, revision = 'original', { history: mode = 'push', focus 
   setInfoOpen(false);
   active = concept;
   activeVariantId = variantId;
+  if (graph && concept.placement) setStepCursor(concept.placement.id, { viewed: true });
   if (opening) {
     setTheme(active.tone === 'night' ? 'night' : 'paper', false);
     setType(100, false);
@@ -1618,17 +1619,51 @@ function revealStep(placement) {
   stepZoom = { preferred, after: z };
   flyTo(z, area.width / 2 - (placement.x + graph.origin.x + placement.width / 2) * z, area.height / 2 - (placement.y + graph.origin.y + placement.height / 2) * z);
 }
-function boardStep(direction) {
+// The board's rendered Tinkas in stepper order.
+function stepOrder() {
+  if (!graph) return [];
   const rendered = new Set(graph.renderedPlacements().map(p => p.id));
-  const order = all.filter(c => c.placement && rendered.has(c.placement.id)).map(c => ({ id: c.placement.id, concept: c }));
+  return all.filter(c => c.placement && rendered.has(c.placement.id)).map(c => ({ id: c.placement.id, concept: c }));
+}
+// The board's "current Tinka": the last one opened or viewed inside (stepping), stepped to
+// with ⌥←/→, or selected on its own. With nothing selected, ⌥←/→ continue from it. Kept per
+// board for this tab, across reloads; nothing is written to the board.
+const CURSOR_KEY = () => workspaceId && boardId ? `tinka/${workspaceId}/${boardId}/step-cursor` : null;
+let stepCursor, cursorLoaded = false;
+function readStepCursor() {
+  if (!cursorLoaded && CURSOR_KEY()) {
+    cursorLoaded = true;
+    try { const saved = JSON.parse(sessionStorage.getItem(CURSOR_KEY()) || 'null'); if (typeof saved?.id === 'string') stepCursor = saved; } catch {}
+  }
+  return stepCursor || null;
+}
+// A Tinka viewed inside after the board's selection last changed outranks that older
+// selection: stepping goes on from what was being looked at.
+let selectionChangedAt = 0;
+function setStepCursor(placementId, { viewed = false } = {}) {
+  if (!graph || !placementId || overview) return;
+  const index = stepOrder().findIndex(entry => entry.id === placementId);
+  if (index < 0) return;
+  readStepCursor();
+  stepCursor = { id: placementId, index, ...(viewed ? { viewedAt: Date.now() } : {}) };
+  try { if (CURSOR_KEY()) sessionStorage.setItem(CURSOR_KEY(), JSON.stringify(stepCursor)); } catch {}
+}
+document.addEventListener('tinka:selection', event => {
+  selectionChangedAt = Date.now();
+  if (event.detail?.placementIds?.length === 1) setStepCursor(event.detail.placementIds[0]);
+});
+function boardStep(direction) {
+  const order = stepOrder();
   const steppable = entry => isSteppable(entry.concept.graphItem);
   const sequence = order.filter(steppable);
-  const target = boardStepTarget(order, { selected: graph.selection, direction, steppable });
+  const cursor = readStepCursor();
+  const selected = cursor?.viewedAt >= selectionChangedAt ? new Set() : graph.selection;
+  const target = boardStepTarget(order, { selected, direction, steppable, cursor });
   if (!target) {
     if (!sequence.length) { announceView('No Tinkas to step through on this board'); return; }
     // At either end stepping stops, as it does in an opened Tinka; the current one comes back into view.
-    const current = graph.selection.size === 1 && order.find(entry => graph.selection.has(entry.id));
-    if (current) revealStep(current.concept.placement);
+    const current = selected.size === 1 ? order.find(entry => selected.has(entry.id)) : !selected.size && order.find(entry => entry.id === cursor?.id);
+    if (current) { if (!graph.selection.has(current.id) || graph.selection.size !== 1) graph.selectOnly(current.id); revealStep(current.concept.placement); }
     announceView(direction > 0 ? 'Last Tinka on this board' : 'First Tinka on this board');
     return;
   }

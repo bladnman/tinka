@@ -37,6 +37,8 @@ try{
  const order=[p.west,p.reserved,p.middle,p.boardOnly,p.east,p.giant,p.south,p.last];
  await op('updateBoard',{boardId:'steps',patch:{reviewOrder:order}});
  const sequence=[p.west,p.middle,p.east,p.giant,p.south,p.last];
+ await op('createBoard',{id:'cursor',title:'Cursor'});
+ const row=[];for(let i=1;i<=8;i++)row.push(await op('createItem',{boardId:'cursor',item:{title:`Row ${i}`,content:{kind:'note',text:`Row ${i}.`}},placement:{x:(i-1)*420,y:0,width:360,height:240}}).then(r=>r.placementIds[0]));
  await op('createBoard',{id:'plain',title:'Plain'});await op('createItem',{boardId:'plain',item:{title:'One'},placement:{x:0,y:0,width:320,height:220}});
  server=await listen(config,{port:0});const base=`http://127.0.0.1:${server.address().port}`;
  browser=await chromium.launch({headless:true,...(process.env.CHROMIUM_EXECUTABLE?{executablePath:process.env.CHROMIUM_EXECUTABLE}:{})});
@@ -77,8 +79,12 @@ try{
  await step('Alt+ArrowLeft');
  assert.deepEqual(await selected(),[sequence[4]]);checks++;
  ok(await inView(sequence[4]),'Stepping back brings it into view');
- // Plain arrows still nudge rather than step; Escape clears; ⌥← with nothing selected starts at the last.
+ // Escape clears the selection; ⌥← then continues from the board's current Tinka.
  await page.keyboard.press('Escape');assert.deepEqual(await selected(),[]);checks++;
+ await step('Alt+ArrowLeft');assert.deepEqual(await selected(),[sequence[3]]);checks++;
+ // With no current Tinka (a fresh tab), ⌥← starts at the last.
+ await page.keyboard.press('Escape');
+ await page.evaluate(()=>{for(const k of Object.keys(sessionStorage))if(k.endsWith('/step-cursor'))sessionStorage.removeItem(k);});await open('steps');
  await step('Alt+ArrowLeft');assert.deepEqual(await selected(),[p.last]);checks++;
  // From a selected board-only Tinka (the stepper skips it), next is the one after it.
  await page.keyboard.press('Escape');
@@ -87,7 +93,8 @@ try{
  await step('Alt+ArrowRight');assert.deepEqual(await selected(),[p.east]);checks++;
  // The same order as the opened Tinka: open the third and read its stepper.
  await page.keyboard.press('Escape');
- for(let i=0;i<3;i++)await step('Alt+ArrowRight');
+ await page.locator(`.workspace-card[data-placement="${sequence[0]}"] [data-placement-select]`).evaluate(b=>b.click());
+ for(let i=0;i<2;i++)await step('Alt+ArrowRight');
  assert.deepEqual(await selected(),[sequence[2]]);checks++;
  await page.keyboard.press('Enter');
  await page.locator('#reader-dialog[open]').waitFor();
@@ -132,6 +139,30 @@ try{
  await page.keyboard.press('Shift+Tab');
  const tabbed=await page.evaluate(()=>({id:document.activeElement.id,outline:getComputedStyle(document.activeElement).outlineStyle}));
  ok(tabbed.id==='zoom-menu-toggle'&&tabbed.outline==='solid',`Tab focus keeps its ring: ${JSON.stringify(tabbed)}`);
+ // The board remembers the current Tinka: open 4, step inside to 6, go back; ⌥→ is 7, ⌥← is 5.
+ await open('cursor');
+ const pick=async n=>{await page.locator(`.workspace-card[data-placement="${row[n-1]}"] [data-placement-select]`).evaluate(b=>b.click());await page.waitForTimeout(60);};
+ const openAndStep=async()=>{await page.locator(`.workspace-card[data-placement="${row[3]}"] [data-open]`).first().evaluate(b=>b.click());await page.locator('#reader-dialog[open]').waitFor();
+  await page.waitForFunction(()=>document.getElementById('reader-count').textContent.trim()==='4 / 8');
+  await page.keyboard.press('Alt+ArrowRight');await page.keyboard.press('Alt+ArrowRight');
+  await page.waitForFunction(()=>document.getElementById('reader-count').textContent.trim()==='6 / 8');
+  await page.keyboard.press('Escape');await page.locator('#reader-dialog').waitFor({state:'hidden'});await page.waitForTimeout(300);};
+ await openAndStep();
+ assert.deepEqual(await selected(),[],'Back on the board nothing stays selected (unchanged)');checks++;
+ await step('Alt+ArrowRight');assert.deepEqual(await selected(),[row[6]],'⌥→ continues after the Tinka last viewed (7)');checks++;
+ await openAndStep();
+ await step('Alt+ArrowLeft');assert.deepEqual(await selected(),[row[4]],'⌥← goes to the one before it (5)');checks++;
+ // A plain click on empty canvas clears the selection but not the cursor; a reload keeps it too.
+ await page.keyboard.press('Escape');
+ const vpBox=await page.locator('#viewport').boundingBox();await page.mouse.click(vpBox.x+vpBox.width/2,vpBox.y+vpBox.height-120);await page.waitForTimeout(60);
+ assert.deepEqual(await selected(),[]);
+ await step('Alt+ArrowRight');assert.deepEqual(await selected(),[row[5]],'After clicking empty canvas, ⌥→ continues from the cursor (5 → 6)');checks++;
+ await page.keyboard.press('Escape');await open('cursor');
+ await step('Alt+ArrowRight');assert.deepEqual(await selected(),[row[6]],'The cursor survives a reload in this tab (6 → 7)');checks++;
+ // An explicit selection wins over the cursor.
+ await page.keyboard.press('Escape');await pick(2);
+ await step('Alt+ArrowRight');assert.deepEqual(await selected(),[row[2]],'An explicit selection wins (2 → 3)');checks++;
+
  // Hold F while drawing a selection box: releasing zooms to the box (Fit selection's margin), once.
  await open('steps');
  const viewNow=()=>page.evaluate(()=>{const m=new DOMMatrix(getComputedStyle(document.getElementById('plane')).transform);return {zoom:new DOMMatrix(getComputedStyle(document.getElementById('world')).transform).a,x:m.e,y:m.f};});

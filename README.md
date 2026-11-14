@@ -314,7 +314,9 @@ Navigator; ⌘/Ctrl-I opens the Inspector; F fits the selection, then the board;
 Shift-1 fits the board, Shift-2 fits the selection (by physical key, on any
 layout) and Shift-0 zooms to 100%; M shows or hides the board map. ⌥← / ⌥→ (Ctrl+← / Ctrl+→ on Windows and
 Linux) select the previous or next Tinka in the same order an opened Tinka steps through,
-and bring it into view. ? or Inspector → Keyboard shortcuts shows the
+and bring it into view. With nothing selected they continue from the board's current
+Tinka: the one you last opened or stepped to inside it, stepped to on the board or
+selected on its own (remembered per board in this tab). ? or Inspector → Keyboard shortcuts shows the
 shortcut sheet.
 Editing fields, readers, iframes and dialogs keep their native keys.
 
