@@ -30,7 +30,7 @@
     </section>
   </header>
   <div id="board-error" class="board-error" role="alert" hidden></div>
-  <main id="viewport" data-canvas-pattern="dots" aria-label="Experiments canvas: drag or scroll to pan, pinch or Control-scroll to zoom" tabindex="0"><div id="plane"><div id="world"></div></div></main>
+  <main id="viewport" data-canvas-pattern="plain" aria-label="Experiments canvas: drag or scroll to pan, pinch or Control-scroll to zoom" tabindex="0"><div id="plane"><div id="world"></div></div></main>
   <section id="board-map" class="board-map" aria-label="Board map" hidden>
     <header class="board-map-head"><span class="tk-eyebrow" aria-hidden="true">Map</span><button class="tk-btn tk-sm" type="button" data-map-fit="selection" title="Fit the selection (F or ⇧2)" hidden>Fit selected</button><button class="tk-btn tk-sm" type="button" data-map-fit="board" title="Fit board (⇧1)">Fit board</button><button class="tk-btn tk-sm tk-icon" type="button" data-map-close aria-label="Close map" title="Close map (M)"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="m5.5 5.5 9 9m0-9-9 9"/></svg></button></header>
     <div class="board-map-stage" tabindex="0" role="application" aria-roledescription="board map" aria-label="Board map"><canvas aria-hidden="true"></canvas><div class="board-map-frame" aria-hidden="true" hidden></div></div>
@@ -51,7 +51,7 @@
           <button class="tk-mi" type="button" data-zoom-to="selection" hidden>Fit selection<kbd class="tk-kbd" aria-hidden="true">⇧2</kbd></button>
           <div class="tk-msep"></div>
           <div class="tk-mlabel" id="canvas-pattern-label">Background · this board</div>
-          <div class="tk-seg canvas-pattern" role="group" aria-labelledby="canvas-pattern-label"><button type="button" data-canvas-pattern="dots" aria-pressed="true">Dots</button><button type="button" data-canvas-pattern="grid" aria-pressed="false">Grid</button><button type="button" data-canvas-pattern="plain" aria-pressed="false">Plain</button></div>
+          <div class="tk-seg canvas-pattern" role="group" aria-labelledby="canvas-pattern-label"><button type="button" data-canvas-pattern="dots" aria-pressed="false">Dots</button><button type="button" data-canvas-pattern="grid" aria-pressed="false">Grid</button><button type="button" data-canvas-pattern="plain" aria-pressed="true">Plain</button></div>
         </div>
       </span>
       <button id="zoom-plus" class="tk-btn tk-icon" type="button" aria-label="Zoom in" title="Zoom in (+)"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M5 10h10M10 5v10"/></svg></button>

@@ -359,7 +359,10 @@ export class WorkspaceBoard {
     const pick = selector => bar.querySelector(selector);
     const pattern = document.createElement("div");
     pattern.className = "tk-seg canvas-pattern"; pattern.setAttribute("role", "group"); pattern.setAttribute("aria-label", "Canvas background");
-    pattern.innerHTML = '<button type="button" data-canvas-pattern="dots" aria-pressed="true">Dots</button><button type="button" data-canvas-pattern="grid" aria-pressed="false">Grid</button><button type="button" data-canvas-pattern="plain" aria-pressed="false">Plain</button>';
+    pattern.innerHTML = '<button type="button" data-canvas-pattern="dots">Dots</button><button type="button" data-canvas-pattern="grid">Grid</button><button type="button" data-canvas-pattern="plain">Plain</button>';
+    // Show the board's current background, whether this panel is built before or after it loads.
+    const current = $("viewport")?.dataset.canvasPattern || "plain";
+    pattern.querySelectorAll("[data-canvas-pattern]").forEach(button => button.setAttribute("aria-pressed", String(button.dataset.canvasPattern === current)));
     const segments = pick(".workspace-segments"); segments?.classList.add("tk-seg");
     const view = section("View", "this board, this browser", [segments, pattern], "inspector-view");
     const filter = section("Filter", "", [pick(".workspace-search"), pick("#workspace-favorites"), pick("#workspace-recent"), pick("#workspace-archive")], "inspector-filter");
@@ -548,6 +551,13 @@ export class WorkspaceBoard {
     return this.snapshot.placements.filter(p => rendered.has(p.id) && !p.removedAt && !p.deletedAt &&
       this.snapshot.items[p.itemId] && !this.snapshot.items[p.itemId].deletedAt);
   }
+  // One Tinka selected on its own, as ⌥← / ⌥→ leave it.
+  selectOnly(id) {
+    this.whiteboard?.clearSelection({finishEdit:true,focus:false});
+    this.selection = new Set([id]);
+    this.syncSelection();
+    this.selectionMenu();
+  }
   clipboardCandidates() {
     return this.renderedPlacements().filter(p => this.selection.has(p.id));
   }
@@ -621,6 +631,7 @@ export class WorkspaceBoard {
     const dialog = makeDialog("Keyboard shortcuts", `<p>Use these keys while working on a board. Text fields and previews keep their normal keys.</p>
       <dl><dt>⌘/Ctrl-A</dt><dd>Select all visible Tinkas</dd>
       <dt>⌘/Ctrl-D</dt><dd>Duplicate selection</dd>
+      <dt>${MOD}← · ${MOD}→</dt><dd>Select the previous · next Tinka, in the same order as an opened Tinka steps, and bring it into view</dd>
       <dt>Enter</dt><dd>Open one selected Tinka</dd>
       <dt>⌘/Ctrl-K or /</dt><dd>Find across this project (Navigator)</dd>
       <dt>⌘/Ctrl-I</dt><dd>Inspector for the selected Tinka or this board</dd>

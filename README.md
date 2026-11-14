@@ -188,7 +188,7 @@ Remove from board; Details… (or ⌘/Ctrl-I with one tile selected) shows that 
 dates and actions. Click-away or Escape closes any temporary panel or menu. Zoom
 lives in one floating pill at the lower right: −, the zoom percentage (a menu with
 50/100/125%, a precise slider, Fit board, Fit selection while something is
-selected, and Dots / Grid / Plain), +, the board map and Fit. The background choice is a per-board view preference kept in this
+selected, and Dots / Grid / Plain), +, the board map and Fit. The background starts Plain; Dots or Grid is a per-board view preference kept in this
 browser; it never changes board data.
 
 An opened Tinka is one level down and keeps the board's frame: the same header
@@ -212,12 +212,14 @@ Hover the title (after a moment), click it or tap it for **where you are**: Home
 the boards above → this board → this Tinka → its own board, then a numbered list of
 what sits beside it on this board, and any other boards that also show it. A
 Tinka placed on several boards uses the board you came from. Choose a row to go
-there. **‹ n / N ›** beside the title steps through the board in review order,
+there; a click outside the panel or Escape closes it. **‹ n / N ›**, which holds still at
+the right end of the title row whatever the title, steps through the board in review order,
 skipping reserved, building and board-only Tinkas; the count opens the same list,
 and **↓ Board · N** goes down into the Tinka's own board. Keys: ⌥← / ⌥→ on a Mac or
 Ctrl+← / Ctrl+→ on Windows and Linux step, also while Tinka's own local content has
 focus but never inside a text field; [ and ] step too, and plain ← / → step while
-Tinka rather than the content has focus (opening a Tinka leaves focus there).
+Tinka rather than the content has focus (opening a Tinka leaves focus there, and
+content that grabs focus as it loads hands it back until you click into it or press Tab).
 ⌥↑ / Ctrl+↑ or Escape goes up to the board, and ⌥↓ / Ctrl+↓ goes down. Stepping
 replaces the address instead of adding to the browser history, so Back returns to
 where you opened the Tinka from; opening, going up and going down are one entry
@@ -308,7 +310,9 @@ originals. They become selected and are one Undo/Redo step. ⌘A / Ctrl-A select
 all rendered cards; Enter opens the sole selected item; ⌘/Ctrl-K or / opens
 Navigator; ⌘/Ctrl-I opens the Inspector; F fits the selection, then the board;
 Shift-1 fits the board, Shift-2 fits the selection (by physical key, on any
-layout) and Shift-0 zooms to 100%; M shows or hides the board map. ? or Inspector → Keyboard shortcuts shows the
+layout) and Shift-0 zooms to 100%; M shows or hides the board map. ⌥← / ⌥→ (Ctrl+← / Ctrl+→ on Windows and
+Linux) select the previous or next Tinka in the same order an opened Tinka steps through,
+and bring it into view. ? or Inspector → Keyboard shortcuts shows the
 shortcut sheet.
 Editing fields, readers, iframes and dialogs keep their native keys.
 

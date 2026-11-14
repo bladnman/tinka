@@ -14,6 +14,8 @@ import {decorationBounds} from './whiteboard-geometry.js';
 import {ReaderCanvas} from './reader-canvas.js';
 import {ReaderPath} from './reader-path.js';
 import {isMacPlatform, readerCommand, stepModifierLabel} from './reader-keys.js';
+import {boardStepCommand, boardStepTarget, isSteppable} from './board-step.js';
+import {quietPointerFocus} from './pointer-focus.js';
 
 const $ = id => document.getElementById(id);
 mountAppearance($('board-info'));
@@ -734,7 +736,7 @@ function loadRevision({ focus = false } = {}) {
 
 // Stepping skips reserved and building slots, and board-only Tinkas (those open their board).
 function readerSequence() {
-  if (graph) return all.filter(c => c.key === active?.key || (!['reserved', 'building'].includes(c.graphItem?.build?.state) && !(c.graphItem?.childBoardId && !c.graphItem?.content)));
+  if (graph) return all.filter(c => c.key === active?.key || isSteppable(c.graphItem));
   return all.filter(concept => concept.key === active?.key || !['reserved', 'building'].includes(liveSnapshot?.concepts?.[concept.key]?.state));
 }
 
@@ -1598,6 +1600,51 @@ function centerOn(wx, wy, { glide = false } = {}) {
   const x = viewport.clientWidth / 2 - wx * zoom, y = viewport.clientHeight / 2 - wy * zoom;
   if (glide) flyTo(zoom, x, y); else moveView(x, y);
 }
+// ⌥← / ⌥→ on a board (Ctrl+← / → on Windows and Linux) select the previous / next Tinka in
+// the opened Tinka's stepper order and bring it into view: a smooth pan that centres it at
+// the current zoom, zooming out only as far as it takes to fit it with Fit's margin. After
+// a Tinka too big for that zoom, the next one that fits returns to it, unless the zoom was
+// changed by hand in between.
+let stepZoom = null;
+function revealStep(placement) {
+  const card = world.querySelector(`.workspace-card[data-placement="${CSS.escape(placement.id)}"]`);
+  if (graph.mode === 'grid') { card?.scrollIntoView({ block: 'nearest', inline: 'nearest', behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth' }); return; }
+  graph.revealedPlacement = null;
+  const preferred = stepZoom && stepZoom.after === (flight ? stepZoom.after : zoom) ? stepZoom.preferred : zoom;
+  const area = fitArea(), margin = 48;
+  const z = clampZoom(Math.min(preferred, (area.width - margin * 2) / placement.width, (area.height - margin * 2) / placement.height));
+  stepZoom = { preferred, after: z };
+  flyTo(z, area.width / 2 - (placement.x + graph.origin.x + placement.width / 2) * z, area.height / 2 - (placement.y + graph.origin.y + placement.height / 2) * z);
+}
+function boardStep(direction) {
+  const rendered = new Set(graph.renderedPlacements().map(p => p.id));
+  const order = all.filter(c => c.placement && rendered.has(c.placement.id)).map(c => ({ id: c.placement.id, concept: c }));
+  const steppable = entry => isSteppable(entry.concept.graphItem);
+  const sequence = order.filter(steppable);
+  const target = boardStepTarget(order, { selected: graph.selection, direction, steppable });
+  if (!target) {
+    if (!sequence.length) { announceView('No Tinkas to step through on this board'); return; }
+    // At either end stepping stops, as it does in an opened Tinka; the current one comes back into view.
+    const current = graph.selection.size === 1 && order.find(entry => graph.selection.has(entry.id));
+    if (current) revealStep(current.concept.placement);
+    announceView(direction > 0 ? 'Last Tinka on this board' : 'First Tinka on this board');
+    return;
+  }
+  // Keys keep acting on the board, not on a button inside the previously selected tile.
+  if (document.activeElement?.closest?.('#world')) viewport.focus({ preventScroll: true });
+  graph.selectOnly(target.id);
+  revealStep(target.concept.placement);
+  announceView(`${target.concept.name}, ${sequence.indexOf(target) + 1} of ${sequence.length}`);
+}
+document.addEventListener('keydown', event => {
+  if (!graph || overview || dialog.open || event.defaultPrevented || document.querySelector('dialog[open]')) return;
+  const editable = !!event.target.closest?.('input,textarea,select,[contenteditable]:not([contenteditable="false"]),[role=textbox]');
+  const command = boardStepCommand(event, { mac: readerKeysMac, editable });
+  if (!command || graph.boardCommandBlocked(event) || document.activeElement?.tagName === 'IFRAME') return;
+  event.preventDefault(); event.stopImmediatePropagation();
+  if (!event.repeat) boardStep(command === 'next' ? 1 : -1);
+}, true);
+quietPointerFocus();
 function ensureBoardMap() {
   if (boardMap || !boardMapElement()) return boardMap;
   boardMap = new BoardMap(boardMapElement(), {
@@ -1692,7 +1739,8 @@ addEventListener('resize', () => { placeSelectionBar(); boardMap?.resize(); });
 $('board-map-toggle').onclick = () => setMapOpen(!boardMap?.visible, { remember: true });
 // Dots, Grid or Plain: a per-board view preference kept in this browser.
 const PATTERNS = ['dots', 'grid', 'plain'];
-let canvasPattern = 'dots';
+// No pattern until this board is given one: the dots are a choice, not the default.
+let canvasPattern = 'plain';
 function patternKey() { return workspaceId && boardId ? `tinka/${workspaceId}/${boardId}/canvas-pattern` : null; }
 function loadCanvasPattern() {
   try { const saved = patternKey() && localStorage.getItem(patternKey()); if (PATTERNS.includes(saved)) canvasPattern = saved; } catch {}

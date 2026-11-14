@@ -46,7 +46,8 @@ body { font-family: var(--font-ui); }
   --pattern-majorline: color-mix(in srgb, var(--grid-major) calc(var(--pattern-fade, 1) * 100%), transparent);
 }
 #viewport[data-canvas-pattern] { background-position: var(--pattern-x, 0) var(--pattern-y, 0); }
-#viewport[data-canvas-pattern="dots"] { background-image: radial-gradient(circle, var(--pattern-ink) 1.1px, transparent 1.35px); background-size: var(--pattern-step, 22px) var(--pattern-step, 22px); }
+/* Dots are a quiet guide: small and well under half the token's ink, so the board reads as paper. */
+#viewport[data-canvas-pattern="dots"] { background-image: radial-gradient(circle, color-mix(in srgb, var(--pattern-ink) 55%, transparent) .8px, transparent 1.05px); background-size: var(--pattern-step, 22px) var(--pattern-step, 22px); }
 #viewport[data-canvas-pattern="grid"] {
   background-image: linear-gradient(var(--pattern-majorline) 1px, transparent 1px), linear-gradient(90deg, var(--pattern-majorline) 1px, transparent 1px), linear-gradient(var(--pattern-minor) 1px, transparent 1px), linear-gradient(90deg, var(--pattern-minor) 1px, transparent 1px);
   background-size: var(--pattern-major, 110px) var(--pattern-major, 110px), var(--pattern-major, 110px) var(--pattern-major, 110px), var(--pattern-step, 22px) var(--pattern-step, 22px), var(--pattern-step, 22px) var(--pattern-step, 22px);
@@ -591,3 +592,7 @@ body .canvas-footer.status-yields .status-line { visibility: hidden; }
 }
 @media (prefers-reduced-motion: reduce) { .board-map { animation: none; } }
 .tinka-overview .board-map { display: none !important; }
+
+/* Focus rings are for the keyboard: a control focused by a click or tap (pointer-focus.js)
+   shows none, even after a later key press. Tab and keyboard commands keep the ring. */
+[data-pointer-focus]:focus-visible { outline: none !important; }

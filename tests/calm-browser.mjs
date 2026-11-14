@@ -77,13 +77,13 @@ try{
  // The view pill: − · % · + · Fit, and a browser-local Dots / Grid / Plain choice per board.
  const pct=async()=>Number((await page.locator('#zoom-menu-toggle').innerText()).replace('%',''));
  const start=await pct();await page.locator('#zoom-minus').click();const lower=await pct();assert.ok(lower<start);await page.locator('#zoom-plus').click();assert.ok(await pct()>lower);
- assert.equal(await page.locator('#viewport').getAttribute('data-canvas-pattern'),'dots');
+ assert.equal(await page.locator('#viewport').getAttribute('data-canvas-pattern'),'plain','No dots until a board is given them');
  await page.locator('#zoom-menu-toggle').click();await page.locator('#zoom-menu').waitFor();
  await page.locator('#zoom-menu [data-canvas-pattern="grid"]').click();assert.equal(await page.locator('#viewport').getAttribute('data-canvas-pattern'),'grid');
  assert.match(await page.locator('#viewport').evaluate(el=>getComputedStyle(el).backgroundImage),/linear-gradient/);
  await clickBlank();assert.equal(await page.locator('#zoom-menu').isVisible(),false,'Click-away closes the zoom menu');
  await page.reload();await card(a).waitFor();assert.equal(await page.locator('#viewport').getAttribute('data-canvas-pattern'),'grid','Pattern persists for this board');
- await page.goto(base+'/boards/ideas/');await page.locator('.workspace-card').first().waitFor();assert.equal(await page.locator('#viewport').getAttribute('data-canvas-pattern'),'dots','Other boards keep their own pattern');
+ await page.goto(base+'/boards/ideas/');await page.locator('.workspace-card').first().waitFor();assert.equal(await page.locator('#viewport').getAttribute('data-canvas-pattern'),'plain','Other boards keep their own pattern');
  await page.goto(base+'/boards/studio/');await card(a).waitFor();await page.locator('#board-info-toggle').click();await page.locator('#board-info [data-canvas-pattern="plain"]').click();
  assert.equal(await page.locator('#viewport').evaluate(el=>getComputedStyle(el).backgroundImage),'none');await page.keyboard.press('Escape');
  // Warm graphite dark, never blue slate.
