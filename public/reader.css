@@ -5,7 +5,8 @@
 #reader-header .reader-up { flex: 0 1 auto; min-width: 44px; max-width: min(26vw, 260px); gap: 2px; }
 #reader-header .reader-up svg { width: 16px; height: 16px; flex: none; fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; }
 #reader-header .reader-up-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-#reader-header .reader-title-row { display: flex; align-items: center; gap: 2px; min-width: 0; flex: 1 1 auto; }
+/* The title row takes the space that is left; a long title truncates rather than squeezing ‹ board. */
+#reader-header .reader-title-row { display: flex; align-items: center; gap: 2px; min-width: 0; flex: 1 1 0; }
 #reader-header .reader-path {
   display: inline-flex; align-items: center; gap: 6px; flex: 0 1 auto; min-width: 0; box-sizing: border-box;
   height: 44px; min-height: 44px; margin: 0 0 0 2px; padding: 0 8px; border: 6px solid transparent; background-clip: padding-box;
@@ -15,15 +16,20 @@
 #reader-header .reader-path .experiment-crumb { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: 500 19px/1.2 var(--font-display); letter-spacing: -.01em; color: var(--ink); }
 #reader-header .reader-path .reader-number { margin: 0; font-size: 19px; }
 #reader-header .reader-chev { width: 14px; height: 14px; flex: none; fill: none; stroke: var(--ink-3); stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; }
-#reader-header .reader-stepper { display: inline-flex; align-items: center; flex: none; }
+/* The stepper stays put: it sits at the right end of the title row, next to the actions,
+   so a longer or shorter title (which truncates) or the ↓ chip never moves it. */
+#reader-header .reader-stepper { display: inline-flex; align-items: center; flex: none; margin: 0 4px 0 auto; padding-left: 8px; }
 #reader-header .reader-stepper svg, #reader-header .reader-down svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; }
 #reader-header .reader-stepper .tk-btn:disabled { opacity: .35; }
-#reader-header .reader-count { min-width: 52px; padding: 0 6px; color: var(--ink-2); font: 500 var(--t-sm)/1 var(--font-ui); font-variant-numeric: tabular-nums; }
+#reader-header .reader-count { min-width: 64px; padding: 0 6px; color: var(--ink-2); font: 500 var(--t-sm)/1 var(--font-ui); font-variant-numeric: tabular-nums; }
 #reader-header .reader-count[aria-expanded="true"] { background-color: var(--hover); }
 #reader-header .reader-down { flex: none; gap: 4px; padding: 0 8px; background-color: var(--hover); color: var(--ink-2); font: 500 var(--t-sm)/1 var(--font-ui); white-space: nowrap; }
 #reader-header .reader-down:hover { background-color: var(--press); color: var(--ink); }
 #reader-header .item-actions { display: inline-flex; align-items: center; gap: 0; margin: 0; }
 #reader-header .item-star { font-size: 18px; line-height: 1; }
+/* The notes dot never changes the button's width, so the actions (and the stepper beside them) hold still. */
+#reader-header .notes-toggle { position: relative; }
+#reader-header .notes-toggle .note-dot { position: absolute; top: 10px; right: 4px; margin: 0; }
 #reader-header .reader-path { min-width: 96px; }
 /* A changed source offers a reload at the top of the canvas, never crowding the header. */
 #reader-dialog #reader-update.reader-update {
@@ -122,11 +128,11 @@
 /* The Navigator and the path sit below the reader's header, however tall it wraps. */
 #reader-dialog .project-navigator { top: calc(var(--reader-header-h, var(--chrome-h)) + 8px); }
 
-/* Narrower windows: the title, stepper and ↓ chip get their own row below Navigator, Home, ‹ board and the actions. */
+/* Narrower windows: the title, ↓ chip and stepper get their own row (the stepper still at its right end) below Navigator, Home, ‹ board and the actions. */
 @media (max-width: 1023px) {
   #reader-header { flex-wrap: wrap; row-gap: 0; }
   #reader-header .identity { display: contents; }
-  #reader-header .reader-title-row { order: 9; flex: 1 1 100%; flex-wrap: wrap; }
+  #reader-header .reader-title-row { order: 9; flex: 1 1 100%; flex-wrap: nowrap; }
   #reader-header .reader-path { flex: 1 1 120px; margin-left: 0; }
   #reader-header .reader-up { max-width: none; flex: 1 1 auto; }
   #reader-header .chrome-actions { margin-left: auto; }

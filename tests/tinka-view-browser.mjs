@@ -40,6 +40,15 @@ try{
  const kit=await op('createItem',{boardId:'lab',item:{title:'Starter kit',content:html('kit.html')},placement:place(4)});
  await op('createBoard',{id:'kit-parts',title:'Kit parts',itemId:kit.itemId});
  await op('createItem',{boardId:'kit-parts',item:{title:'Part one'}});await op('createItem',{boardId:'kit-parts',item:{title:'Part two'}});
+ // Content that focuses itself as it loads (a prototype focusing its own canvas), with very different title lengths.
+ await op('createBoard',{id:'focus-lab',title:'Focus lab',parentBoardId:'product'});
+ const grabby=[];
+ for(let i=0;i<7;i++){
+  const title=i%2?`Step ${i+1}`:`Step ${i+1}: a much longer title that keeps going and going so the header has to truncate it somewhere`;
+  await writeFile(path.join(assets,`grab-${i}.html`),page_(title,'<main id="viewport" tabindex="-1" style="outline:none">canvas</main><script>document.getElementById("viewport").focus();addEventListener("load",()=>setTimeout(()=>document.getElementById("viewport").focus(),120));</script>'));
+  grabby.push(await op('createItem',{boardId:'focus-lab',item:{title,content:html(`grab-${i}.html`)},placement:place(i)}));
+ }
+ await op('review',{itemId:grabby[2].itemId,patch:{note:'A note, so the notes dot shows on this one.'}});
  // The quiet opening also appears on Product.
  await op('reference',{sourceBoardId:'lab',placementIds:[quiet.placementIds[0]],targetBoardId:'product'});
  server=await listen(config,{port:0});const base=`http://127.0.0.1:${server.address().port}`;
@@ -251,6 +260,60 @@ try{
  const popBox=await page.locator('#reader-path-pop').boundingBox();ok(popBox.x>=0&&popBox.x+popBox.width<=390,'The path fits a phone');
  await page.screenshot({path:path.join(evidence,'tinka-view-390-light-path.png')});
  await page.locator('#reader-path-pop .reader-path-sibs').getByText('Starter kit').click();await waitName('Starter kit');checks++;
+ await page.setViewportSize({width:1440,height:900});
+
+ // (11) Repeated stepping keeps working although each new Tinka's content focuses itself, the stepper
+ // holds still across very different titles (and a notes dot), and the path closes on click-away.
+ await page.setViewportSize({width:1244,height:860});
+ await page.goto(base+'/boards/focus-lab/?from=product',{waitUntil:'load'});await page.locator('.workspace-card').first().waitFor();
+ await openItem(grabby[0].placementIds[0]);await page.waitForTimeout(400);
+ const contentFocused=()=>page.evaluate(()=>document.activeElement===document.getElementById('active-reader'));
+ const stepperX=()=>page.evaluate(()=>['reader-previous','reader-count','reader-next'].map(id=>Math.round(document.getElementById(id).getBoundingClientRect().x)));
+ const x0=await stepperX();
+ const titleOf=i=>grabby[i]&&(i%2?`Step ${i+1}`:`Step ${i+1}: a much longer title that keeps going and going so the header has to truncate it somewhere`);
+ ok(!(await contentFocused()),'Opening keeps focus with Tinka although the content focuses itself');
+ let at=0;
+ const settle=async()=>{await waitName(titleOf(at)).catch(async e=>{throw new Error(`Expected ${titleOf(at)}; ${JSON.stringify(await page.evaluate(()=>({name:document.querySelector('#reader-name').textContent,active:document.activeElement?.tagName+'#'+document.activeElement?.id,inner:(()=>{try{const d=document.getElementById('active-reader').contentDocument;return d.activeElement?.tagName+'>'+(d.activeElement?.contentDocument?.activeElement?.id||'')}catch{return 'x'}})()})))}`);});await page.waitForTimeout(350);};
+ for(let n=0;n<5;n++){await page.keyboard.press(`${chord}+ArrowRight`);at++;await settle();eq(await stepperX(),x0,`The stepper holds still at step ${at+1}`);ok(!(await contentFocused()),`Focus stays with Tinka after ${chord}+→ #${n+1}`);}
+ eq(at,5,'Five chord presses advance five Tinkas without a click');
+ for(let n=0;n<5;n++){await page.keyboard.press('ArrowLeft');at--;await settle();}
+ eq(await name(),titleOf(0),'Five plain ← presses step back five Tinkas without a click');
+ await page.locator('#reader-next').click();at++;await settle();
+ for(let n=0;n<5;n++){await page.keyboard.press('ArrowRight');at++;await settle();if(at<6)eq(await page.evaluate(()=>document.activeElement?.id),'reader-next',`Focus stays on Next after → #${n+1}`);}
+ eq([await name(),await page.evaluate(()=>document.activeElement?.id)],[titleOf(6),'reader-stage'],'After clicking Next, five plain → presses keep stepping; at the end (Next disabled) focus is on Tinka');
+ await page.keyboard.press('[');at--;await settle();await page.keyboard.press('[');at--;await settle();await page.keyboard.press(']');at++;await settle();
+ eq(await name(),titleOf(5),'[ and ] keep stepping too');
+ // A click on the header's background lands on Tinka's canvas, so the plain keys still work.
+ const hb=await page.locator('#reader-header').boundingBox(),sb=await page.locator('#reader-stepper').boundingBox();
+ const spot=await page.evaluate(([x,y])=>{const e=document.elementFromPoint(x,y);return e.tagName+'#'+e.id+'.'+e.className;},[sb.x-6,hb.y+hb.height-3]);
+ await page.mouse.click(sb.x-6,hb.y+hb.height-3);await page.waitForTimeout(60);
+ eq(await page.evaluate(()=>document.activeElement?.tagName+'#'+document.activeElement?.id)+' @'+spot,'DIV#reader-stage @'+spot,'A click on the header background leaves focus on Tinka, not the page body');
+ await page.keyboard.press('ArrowLeft');at--;await settle();checks++;
+ await page.screenshot({path:path.join(evidence,'tinka-view-1244-header.png'),clip:{x:0,y:0,width:1244,height:Math.ceil(hb.height)+8}});
+ // Working in the content keeps its focus: a click inside it is not undone.
+ await page.frameLocator('#active-reader').frameLocator('iframe').locator('#viewport').click();await page.waitForTimeout(300);
+ ok(await contentFocused(),'A click in the content keeps focus there');
+ await page.locator('#reader-stage').focus();
+ // The path: a press outside it (on the content, on the header) or Escape closes it; the trigger still toggles.
+ const popOpen=()=>page.locator('#reader-path-pop').isVisible();
+ await page.locator('#reader-path').click();ok(await popOpen(),'The title opens the path');
+ const wb=await page.locator('#reader-window').boundingBox();
+ await page.mouse.click(wb.x+wb.width/2,wb.y+wb.height/2);await page.waitForTimeout(250);
+ ok(!(await popOpen()),'A click on the content closes the path');
+ await page.locator('#reader-path').click();ok(await popOpen());
+ await page.mouse.click(sb.x-6,hb.y+hb.height-3);await page.waitForTimeout(100);
+ ok(!(await popOpen()),'A click on the header background closes the path');
+ await page.locator('#reader-path').click();await page.locator('#reader-path').click();await page.waitForTimeout(100);
+ ok(!(await popOpen()),'Clicking the title again closes it');
+ await page.locator('#reader-count').click();ok(await popOpen(),'The count opens the list');
+ await page.keyboard.press('Escape');await page.waitForTimeout(100);
+ ok(!(await popOpen())&&await page.locator('#reader-dialog').evaluate(d=>d.open),'Escape closes the path and leaves the Tinka open');
+ eq(await page.evaluate(()=>document.activeElement?.id),'reader-count','Escape returns focus to the trigger');
+ await page.keyboard.press(`${chord}+ArrowRight`);at++;await settle();
+ ok(await page.locator('#reader-path-pop').isHidden(),'Stepping with the path closed keeps it closed');
+ await page.locator('#reader-path').click();await page.keyboard.press(`${chord}+ArrowLeft`);at--;await settle();
+ ok(await popOpen(),'Stepping while the path is open (and the new content grabs focus) keeps it open');
+ await page.keyboard.press('Escape');
 }finally{
  await browser?.close();if(server)await closeAppServer(server);await rm(root,{recursive:true,force:true});
 }

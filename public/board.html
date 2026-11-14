@@ -70,8 +70,8 @@
         <a id="close-reader" class="workspace-parent reader-up" href="#" aria-keyshortcuts="Escape Alt+ArrowUp" title="Up to the board (Esc)"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M12 5 7 10l5 5"/></svg><span id="reader-up-label" class="reader-up-label">Board</span></a>
         <span class="reader-title-row">
           <button id="reader-path" class="reader-path" type="button" aria-haspopup="dialog" aria-expanded="false" aria-controls="reader-path-pop" title="Where you are: hover or click for the path"><span id="reader-number" class="item-number reader-number" hidden></span><strong id="reader-name" class="experiment-crumb" aria-current="page"></strong><svg class="reader-chev" viewBox="0 0 16 16" aria-hidden="true"><path d="m4.5 6.5 3.5 3.5 3.5-3.5"/></svg></button>
-          <span id="reader-stepper" class="reader-stepper" role="group" aria-label="Step through this board" hidden><button id="reader-previous" class="tk-btn tk-icon" type="button" aria-label="Previous Tinka"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M12 5 7 10l5 5"/></svg></button><button id="reader-count" class="tk-btn reader-count" type="button" aria-haspopup="dialog" aria-expanded="false" aria-controls="reader-path-pop">1 / 1</button><button id="reader-next" class="tk-btn tk-icon" type="button" aria-label="Next Tinka"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="m8 5 5 5-5 5"/></svg></button></span>
           <button id="reader-down" class="tk-btn reader-down" type="button" hidden><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 3v9M4.5 8.5 8 12l3.5-3.5"/></svg><span id="reader-down-label">Board</span></button>
+          <span id="reader-stepper" class="reader-stepper" role="group" aria-label="Step through this board" hidden><button id="reader-previous" class="tk-btn tk-icon" type="button" aria-label="Previous Tinka"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M12 5 7 10l5 5"/></svg></button><button id="reader-count" class="tk-btn reader-count" type="button" aria-haspopup="dialog" aria-expanded="false" aria-controls="reader-path-pop">1 / 1</button><button id="reader-next" class="tk-btn tk-icon" type="button" aria-label="Next Tinka"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="m8 5 5 5-5 5"/></svg></button></span>
         </span>
       </nav>
       <div class="chrome-actions">
@@ -130,5 +130,6 @@
     <span id="reader-position" class="sr-only" role="status" aria-live="polite"></span>
   </dialog>
   <script type="module" src="/app/canvas.js"></script>
+  <script type="module" src="/app/reader-focus.js"></script>
 </body>
 </html>

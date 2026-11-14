@@ -2,8 +2,10 @@
 // clicking it shows the path from Home down to this Tinka and its own board, then a
 // numbered list of what sits beside it on this board. Clicking pins it open, a tap
 // works on touch, and a row navigates. The ‹ n / N › count opens the same list.
+// A press outside it (also on the content), Escape or a second click closes it.
 const HOVER_DELAY = 260;
 const LEAVE_DELAY = 320;
+const BLUR_GRACE = 60;
 
 export class ReaderPath {
   constructor(pop, { anchors, render, go }) {
@@ -25,6 +27,17 @@ export class ReaderPath {
       });
       anchor.addEventListener('pointerleave', () => { clearTimeout(this.hoverTimer); this.leaveSoon(); });
     }
+    // Click-away: a press anywhere outside the panel and its triggers closes it. A press
+    // on the content (a frame) never reaches this page; focus moving into the frame does,
+    // as a window blur. Wait a moment so a load that only grabbed focus (and gave it
+    // back) is not mistaken for a click.
+    document.addEventListener('pointerdown', event => {
+      if (!this.isOpen || this.pop.contains(event.target) || this.anchors.some(anchor => anchor.contains(event.target))) return;
+      this.close({ focus: false });
+    }, true);
+    addEventListener('blur', () => setTimeout(() => {
+      if (this.isOpen && document.activeElement?.tagName === 'IFRAME') this.close({ focus: false });
+    }, BLUR_GRACE));
     pop.addEventListener('pointerenter', () => clearTimeout(this.leaveTimer));
     pop.addEventListener('pointerleave', () => this.leaveSoon());
     pop.addEventListener('click', event => {

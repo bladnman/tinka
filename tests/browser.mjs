@@ -201,6 +201,8 @@ try{
   await a.page.waitForFunction(()=>document.querySelector('#live-status').textContent.startsWith('Live')&&Boolean(document.querySelector('[data-key="first/one-step"]').dataset.liveRevision));
   await openLegacyItem(a.page,'first/one-step');
   const frame=a.page.frameLocator('#active-reader');
+  // A person clicks into the content before typing (a load-time grab of focus is handed back to Tinka).
+  await frame.locator('input').click();
   await frame.locator('input').fill('A new thought');
   await frame.getByRole('button',{name:'Start writing'}).click();
   await frame.getByRole('heading',{name:'A new thought'}).waitFor();
