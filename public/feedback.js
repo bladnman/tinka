@@ -1,7 +1,10 @@
 import {escape as esc,toast} from './workspace.js';
 import {pointAnchorAt,resolveCommentPoint} from './feedback-geometry.js';
 import {bindForm,restoreFocus,commitShortcutLabel} from './interaction.js';
-export function voteTotals(votes={}){const result={yes:0,no:0,abstain:0};for(const vote of Object.values(votes))if(Object.hasOwn(result,vote.value))result[vote.value]++;return result;}
+export function voteTotals(votes={}){const result={yes:0,no:0,abstain:0};for(const vote of Object.values(votes||{}))if(Object.hasOwn(result,vote.value))result[vote.value]++;return result;}
+// Vote appears on a tile's hover bar (and in an opened Tinka's Inspector) only once
+// someone has voted on the item; until then it is in Details… and the More menu.
+export function hasVotes(votes){const t=voteTotals(votes);return t.yes+t.no+t.abstain>0;}
 const capital=s=>s[0].toUpperCase()+s.slice(1);
 // Local identity is self-reported. Drafts, conversations and ballots are separate.
 export class FeedbackController {
@@ -130,6 +133,7 @@ export class FeedbackController {
     this.panel.dataset.empty=String(this.threads.length===0);this.panel.dataset.short=String(!this.nextCursor&&list.scrollHeight<260);if(list.innerHTML!==html)list.innerHTML=html;this.queueSizing();this.panel.querySelector('[data-feedback-more]').hidden=!this.nextCursor;history.scrollTop=scroll;if(id&&action)list.querySelector(`[${action}="${CSS.escape(id)}"]`)?.focus({preventScroll:true});
   }
   focusThread(id){const el=[...this.panel.querySelectorAll('[data-feedback-thread]')].find(e=>e.dataset.feedbackThread===id);el?.focus({preventScroll:true});el?.scrollIntoView({block:'nearest'});}
+  showsVote(itemId){return hasVotes(this.getBoard().items?.[itemId]?.review?.votes)||!!(this.ballot&&this.ballotId===itemId);}
   voteState(itemId){const votes=this.getBoard().items?.[itemId]?.review?.votes;return{mine:votes?.[this.actor.id]?.value||null,totals:voteTotals(votes),pending:this.voting.has(itemId)};}
   openVote({itemId,anchor,host,returnFocus}={}){
     this.closeVote({restoreFocus:false});if(this.visible)this.close({restoreFocus:false});if(!this.getBoard().items?.[itemId])return;
@@ -154,13 +158,13 @@ export class FeedbackController {
     const x=Math.max(left,Math.min(right-box.width,rect?.left||left)),y=Math.max(top,Math.min(bottom-height,desired));
     this.ballot.style.left=`${(x-zero.left)/scale}px`;this.ballot.style.top=`${(y-zero.top)/scale}px`;
   }
-  closeVote({restoreFocus:restore=true}={}){if(!this.ballot)return;this.ballot.remove();this.ballot=null;this.ballotAnchor?.setAttribute('aria-expanded','false');this.ballotMessage='';if(restore)restoreFocus(this.ballotReturn);}
+  closeVote({restoreFocus:restore=true}={}){if(!this.ballot)return;this.ballot.remove();this.ballot=null;this.ballotAnchor?.setAttribute('aria-expanded','false');this.ballotMessage='';this.syncVoteTriggers();if(restore)restoreFocus(this.ballotReturn);}
   async vote(itemId,value){
     if(this.voting.has(itemId)||this.voteState(itemId).mine===value)return;this.voting.add(itemId);this.ballotMessage='Saving vote…';this.renderBallot();this.syncVoteTriggers();
     try{await this.client.write('vote',{itemId,actor:{...this.actor},value});await this.refresh();this.ballotMessage='Vote saved';}catch(error){this.ballotMessage=error.message;throw error;}finally{this.voting.delete(itemId);this.renderBallot();this.syncVoteTriggers();this.positionBallot();this.onVotesChanged?.();}
   }
   syncVoteTriggers(){
-    for(const b of document.querySelectorAll('[data-item-vote]')){const itemId=b.dataset.itemVote,item=this.getBoard().items?.[itemId];if(!item)continue;const{mine,totals,pending}=this.voteState(itemId),label=`Vote on ${item.title}${mine?`; your vote: ${mine}`:''}. Yes ${totals.yes}, No ${totals.no}, Abstain ${totals.abstain}`;b.setAttribute('aria-pressed',String(Boolean(mine)));b.setAttribute('aria-label',label);b.title=label;b.dataset.voteValue=mine||'';b.disabled=pending;const text=b.querySelector('[data-vote-summary]');if(text)text.textContent=mine?capital(mine):'Vote';}
+    for(const b of document.querySelectorAll('[data-item-vote]')){const itemId=b.dataset.itemVote,item=this.getBoard().items?.[itemId];if(!item)continue;const{mine,totals,pending}=this.voteState(itemId),label=`Vote on ${item.title}${mine?`; your vote: ${mine}`:''}. Yes ${totals.yes}, No ${totals.no}, Abstain ${totals.abstain}`;b.setAttribute('aria-pressed',String(Boolean(mine)));b.setAttribute('aria-label',label);b.title=label;b.dataset.voteValue=mine||'';b.disabled=pending;if(b.classList.contains('workspace-vote-trigger'))b.hidden=!this.showsVote(itemId);const text=b.querySelector('[data-vote-summary]');if(text)text.textContent=mine?capital(mine):'Vote';}
   }
   async annotationAction(type,itemId,detail,options={}){
     const key=JSON.stringify({type,itemId,...detail});let action=this.annotationActions.get(key);if(action?.pending)return;

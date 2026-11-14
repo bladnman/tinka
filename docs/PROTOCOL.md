@@ -522,7 +522,7 @@ hubs and config namespaces. No account service, registry or scheduler is added.
 
 ### HTTP and concurrent agents
 
-GET `/api/workspace` returns `{enabled:false,revision:0}` before initialization, or the schema 2 snapshot with `enabled:true`, `items:[]`, `boards:[]`, `homeBoardIds` and `resourceRoots`. GET `/api/boards` lists home graph boards and unmigrated legacy boards; the complete destination catalog is in `/api/workspace.boards`. GET `/api/boards/:id` returns the schema 2 board snapshot with canonical `items` keyed by ID, or the legacy response for an unmigrated board. Workspace and board responses add derived `boardCovers` keyed by represented board ID, with `count` and at most four `tiles`; these are response data, not stored metadata. GET `/api/items/:id` returns one canonical item. GET `/api/items/:id/cover-thumbnail` returns a confined local HTML cover representation. `/resources/:rootId/PATH` serves declared local resources and preserves relative HTML asset URLs.
+GET `/api/workspace` returns `{enabled:false,revision:0}` before initialization, or the schema 2 snapshot with `enabled:true`, `items:[]`, `boards:[]`, `homeBoardIds` and `resourceRoots`. GET `/api/boards` lists home graph boards and unmigrated legacy boards; the complete destination catalog is in `/api/workspace.boards`. GET `/api/boards/:id` returns the schema 2 board snapshot with canonical `items` keyed by ID, or the legacy response for an unmigrated board. Workspace and board responses add derived `boardCovers` keyed by represented board ID, with `count` and at most four `tiles`; these are response data, not stored metadata. GET `/api/items/:id` returns one canonical item. GET `/api/items/:id/cover-thumbnail` returns a confined local HTML cover representation. `/resources/:rootId/PATH` serves declared local resources and preserves relative HTML asset URLs. GET `/api/resource-places?url=STANDALONE_PATH` (see [Standalone pages](#standalone-pages-and-back-to-tinka)) lists the placements that show a served file.
 
 POST `/api/operations` accepts one operation as its JSON body. PATCH `/api/items/:id/review` accepts `{patch:{note,star},expectedRevision?,operationId?}`. POST `/api/workspace/migrate` requires explicit `{dryRun:true}` or `{dryRun:false}`. Legacy notes endpoints remain supported for legacy boards.
 
@@ -541,6 +541,46 @@ Ordinary board and resource reads never fetch URLs.
 Every HTTP write requires `Content-Type: application/json` and `x-tinka-workspace` equal to the **live `/api/config.workspaceId`**. That machine identity preserves the existing config/boards namespace for the default metadata location, and additionally scopes a genuinely custom workspaceRoot. It is distinct from the durable `/api/workspace.workspaceId`. Same-origin Host/Origin checks and a 1 MB request limit apply. Every request, including reads, is refused with 403 unless its Host is `127.0.0.1:PORT` or `localhost:PORT`. A stale tab or changed live config cannot save into a different project. CLI operations address their explicit config and use the same locks.
 
 Each operation may include `expectedRevision` and a unique `operationId`. A stale revision returns 409; reload and reconcile the intended edit before retrying. A repeated operation ID with identical payload replays its result; reuse with different input fails. The idempotence cache retains up to the most recent 64 operations, evicting older responses sooner when needed to fit the metadata byte budget. If a single exceptional movement receipt cannot fit, the original response still returns its full `history`; an identical retry retains the original result/revision but may omit that optional receipt. Independently held movement receipts remain valid after cache eviction. Successful operations return `{revision,result}` with created IDs and optional movement `history`. Invalid operations return 400, unknown targets 404, cycles/conflicts 409; no partial metadata change is committed.
+
+### Standalone pages and Back to Tinka
+
+A project HTML file served at `/resources/ROOT/PATH` (or a legacy
+`/boards/ID/files/PATH`) is normally returned byte for byte. When a browser opens it
+as the page itself, Tinka adds one tag, `<script src="/app/return-mark.js" defer></script>`,
+before the last `</body>` (or at the end). That happens only when all of these hold:
+the response is `text/html`, the request has `Sec-Fetch-Dest: document`, there is no
+`Range` header, the URL has no `?tinka=off`, the file is at most 8 MiB and not
+UTF-16, and the page has no `<meta name="tinka-return" content="off">`. The
+response's Content-Length is recomputed. Every HTML response on these routes carries
+`Vary: Sec-Fetch-Dest`. Tinka's own preview frames send `Sec-Fetch-Dest: iframe`, and
+curl, agents and other tools send no Sec-Fetch header, so they all get the exact
+file. Read files from disk, or fetch them without that header, when byte identity
+matters. Images, PDFs, video, Markdown and other types are never changed. App pages,
+cover thumbnails and remote URLs are unaffected.
+
+The script does nothing inside any frame (`window.top !== window`), with the meta
+opt-out or `?tinka=off`, or after Hide in this tab. It draws one custom element at
+the bottom left with a closed shadow root, a fixed position at z-index 2147483000, no
+globals and no page CSS in or out, hidden when printing. It re-attaches if a page
+replaces its body. A page whose own Content-Security-Policy blocks same-origin
+scripts shows no mark. Browsers that do not send Sec-Fetch-Dest, such as Safari
+before 16.4, get no mark.
+
+GET `/api/resource-places?url=PATH` takes the page's own path and returns
+`{workspace,file,url,places}`. `workspace` is this config's runtime identity, and
+`file` is the file's absolute real path. Each place is
+`{boardId,boardTitle,placementId?,key,itemId?,title,number,revision?,href}`, listed
+for every active placement whose item's content, or one of its saved versions,
+resolves to the same file. That includes other items that point at the file, and
+the concepts of an unmigrated legacy board. At most 50 places are returned. `href`
+opens that placement's Tinka, for example `/boards/BOARD/#items/PLACEMENT`, plus
+`~VERSION` for a saved version. The endpoint is read-only and follows the same
+loopback Host check as every request. It returns 400 for any other path, and 404 or
+403 under the resource rules. The mark chooses the place whose Tinka was most
+recently opened in this browser (`localStorage` `tinka/WORKSPACE/recent-tinkas`,
+written by the board view), else the only place; otherwise its ⋯ menu offers the
+places. No item ID is added to resource URLs. The opened Tinka's Inspector uses the
+same endpoint for Where it lives.
 
 ## Legacy boards
 

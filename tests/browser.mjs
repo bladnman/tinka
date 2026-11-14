@@ -454,7 +454,8 @@ try{
   // Removed chrome stays removed; the board footer carries the view controls.
   assert.equal(await h.locator('select:not(#navigator-scope):not([aria-label="Appearance"])').count(),0);
   // One in the board's Inspector, one in an opened Tinka's.
-  assert.equal(await h.getByRole('combobox',{name:'Appearance',includeHidden:true}).count(),2);
+  assert.equal(await h.getByRole('group',{name:'Appearance',includeHidden:true}).count(),2);
+  assert.equal(await h.getByRole('combobox',{name:'Appearance',includeHidden:true}).count(),0);
   assert.equal(await h.locator('#round-picker, #concept-nav, [data-jump], #zoom-in, #zoom-out, #zoom-level, #overview, #reset-view, #toggle-header, .toolbar, .intro, .reader-bar, .reader-bottom, #reader-size').count(),0);
   assert.equal(await h.locator('#canvas-header button:visible').count(),3);
   // One floating view pill: − · percent menu (with the precise slider) · + · Fit.

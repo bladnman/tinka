@@ -66,7 +66,7 @@ try{
   await page.screenshot({path:path.join(evidence,'comments-dark.png')});
   await page.locator('.feedback-composer textarea').fill('Compare the shape here.');await page.locator('[data-feedback-post]').click();
   await page.locator('.feedback-list').getByText('Compare the shape here.').waitFor();await page.locator('[data-feedback-close]').click();
-  await page.locator('#board-info-toggle').click();await page.getByRole('combobox',{name:'Appearance'}).selectOption('light');assert.equal(await page.locator('html').getAttribute('data-appearance'),'light');
+  await page.locator('#board-info-toggle').click();await page.locator('#board-info [data-appearance-set="light"]').click();assert.equal(await page.locator('html').getAttribute('data-appearance'),'light');
   await page.screenshot({path:path.join(evidence,'parent-feature-light.png')});
   await page.setViewportSize({width:390,height:844});await page.screenshot({path:path.join(evidence,'parent-feature-narrow.png')});
   await op('remove',{boardId:round.boardId,placementIds:a.placementIds});await page.reload();

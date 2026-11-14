@@ -19,6 +19,8 @@ try{
  const config=await loadConfig(configFile);
  const board=(await applyOperation(config,{type:'createBoard',title:'Product choices'})).result;
  const item=(await applyOperation(config,{type:'createItem',boardId:board.boardId,item:{title:'Simple routing',content:{kind:'note',text:'Add readable connector labels.'}},placement:{x:0,y:0,width:320,height:240}})).result;
+ // Vote shows on a tile once the item has a vote; an agent has abstained already.
+ await applyOperation(config,{type:'vote',itemId:item.itemId,actor:{id:'agent-seed',label:'Seed',kind:'agent'},value:'abstain'});
  server=createAppServer(config);await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve));
  const url=`http://127.0.0.1:${server.address().port}`;
  browser=await chromium.launch({headless:true,...(process.env.CHROMIUM_EXECUTABLE?{executablePath:process.env.CHROMIUM_EXECUTABLE}:{})});
@@ -84,7 +86,7 @@ try{
  const cli=JSON.parse(await main(['tools','call','feedback.list','--config',configFile,'--json',JSON.stringify({boardId:board.boardId,includeBodies:true})]));
  assert.deepEqual(cli,saved);
  const cliItem=JSON.parse(await main(['tools','call','item.get','--config',configFile,'--json',JSON.stringify({itemId:item.itemId})]));
- assert.deepEqual(cliItem.review.votes,{});
+ assert.deepEqual(Object.keys(cliItem.review.votes),['agent-seed'],'Clear removed only this browser\'s vote');
  // Actual target picking uses normalized target coordinates, with the same
  // resolved point visible to the browser and an independent CLI read.
  await page.setViewportSize({width:1440,height:960});

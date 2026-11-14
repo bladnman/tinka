@@ -16,6 +16,7 @@ import {ReaderPath} from './reader-path.js';
 import {isMacPlatform, readerCommand, stepModifierLabel} from './reader-keys.js';
 import {boardStepCommand, boardStepTarget, isSteppable} from './board-step.js';
 import {quietPointerFocus} from './pointer-focus.js';
+import {voteTotals} from './feedback.js';
 
 const $ = id => document.getElementById(id);
 mountAppearance($('board-info'));
@@ -699,7 +700,7 @@ function syncReaderNotes() {
   document.querySelector('.note-dot').hidden = !hasNote;
   $('notes-toggle').setAttribute('aria-label', hasNote ? 'Notes (this experiment has a note)' : 'Notes');
   const starred = Boolean(notes[active.key]?.star);
-  $('reader-star').title = starred ? 'Shortlisted · remove from shortlist' : 'Add to shortlist';
+  $('reader-star').title = starred ? 'Favorite · remove from favorites' : 'Favorite';
 }
 
 function renderReaderHeader() {
@@ -714,7 +715,7 @@ function renderReaderHeader() {
   $('reader-number').textContent = number;
   $('reader-number').hidden = !number;
   $('reader-star').dataset.star = active.key;
-  $('reader-star').setAttribute('aria-label', `Shortlist ${active.name}`);
+  $('reader-star').setAttribute('aria-label', `Favorite ${active.name}`);
   $('reader-note').setAttribute('aria-label', `Notes on ${active.name}`);
   $('notes-for').textContent = `Round ${round?.number || active.row + 1} · ${active.number ? `${active.number} ` : ''}${name}`;
   $('reader-hint').textContent = hint;
@@ -833,6 +834,7 @@ function openReader(key, revision = 'original', { history: mode = 'push', focus 
   active = concept;
   activeVariantId = variantId;
   if (graph && concept.placement) setStepCursor(concept.placement.id, { viewed: true });
+  rememberOpenedTinka(concept.key);
   if (opening) {
     setTheme(active.tone === 'night' ? 'night' : 'paper', false);
     setType(100, false);
@@ -922,54 +924,185 @@ $('reader-count').dataset.pathHover = 'false';
 $('reader-count').dataset.pathFocus = '.reader-path-sibs [aria-current="true"]';
 const readerPath = new ReaderPath($('reader-path-pop'), { anchors: [$('reader-path'), $('reader-count')], render: renderReaderPath, go: readerPathGo });
 
-// ---- The opened Tinka's Inspector: details and actions (the former View panel's item actions) ----
-readerInfo.innerHTML = `<header class="calm-side-head"><span class="tk-eyebrow" id="reader-info-kind">Tinka</span><button type="button" class="tk-btn tk-sm tk-icon" data-reader-act="close" aria-label="Close inspector"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="m5.5 5.5 9 9m0-9-9 9"/></svg></button></header><div class="calm-side-body"><div id="reader-info-body" class="reader-info-body"></div><section class="inspector-sec reader-info-view"><h3>View <span>this browser</span></h3><div class="inspector-row" id="reader-info-view-row"><button type="button" class="tk-btn tk-sm" data-reader-act="shortcuts">Keyboard shortcuts</button></div></section></div>`;
+// ---- The opened Tinka's Inspector: where it lives first, then feedback, version and one More menu ----
+readerInfo.innerHTML = `<header class="calm-side-head"><span class="tk-eyebrow" id="reader-info-kind">Tinka</span><button type="button" class="tk-btn tk-sm tk-icon" data-reader-act="close" aria-label="Close inspector"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="m5.5 5.5 9 9m0-9-9 9"/></svg></button></header><div class="calm-side-body"><div id="reader-info-body" class="reader-info-body"></div><section class="inspector-sec reader-info-view" aria-labelledby="reader-appearance-heading"><h3 id="reader-appearance-heading">Appearance <span>this browser</span></h3><div class="inspector-row" id="reader-info-view-row"></div></section><p id="reader-info-status" class="reader-info-status" role="status" hidden></p></div>`;
 mountAppearance($('reader-info-view-row'));
+// The file behind a standalone address and every placement that shows it (GET /api/resource-places),
+// and an item's comment count, fetched when the Inspector shows them; a reopened Inspector refetches.
+const readerLookups = new Map();
+function readerLookup(key, url) {
+  if (!readerLookups.has(key)) {
+    const entry = { value: null, done: false };
+    readerLookups.set(key, entry);
+    fetch(url, { cache: 'no-store' }).then(response => response.ok ? response.json() : null).catch(() => null).then(value => {
+      entry.value = value; entry.done = true;
+      if (!readerInfo.hidden) renderReaderInfo();
+    });
+  }
+  return readerLookups.get(key);
+}
+let readerMoreOpen = false;
+const readerIcon = {
+  tab: '<svg viewBox="0 0 20 20" aria-hidden="true"><rect x="2.5" y="4" width="15" height="12" rx="2"/><path d="M2.5 7.5h15"/></svg>',
+  file: '<svg viewBox="0 0 20 20" aria-hidden="true"><path d="M5 2.5h6.5L15 6v11.5H5z"/><path d="M11.5 2.5V6H15"/></svg>',
+  boards: '<svg viewBox="0 0 20 20" aria-hidden="true"><rect x="2.5" y="2.5" width="6" height="6" rx="1"/><rect x="11.5" y="2.5" width="6" height="6" rx="1"/><rect x="2.5" y="11.5" width="6" height="6" rx="1"/><rect x="11.5" y="11.5" width="6" height="6" rx="1"/></svg>',
+};
+function readerPlaceName(place) { return `${place.number ? `${place.number} · ` : ''}${place.title || 'Untitled'}`; }
+// Remember the Tinka opened in this browser, so a standalone page knows where "Back to Tinka" goes.
+function rememberOpenedTinka(key) {
+  if (!workspaceId || !boardId || !key) return;
+  const storageKey = `tinka/${workspaceId}/recent-tinkas`;
+  try {
+    const list = JSON.parse(localStorage.getItem(storageKey) || '[]');
+    const next = [{ board: boardId, key, at: Date.now() }, ...(Array.isArray(list) ? list : []).filter(entry => entry && !(entry.board === boardId && entry.key === key))].slice(0, 40);
+    localStorage.setItem(storageKey, JSON.stringify(next));
+  } catch {}
+}
+function readerWhere() {
+  const item = active.graphItem, variant = currentVariant();
+  const standalone = standaloneHref(active, variant);
+  const local = !!standalone && standalone.startsWith('/');
+  const lookup = local ? readerLookup(`places:${standalone}`, `/api/resource-places?url=${encodeURIComponent(standalone)}`) : null;
+  const places = lookup?.value?.places || null;
+  const file = lookup?.value?.file || '';
+  return { item, standalone, local, remote: !!standalone && !local, lookup, places, file };
+}
 function renderReaderInfo() {
   if (!active) return;
   const item = active.graphItem, variant = currentVariant(), kind = readerKind(active);
   const sequence = readerSequence(), index = sequence.findIndex(concept => concept.key === active.key);
   const child = graph?.childInfo(item);
-  const starred = !!notes[active.key]?.star;
   const versions = revisions[active.key] || [];
-  const standalone = standaloneHref(active, variant);
   const description = item?.description || active.description || '';
+  const where = readerWhere();
   const act = (name, label, extra = '') => `<button type="button" class="tk-btn tk-sm" data-reader-act="${name}"${extra}>${label}</button>`;
   $('reader-info-kind').textContent = kind;
   // A re-render (a step or a live update) keeps keyboard focus on the same action.
-  const focused = $('reader-info-body').contains(document.activeElement) ? document.activeElement : null;
-  const focusKey = focused && (focused.dataset.readerAct ? `[data-reader-act="${focused.dataset.readerAct}"]` : focused.dataset.revisionChoice ? `[data-revision-choice="${CSS.escape(focused.dataset.revisionChoice)}"]` : null);
+  const focused = readerInfo.contains(document.activeElement) ? document.activeElement : null;
+  const focusKey = focused && (focused.dataset.readerAct ? `[data-reader-act="${focused.dataset.readerAct}"]` : focused.dataset.revisionChoice ? `[data-revision-choice="${CSS.escape(focused.dataset.revisionChoice)}"]` : focused.dataset.readerGo ? `[data-reader-go="${CSS.escape(focused.dataset.readerGo)}"]` : null);
+
+  // Where it lives: a browser tab (needs Tinka), the file itself (no server) and the boards that show it.
+  const rows = [];
+  if (where.local) rows.push(`<div class="reader-where-place">${readerIcon.tab}<strong>In a browser tab</strong><span class="reader-where-what">Served by Tinka · needs Tinka running</span><div class="reader-where-acts"><a class="tk-btn tk-sm tk-primary" href="${esc(where.standalone)}" target="_blank" rel="noopener" data-reader-standalone>Open standalone ↗</a>${act('copy-link', 'Copy link')}</div></div>`);
+  if (where.remote) rows.push(`<div class="reader-where-place">${readerIcon.tab}<strong>On the web</strong><span class="reader-where-what">Its own address · Tinka doesn't serve it</span><code class="reader-where-path">${esc(where.standalone)}</code><div class="reader-where-acts"><a class="tk-btn tk-sm tk-primary" href="${esc(where.standalone)}" target="_blank" rel="noopener noreferrer" data-reader-standalone>Open ↗</a>${act('copy-link', 'Copy link')}</div></div>`);
+  if (where.local) rows.push(`<div class="reader-where-place">${readerIcon.file}<strong>The file itself</strong><span class="reader-where-what">Plain path · no server needed · best for agents</span><code class="reader-where-path" id="reader-file-path">${where.file ? esc(where.file) : where.lookup?.done ? 'The file could not be found.' : 'Finding the file…'}</code><div class="reader-where-acts">${act('copy-path', 'Copy path', where.file ? '' : ' disabled')}</div></div>`);
+  const here = place => place.boardId === boardId && place.key === active.key;
+  let boardRows = where.places;
+  if (!boardRows && graph && item) boardRows = [{ boardId, boardTitle: readerBoardTitle(), key: active.key, title: item.title, number: item.number || '', href: '' },
+    ...graph.alsoOn(item.id).map(b => ({ boardId: b.id, boardTitle: b.title, key: `items/${b.placementId}`, title: item.title, number: item.number || '', href: `/boards/${encodeURIComponent(b.id)}/#items/${encodeURIComponent(b.placementId)}` }))];
+  if (boardRows?.length) {
+    const others = boardRows.some(place => place.itemId && item && place.itemId !== item.id);
+    rows.push(`<div class="reader-where-place">${readerIcon.boards}<strong>On boards</strong><span class="reader-where-what">${others ? 'This item, and other items using the same file' : boardRows.length > 1 ? 'Every place this item appears' : 'Only here so far'}</span><ul class="reader-where-boards">${boardRows.map(place => {
+      const sub = here(place) ? 'here' : item && place.itemId && place.itemId !== item.id ? `as “${readerPlaceName(place)}”` : place.boardId === boardId ? 'also here' : readerPlaceName(place);
+      return `<li><button type="button" data-reader-go="${esc(here(place) ? 'here' : place.boardId === boardId ? `item:${place.key}${place.revision ? `~${place.revision}` : ''}` : place.href)}"${here(place) ? ' aria-current="true"' : ''}><span>${esc(place.boardTitle)}</span><small>${esc(sub)}</small></button></li>`;
+    }).join('')}</ul></div>`);
+  }
+  const whereSection = rows.length ? `<section class="inspector-sec reader-where" aria-labelledby="reader-where-heading"><h3 id="reader-where-heading">Where it lives</h3><div class="reader-where-card">${rows.join('')}</div></section>` : '';
+
+  // Feedback: Comments (Favorite and Notes are the header's ☆ and Notes); Vote only once someone has voted.
+  let feedback = '';
+  if (graph && item) {
+    const comments = readerLookup(`comments:${item.id}`, `/api/feedback?itemId=${encodeURIComponent(item.id)}&limit=100`);
+    const threads = comments.value?.threads || null;
+    const count = threads?.length ? `${threads.length}${comments.value.nextCursor ? '+' : ''}` : '';
+    const open = threads ? threads.filter(thread => !thread.resolved).length : 0;
+    const totals = voteTotals(item.review?.votes), voted = totals.yes + totals.no + totals.abstain > 0;
+    feedback = `<section class="inspector-sec reader-feedback" aria-labelledby="reader-feedback-heading"><h3 id="reader-feedback-heading">Feedback</h3>
+      <button type="button" class="tk-btn reader-feedback-row" data-reader-act="comments"><span>Comments</span>${count ? `<span class="reader-count">${count}</span>` : ''}<small>${threads ? (threads.length ? `${open} open` : 'Start a conversation') : ''}</small></button>
+      ${voted ? `<button type="button" class="tk-btn reader-feedback-row" data-reader-act="vote" aria-haspopup="dialog"><span>Votes</span><small>Yes ${totals.yes} · No ${totals.no} · Abstain ${totals.abstain}</small></button>` : ''}
+      <p class="reader-feedback-note">Favorite ☆ and Notes are in the header.</p></section>`;
+  }
+  const versionSection = versions.length ? `<section class="inspector-sec" aria-labelledby="reader-version-heading"><h3 id="reader-version-heading">Version</h3><div class="tk-seg reader-version-seg" role="group" aria-label="Version">${[{ id: 'original', name: 'Original' }, ...versions].map(v => `<button type="button" data-revision-choice="${esc(v.id)}" aria-pressed="${v.id === activeVariantId}">${esc(v.name)}</button>`).join('')}</div></section>` : '';
+
+  // Organize: its own board, then one More menu.
+  const path = graph?.boardPath?.() || [];
+  const parent = path.length > 1 ? path[path.length - 2] : null;
+  const totals = item ? voteTotals(item.review?.votes) : null;
+  const mi = (name, label, sub = '', extra = '') => `<button type="button" class="tk-mi${sub ? ' reader-mi2' : ''}" role="menuitem" data-reader-act="${name}"${extra}><span>${label}</span>${sub ? `<small>${sub}</small>` : ''}</button>`;
+  const menu = [];
+  if (graph && item) {
+    if (!child) menu.push(mi('add-board', 'Add board…', 'Room for related material, one level down'));
+    menu.push(mi('edit', 'Edit details…', 'Title, number and description, everywhere it appears'));
+    if (active.placement) {
+      menu.push('<div class="tk-msep"></div>');
+      menu.push(mi('move', 'Move to another board…', `It leaves ${esc(readerBoardTitle())}`));
+      menu.push(mi('reference', 'Also show on another board…', 'Same item: notes, star and comments stay shared'));
+      if (parent) menu.push(mi('feature', `Feature on ${esc(parent.title)}…`, `Beside ${esc(readerBoardTitle())}, one level up`));
+    }
+    menu.push('<div class="tk-msep"></div>');
+    if (totals.yes + totals.no + totals.abstain === 0) menu.push(mi('vote', 'Vote…', 'Yes / No / Abstain on this item', ' aria-haspopup="dialog"'));
+  }
+  if (where.file) menu.push(mi('copy-agent', 'Copy for an agent', 'Its name and file path'));
+  if (where.standalone) menu.push(mi('reload', 'Reload content', 'Load the page again from its file'));
+  menu.push(`<button type="button" class="tk-mi" role="menuitem" data-reader-act="shortcuts"><span>Keyboard shortcuts</span><span class="tk-kbd">?</span></button>`);
+  const organize = `<section class="inspector-sec" aria-labelledby="reader-organize-heading"><h3 id="reader-organize-heading">Organize</h3><div class="reader-organize">${child ? act('down', `Its board${child.count == null ? '' : ` · ${child.count}`} ↓`) : ''}<span class="reader-more-wrap"><button type="button" class="tk-btn tk-sm" data-reader-act="more" aria-haspopup="menu" aria-expanded="${readerMoreOpen}" aria-controls="reader-more">More…</button><div id="reader-more" class="tk-menu reader-more-menu${readerMoreOpen && $('reader-more')?.classList.contains('reader-more-down') ? ' reader-more-down' : ''}" role="menu" aria-label="More for this Tinka"${readerMoreOpen ? '' : ' hidden'}>${menu.join('')}</div></span></div></section>`;
+
   $('reader-info-body').innerHTML = `<div class="inspector-title"><h2 id="reader-info-name">${esc(descriptor(active, variant).name)}</h2><p>${esc(kind)} · on ${esc(readerBoardTitle())}${index >= 0 ? ` · ${index + 1} of ${sequence.length}` : ''}</p></div>
     ${description ? `<p class="inspector-desc">${esc(description)}</p>` : ''}
-    ${item ? '<p class="reader-owned">Its content belongs to the agent that made it. Tinka shows and zooms it and keeps your review here; editing happens on its own board, one level down.</p>' : ''}
-    <section class="inspector-sec"><h3>Open</h3><div class="inspector-row">${child ? act('down', `Open its board ↓${child.count == null ? '' : ` · ${child.count}`}`) : graph && item ? act('add-board', 'Add board…') : ''}${standalone ? `<a class="tk-btn tk-sm" href="${esc(standalone)}" target="_blank" rel="noopener noreferrer">Open standalone ↗</a>` : ''}${act('reload', 'Reload')}</div></section>
-    <section class="inspector-sec"><h3>Review</h3><div class="inspector-row">${act('star', starred ? 'Unfavorite' : 'Favorite', ` aria-pressed="${starred}"`)}${act('notes', 'Notes', ` aria-pressed="${notesOpen}"`)}${graph && item ? act('comments', 'Comments') + act('vote', 'Vote', ' aria-haspopup="dialog"') : ''}</div></section>
-    ${versions.length ? `<section class="inspector-sec"><h3>Version</h3><div class="inspector-row">${[{ id: 'original', name: 'Original' }, ...versions].map(v => `<button type="button" class="tk-btn tk-sm" data-revision-choice="${esc(v.id)}" aria-pressed="${v.id === activeVariantId}">${esc(v.name)}</button>`).join('')}</div></section>` : ''}
-    ${graph && item ? `<section class="inspector-sec"><h3>Item</h3><div class="inspector-row">${act('edit', 'Edit details…')}${active.placement ? act('move', 'Move to board…') + act('reference', 'Add reference…') + act('feature', 'Show on parent…') : ''}</div></section>` : ''}`;
-  if (focusKey) $('reader-info-body').querySelector(focusKey)?.focus({ preventScroll: true });
+    ${whereSection}${feedback}${versionSection}${organize}`;
+  if (focusKey) readerInfo.querySelector(focusKey)?.focus({ preventScroll: true });
+}
+function setReaderMoreOpen(open, { focus = false } = {}) {
+  readerMoreOpen = open;
+  const menu = $('reader-more'), button = readerInfo.querySelector('[data-reader-act="more"]');
+  if (!menu || !button) return;
+  menu.hidden = !open;
+  button.setAttribute('aria-expanded', String(open));
+  // It opens upward from the bottom of the Inspector; downward when there is no room above.
+  menu.classList.remove('reader-more-down');
+  if (open && menu.getBoundingClientRect().top < readerInfo.getBoundingClientRect().top + 8) menu.classList.add('reader-more-down');
+  if (open) menu.querySelector('.tk-mi')?.focus({ preventScroll: true });
+  else if (focus) button.focus({ preventScroll: true });
 }
 function setReaderInfoOpen(open, { focus = false } = {}) {
-  if (open) renderReaderInfo();
+  if (open) { readerLookups.clear(); readerMoreOpen = false; renderReaderInfo(); }
   readerInfo.hidden = !open;
   $('reader-info-toggle').setAttribute('aria-expanded', String(open));
   if (open && focus) readerInfo.querySelector('[data-reader-act="close"]')?.focus({ preventScroll: true });
   else if (!open && focus) $('reader-info-toggle').focus({ preventScroll: true });
 }
+async function readerCopy(text, done) {
+  let message = done;
+  try { await navigator.clipboard.writeText(text); }
+  catch { message = 'Copy failed. Select the text in the Inspector instead.'; }
+  const status = $('reader-info-status');
+  status.textContent = message; status.hidden = false;
+  clearTimeout(readerCopy.timer); readerCopy.timer = setTimeout(() => { status.hidden = true; }, 2600);
+}
 readerInfo.addEventListener('click', event => {
+  const go = event.target.closest('[data-reader-go]');
+  if (go && active) {
+    const target = go.dataset.readerGo;
+    if (target === 'here') { setReaderInfoOpen(false); focusTinka(); }
+    else if (target.startsWith('item:')) { const [key, revision] = target.slice(5).split('~'); setReaderInfoOpen(false); openReader(key, revision || 'original'); }
+    else void leaveReaderTo(target);
+    return;
+  }
   const button = event.target.closest('[data-reader-act]');
   if (!button || !active) return;
   const item = active.graphItem, name = button.dataset.readerAct;
+  if (name !== 'more' && button.closest('#reader-more')) setReaderMoreOpen(false);
   if (name === 'close') setReaderInfoOpen(false, { focus: true });
+  else if (name === 'more') setReaderMoreOpen(!readerMoreOpen);
   else if (name === 'down') goDown();
   else if (name === 'add-board') graph?.addChildren(item);
   else if (name === 'reload') loadRevision();
-  else if (name === 'star') { $('reader-star').click(); renderReaderInfo(); }
-  else if (name === 'notes') { setNotesOpen(!notesOpen, { focus: false }); renderReaderInfo(); }
+  else if (name === 'copy-link') { const href = standaloneHref(active, currentVariant()); if (href) void readerCopy(new URL(href, location.href).href, 'Copied the link. It opens while Tinka is running.'); }
+  else if (name === 'copy-path') { const { file } = readerWhere(); if (file) void readerCopy(file, 'Copied the file path. It works without Tinka running.'); }
+  else if (name === 'copy-agent') { const { file } = readerWhere(); if (file) void readerCopy(`${descriptor(active, currentVariant()).name}: ${file}`, 'Copied its name and file path for an agent.'); }
   else if (name === 'comments') { setReaderInfoOpen(false); graph?.feedback.open({ itemId: item.id, mode: 'reader', host: dialog.querySelector('.reader-area'), returnFocus: $('reader-info-toggle') }); }
-  else if (name === 'vote') graph?.feedback.openVote({ itemId: item.id, anchor: button, returnFocus: $('reader-info-toggle') });
+  else if (name === 'vote') graph?.feedback.openVote({ itemId: item.id, anchor: button.closest('#reader-more') ? readerInfo.querySelector('[data-reader-act="more"]') : button, returnFocus: $('reader-info-toggle') });
   else if (name === 'edit') graph?.editItem(item);
   else if (['move', 'reference', 'feature'].includes(name) && active.placement) void graph?.organize(name, active.placement.id).catch(error => setSaveStatus(error.message, 'error'));
   else if (name === 'shortcuts') readerShortcuts();
+});
+readerInfo.addEventListener('keydown', event => {
+  const menu = $('reader-more');
+  if (!menu || menu.hidden || !menu.contains(document.activeElement) || !['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(event.key)) return;
+  const items = [...menu.querySelectorAll('.tk-mi')], at = items.indexOf(document.activeElement);
+  event.preventDefault();
+  const next = event.key === 'Home' ? 0 : event.key === 'End' ? items.length - 1 : (at + (event.key === 'ArrowDown' ? 1 : -1) + items.length) % items.length;
+  items[next]?.focus();
 });
 
 function readerShortcuts() {
@@ -1145,6 +1278,7 @@ function handleEscape(event) {
   if(graph?.feedback?.consumeEscape(keyEvent))return true;
   if (readerPath.isOpen) { readerPath.close({ focus: true }); return true; }
   if (!$('reader-zoom-menu').hidden) { setReaderMenuOpen(false, { focus: true }); return true; }
+  if (!readerInfo.hidden && readerMoreOpen) { setReaderMoreOpen(false, { focus: true }); return true; }
   if (!readerInfo.hidden) { setReaderInfoOpen(false, { focus: true }); return true; }
   if (projectNavigator?.isOpen && projectNavigator.hostEl) { projectNavigator.hide(); return true; }
   if (notesOpen && $('notes-panel').contains(document.activeElement)) { setNotesOpen(false); return true; }
@@ -1475,6 +1609,7 @@ document.addEventListener('pointerdown', event => {
   if (remove && event.button === 0) { event.preventDefault(); remove.focus({ preventScroll: true }); }
   if (!$('reader-zoom-menu').hidden && !event.target.closest('.reader-footer .zoom-menu-wrap')) setReaderMenuOpen(false);
   if (readerPath.isOpen && !event.target.closest('#reader-path-pop, #reader-path, #reader-count')) readerPath.close({ focus: false });
+  if (readerMoreOpen && !event.target.closest('.reader-more-wrap')) setReaderMoreOpen(false);
   if (!readerInfo.hidden && !event.target.closest('#reader-info, #reader-info-toggle, .workspace-dialog, .feedback-ballot')) setReaderInfoOpen(false);
 });
 document.addEventListener('pointerdown', event => {

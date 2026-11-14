@@ -92,7 +92,9 @@ try{
   await check('#reader-name','.reader-header');await check('#reader-note',null);
   await page.screenshot({path:path.join(evidence,'reader-dark.png')});await page.locator('#close-reader').click();
   await page.locator('#board-info-toggle').click();
-  const appearance=page.getByRole('combobox',{name:'Appearance'});await appearance.selectOption('light');
+  const appearanceGroup=page.locator('#board-info').getByRole('group',{name:'Appearance'});
+  const appearance={selectOption:async value=>{if(!await appearanceGroup.isVisible())await page.locator('#board-info-toggle').click();await appearanceGroup.getByRole('button',{name:value[0].toUpperCase()+value.slice(1),exact:true}).click();}};
+  await appearance.selectOption('light');
   assert.equal(await page.locator('html').getAttribute('data-appearance'),'light');
   await check(`[data-placement="${placements.white}"] h3 button`,'.workspace-card');
   await check(`[data-placement="${placements.dark}"] h3 button`,'.workspace-card');

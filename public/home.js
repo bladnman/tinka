@@ -1,6 +1,6 @@
 import {ProjectNavigator} from './navigator.js';
 import {mountAppearance} from './appearance.js';
-mountAppearance(document.querySelector('.masthead-tools'));
+mountAppearance(document.querySelector('.masthead-tools'), { control: 'select' });
 import {watchChanges} from './live.js';
 import { openRemovalPrompt, openCoverPrompt } from './agent-prompt.js';
 import { WorkspaceHome, homeView, sortHomeBoards, matchesHome, boardInfo, legacyCounts, FALLBACK_ART } from './workspace-home.js';

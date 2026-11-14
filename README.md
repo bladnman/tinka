@@ -117,8 +117,9 @@ On a schema-2 nested board, select representative items and choose **Show on
 parent…** to place the same work beside its round on a parent board. The source
 items, notes and stars remain shared; the original placements stay in place.
 Position and resize the parent placements independently, and open their source
-link to return to the round. Tinka's Appearance control offers System, Light and
-Dark; it changes Tinka's surfaces without recoloring the work inside previews.
+link to return to the round. Tinka's Appearance control (a System / Light / Dark
+segmented control in the Inspectors) changes Tinka's surfaces without recoloring
+the work inside previews.
 The installed [agent guide](docs/AGENT.md#make-the-work-visible) explains how to
 build boards that show their work at a useful scale.
 
@@ -201,12 +202,29 @@ again, never past 100%, and Back returns to the view before it. Canvas zoom
 magnifies; Window and Type size reflow. The % menu also holds what the old View
 panel did: Window (Fit, Compact, Standard, Wide or a custom size dragged from the
 window's corner) and Version, Light (Paper/Night), Type size and Open standalone.
-The Inspector (⌘/Ctrl-I) holds the Tinka's details and actions: open its board or
-Add board…, Open standalone, Reload, Favorite, Notes, Comments, Vote, Version, Edit
-details…, Move to board…, Add reference…, Show on parent…, Appearance and Keyboard
-shortcuts. Its content belongs to the agent that made it, so adding, dragging,
-resizing and backgrounds stay on boards; the editable place for a Tinka is its own
-board, one level down.
+The Inspector (⌘/Ctrl-I) starts with **Where it lives**, with two separate ways out.
+*In a browser tab* has **Open standalone** (the file served by Tinka, so Tinka must be
+running) and Copy link. *The file itself* shows the full absolute path with **Copy
+path**, which works with no server and is what an agent needs. A remote item shows
+its own address instead. *On boards* lists every board and placement that uses the
+same file, including other items that point at it; choose one to go there. Below are
+Comments with their count, Votes once someone has voted, Version, Its board · N, one
+**More…** menu (Add board…, Edit details…, Move to another board…, Also show on
+another board…, Feature on ‹parent›…, Vote…, Copy for an agent, Reload content and
+Keyboard shortcuts) and Appearance. Favorite (☆) and Notes are in the header. Its
+content belongs to the agent that made it, so adding, dragging, resizing and
+backgrounds stay on boards; the editable place for a Tinka is its own board, one
+level down.
+
+A project HTML file opened straight from Tinka's address (Open standalone, or a
+`/resources/…` link) shows a small Tinka mark at the bottom left. Hover it for
+**Back to Tinka · ‹item› · ‹board›**; a click returns to that opened Tinka (the one
+last opened in this browser, or the only place that shows the file). Its ⋯ menu
+lists the other boards that show the file, Copy path, Tinka home and Hide (for the
+rest of the tab). Tinka adds one script tag to the page only when a browser opens it
+as the page itself; Tinka's own previews, curl and agents get the file's exact bytes.
+Turn it off for a page with `<meta name="tinka-return" content="off">`, or for one
+visit with `?tinka=off`. Images, PDFs, video and Markdown open raw, without a mark.
 
 Hover the title (after a moment), click it or tap it for **where you are**: Home →
 the boards above → this board → this Tinka → its own board, then a numbered list of
@@ -228,7 +246,7 @@ header buttons, or click Tinka's canvas first.
 
 Tiles rest quietly, showing state badges (favorite, notes, your vote) and one ⋯ menu. On
 hover, keyboard focus or a single selection a small floating toolbar over the preview offers Open,
-Comments, Vote, Favorite and ⋯ Actions, and a selection circle appears at the
+Comments, Vote (only once the item has a vote; Details… always offers it), Favorite and ⋯ Actions, and a selection circle appears at the
 top-left corner. Board-tiles are places: stacked sheets, a recessed window onto
 their contents, a serif name, "Board · N items · edited …" and an **Open board**
 cue on hover. Dates everywhere use one readable format — "just now", "5 min ago",
