@@ -270,16 +270,20 @@ try{
  const contentFocused=()=>page.evaluate(()=>document.activeElement===document.getElementById('active-reader'));
  const stepperX=()=>page.evaluate(()=>['reader-previous','reader-count','reader-next'].map(id=>Math.round(document.getElementById(id).getBoundingClientRect().x)));
  const x0=await stepperX();
+ // A ring is an outline or the canvas's inset shadow.
+ const ring=selector=>page.evaluate(sel=>{const e=document.querySelector(sel),c=getComputedStyle(e);return (c.outlineStyle!=='none'&&parseFloat(c.outlineWidth)>0)||c.boxShadow!=='none';},selector);
+ eq(await page.evaluate(()=>getComputedStyle(document.getElementById('reader-stage')).backgroundImage),'none','The opened Tinka\'s canvas is Plain, like a board nobody chose a background for');
  const titleOf=i=>grabby[i]&&(i%2?`Step ${i+1}`:`Step ${i+1}: a much longer title that keeps going and going so the header has to truncate it somewhere`);
  ok(!(await contentFocused()),'Opening keeps focus with Tinka although the content focuses itself');
  let at=0;
  const settle=async()=>{await waitName(titleOf(at)).catch(async e=>{throw new Error(`Expected ${titleOf(at)}; ${JSON.stringify(await page.evaluate(()=>({name:document.querySelector('#reader-name').textContent,active:document.activeElement?.tagName+'#'+document.activeElement?.id,inner:(()=>{try{const d=document.getElementById('active-reader').contentDocument;return d.activeElement?.tagName+'>'+(d.activeElement?.contentDocument?.activeElement?.id||'')}catch{return 'x'}})()})))}`);});await page.waitForTimeout(350);};
  for(let n=0;n<5;n++){await page.keyboard.press(`${chord}+ArrowRight`);at++;await settle();eq(await stepperX(),x0,`The stepper holds still at step ${at+1}`);ok(!(await contentFocused()),`Focus stays with Tinka after ${chord}+→ #${n+1}`);}
  eq(at,5,'Five chord presses advance five Tinkas without a click');
+ eq([await page.evaluate(()=>document.activeElement?.id),await ring('#reader-stage')],['reader-stage',false],'Focus handed to the canvas after key steps draws no ring');
  for(let n=0;n<5;n++){await page.keyboard.press('ArrowLeft');at--;await settle();}
  eq(await name(),titleOf(0),'Five plain ← presses step back five Tinkas without a click');
  await page.locator('#reader-next').click();at++;await settle();
- for(let n=0;n<5;n++){await page.keyboard.press('ArrowRight');at++;await settle();if(at<6)eq(await page.evaluate(()=>document.activeElement?.id),'reader-next',`Focus stays on Next after → #${n+1}`);}
+ for(let n=0;n<5;n++){await page.keyboard.press('ArrowRight');at++;await settle();if(at<6){eq(await page.evaluate(()=>document.activeElement?.id),'reader-next',`Focus stays on Next after → #${n+1}`);ok(!(await ring("#reader-next")),`The clicked Next button shows no ring after → #${n+1}: ${await page.evaluate(()=>{const e=document.getElementById("reader-next");return JSON.stringify({attr:e.hasAttribute("data-pointer-focus"),fv:e.matches(":focus-visible"),o:getComputedStyle(e).outlineStyle,b:getComputedStyle(e).boxShadow})})}`);}}
  eq([await name(),await page.evaluate(()=>document.activeElement?.id)],[titleOf(6),'reader-stage'],'After clicking Next, five plain → presses keep stepping; at the end (Next disabled) focus is on Tinka');
  await page.keyboard.press('[');at--;await settle();await page.keyboard.press('[');at--;await settle();await page.keyboard.press(']');at++;await settle();
  eq(await name(),titleOf(5),'[ and ] keep stepping too');
@@ -309,11 +313,22 @@ try{
  await page.keyboard.press('Escape');await page.waitForTimeout(100);
  ok(!(await popOpen())&&await page.locator('#reader-dialog').evaluate(d=>d.open),'Escape closes the path and leaves the Tinka open');
  eq(await page.evaluate(()=>document.activeElement?.id),'reader-count','Escape returns focus to the trigger');
+ ok(!(await ring('#reader-count')),'…without lighting a ring on the clicked trigger');
  await page.keyboard.press(`${chord}+ArrowRight`);at++;await settle();
  ok(await page.locator('#reader-path-pop').isHidden(),'Stepping with the path closed keeps it closed');
  await page.locator('#reader-path').click();await page.keyboard.press(`${chord}+ArrowLeft`);at--;await settle();
  ok(await popOpen(),'Stepping while the path is open (and the new content grabs focus) keeps it open');
  await page.keyboard.press('Escape');
+ ok(!(await ring('#reader-stage'))&&!(await ring('#reader-path')),'No ring on the canvas or title after the path closes');
+ // A board given Dots shows the same quiet dots in its opened Tinka.
+ await page.locator('#reader-stage').focus();await page.keyboard.press('Escape');await page.locator('#reader-dialog').waitFor({state:'hidden'});
+ await page.locator('#zoom-menu-toggle').click();await page.locator('#zoom-menu [data-canvas-pattern="dots"]').click();await page.keyboard.press('Escape');
+ await openItem(grabby[1].placementIds[0]);
+ const dots=await page.evaluate(()=>[getComputedStyle(document.getElementById('reader-stage')).backgroundImage,getComputedStyle(document.getElementById('viewport')).backgroundImage]);
+ ok(dots[0].startsWith('radial-gradient')&&dots[0].includes('0.8px'),`The opened Tinka follows the board's Dots with the board's dot: ${dots[0]}`);
+ eq(dots[0].replace(/rgba?\([^)]*\)|color-mix\([^)]*\)\)?/g,'C'),dots[1].replace(/rgba?\([^)]*\)|color-mix\([^)]*\)\)?/g,'C'),'Same dot shape and size as the board');
+ await page.locator('#reader-stage').focus();await page.keyboard.press('Escape');await page.locator('#reader-dialog').waitFor({state:'hidden'});
+ await page.locator('#zoom-menu-toggle').click();await page.locator('#zoom-menu [data-canvas-pattern="plain"]').click();await page.keyboard.press('Escape');
 }finally{
  await browser?.close();if(server)await closeAppServer(server);await rm(root,{recursive:true,force:true});
 }

@@ -61,9 +61,11 @@ export class ReaderCanvas {
     this.view = this.clamp(this.view);
     const { zoom, x, y } = this.view;
     this.plane.style.transform = `translate(${Math.round(x)}px, ${Math.round(y)}px) scale(${zoom})`;
-    let step = 20 * zoom;
+    // The board's background values: a 22-unit step (110 major) that fades out towards 25%.
+    let step = 22 * zoom;
     while (step < 9) step *= 2;
     this.stage.style.setProperty('--reader-pattern-step', `${step}px`);
+    this.stage.style.setProperty('--reader-pattern-fade', String(Math.max(0, Math.min(1, (zoom - .25) / .75)) ** 1.5));
     this.stage.style.setProperty('--reader-pattern-x', `${Math.round(x)}px`);
     this.stage.style.setProperty('--reader-pattern-y', `${Math.round(y)}px`);
     this.stage.dataset.fitted = String(this.fitted);

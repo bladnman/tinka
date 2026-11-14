@@ -11,11 +11,18 @@
 // cross-origin content cannot be watched and keeps whatever focus it gets.
 // A click on a non-focusable spot of the header (which would leave focus on <body>)
 // lands on Tinka's canvas instead, so the plain keys keep working there too.
+//
+// Rings: focus handed back here is not a keyboard move, so it never lights a ring. The
+// canvas shows its ring only when Tab brought focus to it (data-tab-focus); a control
+// that was clicked keeps its quiet, click-focused state (pointer-focus.js's
+// data-pointer-focus) when focus returns to it.
 const WATCHED = Symbol('tinka-reader-focus');
 
 export function keepTinkaFocus({ dialog, frame, stage }) {
   let hold = false;
   let last = null;
+  let lastQuiet = false;
+  let tabbing = false;
   const usable = el => !!el && el !== frame && el.isConnected && dialog.contains(el) && !el.disabled && !el.closest('[hidden]') && el.getClientRects().length > 0;
   const target = () => (usable(last) ? last : stage);
   // Focus sits in content Tinka can see at every level (same-origin frames only).
@@ -38,7 +45,11 @@ export function keepTinkaFocus({ dialog, frame, stage }) {
     return !active.closest('dialog[open]') && !active.closest(':popover-open');
   };
   const reclaim = () => {
-    if (dialog.open && (strayed() || (hold && inVisibleContent()))) target().focus({ preventScroll: true });
+    if (!dialog.open || !(strayed() || (hold && inVisibleContent()))) return;
+    const element = target();
+    const quiet = element === last && lastQuiet;
+    element.focus({ preventScroll: true });
+    if (quiet) { element.setAttribute('data-pointer-focus', ''); lastQuiet = true; }
   };
   const later = () => setTimeout(reclaim, 0);
   const release = () => { hold = false; };
@@ -47,9 +58,15 @@ export function keepTinkaFocus({ dialog, frame, stage }) {
   // Clicking the header's background focuses the dialog itself (or, elsewhere, <body>):
   // Tinka's canvas takes it instead.
   dialog.addEventListener('focusin', event => {
-    if (event.target === dialog) { stage.focus({ preventScroll: true }); return; }
-    if (event.target !== frame) last = event.target;
+    const element = event.target;
+    if (element === dialog) { stage.focus({ preventScroll: true }); return; }
+    if (element === stage && tabbing) stage.setAttribute('data-tab-focus', '');
+    else if (element === stage) stage.removeAttribute('data-tab-focus');
+    tabbing = false;
+    if (element !== frame) { last = element; lastQuiet = element.hasAttribute('data-pointer-focus'); }
   });
+  stage.addEventListener('focusout', () => stage.removeAttribute('data-tab-focus'));
+  addEventListener('pointerdown', () => { tabbing = false; }, true);
   dialog.addEventListener('focusout', event => {
     if (event.relatedTarget) return;
     setTimeout(() => {
@@ -57,7 +74,7 @@ export function keepTinkaFocus({ dialog, frame, stage }) {
       if (dialog.open && (!active || active === document.body || active === document.documentElement)) stage.focus({ preventScroll: true });
     }, 0);
   });
-  document.addEventListener('keydown', event => { if (event.key === 'Tab') release(); }, true);
+  document.addEventListener('keydown', event => { tabbing = event.key === 'Tab'; if (tabbing) release(); }, true);
   addEventListener('blur', later);
   document.addEventListener('focusin', later, true);
   new MutationObserver(() => { if (dialog.open) { last = null; hold = true; } else hold = false; }).observe(dialog, { attributes: true, attributeFilter: ['open'] });

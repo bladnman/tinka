@@ -72,10 +72,24 @@
 #reader-dialog .reader-main { position: relative; flex: 1; min-width: 0; min-height: 0; display: flex; }
 #reader-dialog .reader-stage {
   position: relative; flex: 1; min-width: 0; min-height: 0; display: block; padding: 0; overflow: hidden; outline: none; touch-action: none;
-  background-color: var(--bg-canvas); background-image: radial-gradient(circle, var(--dot) 1.1px, transparent 1.35px);
-  background-size: var(--reader-pattern-step, 20px) var(--reader-pattern-step, 20px); background-position: var(--reader-pattern-x, 0) var(--reader-pattern-y, 0);
+  background-color: var(--bg-canvas); background-image: none;
+  background-size: var(--reader-pattern-step, 22px) var(--reader-pattern-step, 22px); background-position: var(--reader-pattern-x, 0) var(--reader-pattern-y, 0);
 }
-#reader-dialog .reader-stage:focus-visible { box-shadow: inset 0 0 0 2px var(--accent); }
+/* The canvas follows the board's background choice (Plain unless Dots or Grid was chosen), with the board's values. */
+body:has(#viewport[data-canvas-pattern="dots"]) #reader-dialog .reader-stage {
+  --reader-pattern-ink: color-mix(in srgb, var(--dot) calc(var(--reader-pattern-fade, 1) * 100%), transparent);
+  background-image: radial-gradient(circle, color-mix(in srgb, var(--reader-pattern-ink) 55%, transparent) .8px, transparent 1.05px);
+}
+body:has(#viewport[data-canvas-pattern="grid"]) #reader-dialog .reader-stage {
+  --reader-pattern-major: calc(var(--reader-pattern-step, 22px) * 5);
+  --reader-pattern-minor: color-mix(in srgb, var(--grid-minor) calc(var(--reader-pattern-fade, 1) * 100%), transparent);
+  --reader-pattern-majorline: color-mix(in srgb, var(--grid-major) calc(var(--reader-pattern-fade, 1) * 100%), transparent);
+  background-image: linear-gradient(var(--reader-pattern-majorline) 1px, transparent 1px), linear-gradient(90deg, var(--reader-pattern-majorline) 1px, transparent 1px), linear-gradient(var(--reader-pattern-minor) 1px, transparent 1px), linear-gradient(90deg, var(--reader-pattern-minor) 1px, transparent 1px);
+  background-size: var(--reader-pattern-major) var(--reader-pattern-major), var(--reader-pattern-major) var(--reader-pattern-major), var(--reader-pattern-step, 22px) var(--reader-pattern-step, 22px), var(--reader-pattern-step, 22px) var(--reader-pattern-step, 22px);
+}
+/* Focus is handed to the canvas after every step and load; its ring shows only when Tab brought it here. */
+#reader-dialog .reader-stage:focus-visible { box-shadow: none; }
+#reader-dialog .reader-stage[data-tab-focus]:focus-visible { box-shadow: inset 0 0 0 2px var(--accent); }
 #reader-dialog .reader-stage.panning, #reader-dialog .reader-stage.space-pan { cursor: grabbing; }
 #reader-dialog .reader-plane { position: absolute; left: 0; top: 0; width: max-content; transform-origin: 0 0; }
 #reader-dialog #reader-window {
