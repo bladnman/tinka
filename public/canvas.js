@@ -8,7 +8,9 @@ import { WorkspaceBoard } from './workspace-board.js';
 import { contentURL, enableOrganization } from './workspace.js';
 import { validTextAnchor } from './markdown-document.js';
 import {bindCommitShortcut,commitShortcutLabel} from './interaction.js';
-import {clampZoom, FIT_MAX_ZOOM, sliderFromZoom, zoomFromSlider, wheelZoomFactor} from './canvas-zoom.js';
+import {clampZoom, FIT_MAX_ZOOM, LARGE_BOARD_ZOOM, sameView, sliderFromZoom, zoomFromSlider, wheelZoomFactor} from './canvas-zoom.js';
+import {BoardMap} from './board-map.js';
+import {decorationBounds} from './whiteboard-geometry.js';
 
 const $ = id => document.getElementById(id);
 mountAppearance($('board-info'));
@@ -131,7 +133,7 @@ async function fetchBoard() {
   if (!response.ok) throw new Error(`Board metadata unavailable (${response.status})`);
   const data = await response.json();
   if (data.schemaVersion === 2) {
-    if (!graph) graph = new WorkspaceBoard(appConfig, data, { concepts:()=>all, active:()=>active, zoom:()=>zoom, shiftOrigin:(dx,dy)=>{if(dx||dy){view.x-=dx*zoom;view.y-=dy*zoom;resting=false;}}, shiftViewport:(dx,dy)=>{if(dx||dy)moveView(view.x+dx,view.y+dy);}, holdView:()=>{resting=false;}, revealPlacements:revealPlacements, revealTarget:placement=>{const fit=Math.min((viewport.clientWidth-80)/placement.width,(viewport.clientHeight-80)/placement.height,1);changeZoom(fit);const rect=world.getBoundingClientRect(),region=viewport.getBoundingClientRect();moveView(view.x+region.left+viewport.clientWidth/2-(rect.left+(placement.x+graph.origin.x+placement.width/2)*zoom),view.y+region.top+viewport.clientHeight/2-(rect.top+(placement.y+graph.origin.y+placement.height/2)*zoom));}, preview:c=>previewHref(c), layout:()=>{ if(resting)rest();else applyView(); }, mode:mode=>{ if(mode==='canvas'){zoom=1;settleCushion();}else{viewport.scrollLeft=0;viewport.scrollTop=0;} }, reloadReader:()=>loadRevision(), saveStatus:setSaveStatus, openOwner:()=>{const c=graph.ownerConcept();if(c)openReader(c.key);}, closeReader:()=>closeReader(), flushNotes:flushNoteEdits, liveReady:()=>{void drainLiveUpdates().catch(()=>{});}, data:acceptGraphData, editNote:(key,anchor)=>openTileNote(key,anchor), viewOnly:overview });
+    if (!graph) graph = new WorkspaceBoard(appConfig, data, { concepts:()=>all, active:()=>active, zoom:()=>zoom, shiftOrigin:(dx,dy)=>{if(dx||dy){view.x-=dx*zoom;view.y-=dy*zoom;resting=false;shiftSavedViews(dx,dy);}}, shiftViewport:(dx,dy)=>{if(dx||dy)moveView(view.x+dx,view.y+dy);}, holdView:()=>{resting=false;}, revealPlacements:revealPlacements, revealTarget:placement=>{const fit=Math.min((viewport.clientWidth-80)/placement.width,(viewport.clientHeight-80)/placement.height,1);changeZoom(fit);const rect=world.getBoundingClientRect(),region=viewport.getBoundingClientRect();moveView(view.x+region.left+viewport.clientWidth/2-(rect.left+(placement.x+graph.origin.x+placement.width/2)*zoom),view.y+region.top+viewport.clientHeight/2-(rect.top+(placement.y+graph.origin.y+placement.height/2)*zoom));}, preview:c=>previewHref(c), layout:()=>{ if(resting)rest();else applyView(); contentChanged(); }, mode:mode=>{ if(mode==='canvas'){zoom=1;settleCushion();}else{viewport.scrollLeft=0;viewport.scrollTop=0;} requestAnimationFrame(syncMapAvailability); }, fit:kind=>runFit(kind==='smart'?smartFitTarget():kind), toggleMap:()=>setMapOpen(!boardMap.visible,{remember:true}), reloadReader:()=>loadRevision(), saveStatus:setSaveStatus, openOwner:()=>{const c=graph.ownerConcept();if(c)openReader(c.key);}, closeReader:()=>closeReader(), flushNotes:flushNoteEdits, liveReady:()=>{void drainLiveUpdates().catch(()=>{});}, data:acceptGraphData, editNote:(key,anchor)=>openTileNote(key,anchor), viewOnly:overview });
     if (overview) graph.mode = 'canvas';
     return graph.adapt(data);
   }
@@ -353,16 +355,110 @@ function revealPlacements(placements) {
   if (Math.abs(dx)>.5 || Math.abs(dy)>.5) moveView(view.x+dx,view.y+dy);
 }
 
-// Fit every exploration on both axes, centred.
-function fitBoard() {
-  if (graph?.mode === 'grid') { viewport.scrollTo({top:0,left:0}); return; }
+// Fits use the canvas left of an open board map on desktop widths.
+function fitArea() {
+  const right = boardMap?.visible && innerWidth > 720 ? boardMap.el.offsetWidth + 24 : 0;
+  return { width: Math.max(160, viewport.clientWidth - right), height: viewport.clientHeight };
+}
+// The view that fits every exploration on both axes, centred in the area.
+function fitBoardView(area = fitArea(), cap = FIT_MAX_ZOOM) {
   const margin = 24;
   const contentWidth = world.offsetWidth - geometry.pad * 2;
   const contentHeight = world.offsetHeight - geometry.pad * 2;
-  if (contentWidth <= 0 || contentHeight <= 0) return;
-  zoom = clampZoom(Math.min(FIT_MAX_ZOOM, (viewport.clientWidth - margin * 2) / contentWidth, (viewport.clientHeight - margin * 2) / contentHeight));
-  const pad = geometry.pad * zoom;
-  moveView((viewport.clientWidth - contentWidth * zoom) / 2 - pad, (viewport.clientHeight - contentHeight * zoom) / 2 - pad);
+  if (contentWidth <= 0 || contentHeight <= 0) return null;
+  const z = clampZoom(Math.min(cap, (area.width - margin * 2) / contentWidth, (area.height - margin * 2) / contentHeight));
+  const pad = geometry.pad * z;
+  return { zoom: z, x: (area.width - contentWidth * z) / 2 - pad, y: (area.height - contentHeight * z) / 2 - pad };
+}
+// The view that fits the rendered selected placements, capped like Fit board.
+function fitSelectionView(placements, area = fitArea()) {
+  if (!placements.length) return null;
+  const x = Math.min(...placements.map(p => p.x)), y = Math.min(...placements.map(p => p.y));
+  const width = Math.max(1, Math.max(...placements.map(p => p.x + p.width)) - x), height = Math.max(1, Math.max(...placements.map(p => p.y + p.height)) - y);
+  const margin = 48;
+  const z = clampZoom(Math.min(FIT_MAX_ZOOM, (area.width - margin * 2) / width, (area.height - margin * 2) / height));
+  return { zoom: z, x: area.width / 2 - (x + graph.origin.x + width / 2) * z, y: area.height / 2 - (y + graph.origin.y + height / 2) * z };
+}
+function fitBoard() { runFit('board'); }
+function fitSelection() { runFit('selection'); }
+
+// ---- Smart Fit and Back. `framed` is the view the latest fit produced; `backView`
+// is where the view was just before it. Any other view change ends both.
+let framed = null, backView = null;
+let selectionInfo = { count: 0, key: '' };
+const currentView = () => ({ zoom, x: view.x, y: view.y });
+function selectedPlacements() { return graph?.mode === 'canvas' ? graph.clipboardCandidates() : []; }
+function readSelection() {
+  const placements = selectedPlacements();
+  selectionInfo = { count: placements.length, key: placements.map(p => p.id).sort().join() };
+}
+function isFramed(kind) {
+  return !!framed && framed.kind === kind && sameView(framed.view, currentView()) && (kind !== 'selection' || framed.key === selectionInfo.key);
+}
+// The Fit button fits the selection first, then the board on the next press.
+function smartFitTarget() { return selectionInfo.count && !isFramed('selection') ? 'selection' : 'board'; }
+function runFit(kind) {
+  if (graph?.mode === 'grid') { viewport.scrollTo({top:0,left:0}); return; }
+  const placements = kind === 'selection' ? selectedPlacements() : [];
+  if (!placements.length) kind = 'board';
+  const target = kind === 'selection' ? fitSelectionView(placements) : fitBoardView();
+  if (!target) return;
+  if (graph) graph.revealedPlacement = null;
+  const before = currentView();
+  zoom = target.zoom;
+  moveView(target.x, target.y);
+  const after = currentView();
+  readSelection();
+  framed = { kind, key: selectionInfo.key, view: after };
+  // A fit that changes nothing keeps the earlier way back.
+  if (!sameView(before, after)) backView = before;
+  if (!overview) announceView(kind === 'selection' ? `Fitted ${placements.length} selected` : 'Fitted the whole board');
+  syncFitControls();
+}
+function goBack() {
+  const to = backView;
+  if (!to) return;
+  backView = null; framed = null;
+  if (graph) graph.revealedPlacement = null;
+  if (document.activeElement === $('view-back')) $('fit').focus({ preventScroll: true });
+  flyTo(to.zoom, to.x, to.y);
+  announceView('Back to the previous view');
+  syncFitControls();
+}
+// Content added at negative coordinates shifts the origin; saved views shift with it.
+function shiftSavedViews(dx, dy) {
+  for (const saved of [framed?.view, backView]) if (saved) { saved.x -= dx * saved.zoom; saved.y -= dy * saved.zoom; }
+}
+let announceTimer = 0;
+function announceView(text) {
+  const live = $('view-announce');
+  if (!live) return;
+  clearTimeout(announceTimer);
+  live.textContent = text;
+  announceTimer = setTimeout(() => { live.textContent = ''; }, 2500);
+}
+let fitSignature = '';
+function syncFitControls() {
+  const fit = $('fit');
+  if (!fit) return;
+  if (framed && !sameView(framed.view, currentView())) { framed = null; backView = null; }
+  const canvasMode = graph?.mode !== 'grid';
+  const target = canvasMode && graph ? smartFitTarget() : 'board';
+  const count = selectionInfo.count;
+  const signature = [target, count, !!backView, canvasMode, !!graph].join('|');
+  if (signature === fitSignature) return;
+  fitSignature = signature;
+  const label = target === 'selection' ? 'Fit selection' : count ? 'Fit board' : 'Fit';
+  fit.querySelector('.fit-label').textContent = label;
+  const badge = fit.querySelector('.fit-count');
+  badge.hidden = target !== 'selection'; badge.textContent = String(count);
+  fit.dataset.target = target;
+  fit.setAttribute('aria-label', target === 'selection' ? `Fit ${count} selected` : 'Fit board');
+  fit.setAttribute('aria-keyshortcuts', target === 'selection' ? 'F Shift+2' : 'F Shift+1');
+  fit.title = target === 'selection' ? `Fit the ${count} selected (F or ⇧2) · ⌥-click fits the board` : 'Fit every item in view (F or ⇧1)';
+  $('view-back').hidden = !backView || !canvasMode;
+  const fitSelected = boardMapElement()?.querySelector('[data-map-fit="selection"]');
+  if (fitSelected) { fitSelected.hidden = !count; fitSelected.textContent = `Fit ${count} selected`; }
 }
 
 // Overview readiness for `board overview`: fit, then wait until every on-screen
@@ -836,8 +932,8 @@ function flyTo(targetZoom, targetX, targetY) {
   const start = performance.now();
   const step = now => {
     const t = reduced ? 1 : Math.min(1, (now - start) / 320), e = 1 - (1 - t) ** 3;
-    zoom = from.zoom + (targetZoom - from.zoom) * e;
-    view.x = from.x + (targetX - from.x) * e; view.y = from.y + (targetY - from.y) * e;
+    zoom = t < 1 ? from.zoom + (targetZoom - from.zoom) * e : targetZoom;
+    view.x = t < 1 ? from.x + (targetX - from.x) * e : targetX; view.y = t < 1 ? from.y + (targetY - from.y) * e : targetY;
     applyView();
     if (t < 1) flight = requestAnimationFrame(step); else { flight = 0; trackRound(); }
     if (t >= 1) return;
@@ -1316,7 +1412,8 @@ document.addEventListener('keydown', event => {
 }, true);
 
 slider.addEventListener('input', () => {if(graph)graph.revealedPlacement=null;changeZoom(zoomFromSlider(slider.value));});
-$('fit').onclick = fitBoard;
+$('fit').onclick = event => runFit(event.altKey ? 'board' : smartFitTarget());
+$('view-back').onclick = goBack;
 $('board-info-toggle').onclick = () => setInfoOpen($('board-info').hidden, { focus: true });
 $('board-info-close').onclick = () => setInfoOpen(false, { focus: true });
 $('chrome-search').onclick = () => document.dispatchEvent(new CustomEvent('tinka:navigator-open'));
@@ -1334,7 +1431,8 @@ document.addEventListener('keydown', event => {
 function setZoomMenuOpen(open, { focus = false } = {}) {
   $('zoom-menu').hidden = !open;
   $('zoom-menu-toggle').setAttribute('aria-expanded', String(open));
-  $('zoom-menu').querySelector('[data-zoom-to="selection"]').hidden = !graph || graph.mode !== 'canvas';
+  if (open) readSelection();
+  $('zoom-menu').querySelector('[data-zoom-to="selection"]').hidden = !graph || graph.mode !== 'canvas' || !selectionInfo.count;
   if (open) $('zoom-menu').querySelector('button:not([hidden])')?.focus({ preventScroll: true });
   else if (focus) $('zoom-menu-toggle').focus({ preventScroll: true });
 }
@@ -1363,18 +1461,122 @@ document.addEventListener('click', event => {
   const pattern = event.target.closest('[data-canvas-pattern]');
   if (pattern) setCanvasPattern(pattern.dataset.canvasPattern);
 });
-function fitSelection() {
-  if (!graph || graph.mode !== 'canvas') return;
-  const ids = graph.selection.size ? graph.selection : null;
-  const placements = (graph.snapshot.placements || []).filter(p => ids?.has(p.id) && !p.removedAt);
-  if (!placements.length) { fitBoard(); return; }
-  const x = Math.min(...placements.map(p => p.x)), y = Math.min(...placements.map(p => p.y));
-  const width = Math.max(...placements.map(p => p.x + p.width)) - x, height = Math.max(...placements.map(p => p.y + p.height)) - y;
-  const margin = 48;
-  changeZoom(Math.min(FIT_MAX_ZOOM, (viewport.clientWidth - margin * 2) / width, (viewport.clientHeight - margin * 2) / height));
-  const rect = world.getBoundingClientRect(), region = viewport.getBoundingClientRect();
-  moveView(view.x + region.left + viewport.clientWidth / 2 - (rect.left + (x + graph.origin.x + width / 2) * zoom), view.y + region.top + viewport.clientHeight / 2 - (rect.top + (y + graph.origin.y + height / 2) * zoom));
+// ---- Board map: a toggle in the zoom controls (M). It opens by itself on large
+// boards at desktop widths, and remembers this browser's open/closed choice per board.
+let boardMap = null, mapDecided = false, mapWanted = false;
+const boardMapElement = () => $('board-map');
+const mapKey = () => workspaceId && boardId ? `tinka/${workspaceId}/${boardId}/board-map` : null;
+function mapAvailable() { return !!graph && graph.mode === 'canvas' && !overview; }
+// Every rendered item and decoration, in world units, for the map's silhouettes.
+function mapShapes() {
+  if (!graph?.snapshot) return { items: [], decorations: [], bounds: null };
+  const ox = graph.origin?.x || 0, oy = graph.origin?.y || 0;
+  const selected = graph.selection;
+  const items = graph.renderedPlacements().map(p => ({ x: p.x + ox, y: p.y + oy, width: p.width, height: p.height, selected: selected.has(p.id) }));
+  const decorations = (graph.snapshot.decorations || []).map(d => { try { const b = decorationBounds(d, graph.snapshot); return { type: d.type, color: d.color, x: (b.x || 0) + ox, y: (b.y || 0) + oy, width: b.width || 0, height: b.height || 0 }; } catch { return null; } }).filter(Boolean);
+  const all = [...items, ...decorations].filter(r => Number.isFinite(r.x) && Number.isFinite(r.y));
+  if (!all.length) return { items, decorations, bounds: null };
+  const x = Math.min(...all.map(r => r.x)), y = Math.min(...all.map(r => r.y));
+  const bounds = { x, y, width: Math.max(1, Math.max(...all.map(r => r.x + Math.max(0, r.width))) - x), height: Math.max(1, Math.max(...all.map(r => r.y + Math.max(0, r.height))) - y) };
+  return { items, decorations, bounds };
 }
+function centerOn(wx, wy, { glide = false } = {}) {
+  if (graph) graph.revealedPlacement = null;
+  const x = viewport.clientWidth / 2 - wx * zoom, y = viewport.clientHeight / 2 - wy * zoom;
+  if (glide) flyTo(zoom, x, y); else moveView(x, y);
+}
+function ensureBoardMap() {
+  if (boardMap || !boardMapElement()) return boardMap;
+  boardMap = new BoardMap(boardMapElement(), {
+    shapes: mapShapes,
+    view: () => ({ x: view.x, y: view.y, zoom, width: viewport.clientWidth, height: viewport.clientHeight }),
+    navigate: () => { if (graph) graph.revealedPlacement = null; },
+    center: centerOn,
+    panBy: (dx, dy) => moveView(view.x - dx * zoom, view.y - dy * zoom),
+    panScreen: (fx, fy) => moveView(view.x + fx * viewport.clientWidth, view.y + fy * viewport.clientHeight),
+    zoomAt: (factor, wx, wy) => { if (graph) graph.revealedPlacement = null; changeZoom(zoom * factor, view.x + wx * zoom, view.y + wy * zoom); },
+    zoomBy: factor => { if (graph) graph.revealedPlacement = null; changeZoom(zoom * factor); },
+    close: () => setMapOpen(false, { remember: true, focus: true }),
+  });
+  const el = boardMapElement();
+  el.querySelector('[data-map-fit="selection"]').onclick = () => runFit('selection');
+  el.querySelector('[data-map-fit="board"]').onclick = () => runFit('board');
+  el.querySelector('[data-map-close]').onclick = () => setMapOpen(false, { remember: true, focus: true });
+  return boardMap;
+}
+// The open/closed choice is remembered for desktop widths; on a phone the map
+// starts closed and a choice made there is not saved.
+function savedMapChoice() { try { const saved = mapKey() && localStorage.getItem(mapKey()); return saved === 'open' ? true : saved === 'closed' ? false : null; } catch { return null; } }
+function setMapOpen(open, { remember = false, focus = false } = {}) {
+  const map = ensureBoardMap();
+  if (!map) return;
+  mapWanted = !!open;
+  open = open && mapAvailable();
+  const hadFocus = boardMapElement().contains(document.activeElement);
+  map.show(open);
+  $('board-map-toggle').setAttribute('aria-pressed', String(open));
+  if (remember && innerWidth > 720) try { if (mapKey()) localStorage.setItem(mapKey(), open ? 'open' : 'closed'); } catch {}
+  if (!open && (focus || hadFocus)) $('board-map-toggle').focus({ preventScroll: true });
+  placeSelectionBar();
+}
+// Large means fitting the whole board would need less than 40% zoom.
+function boardIsLarge() {
+  const fit = fitBoardView({ width: viewport.clientWidth, height: viewport.clientHeight }, Infinity);
+  return !!fit && fit.zoom < LARGE_BOARD_ZOOM;
+}
+function syncMapAvailability() {
+  const toggle = $('board-map-toggle');
+  if (!toggle) return;
+  const available = mapAvailable();
+  toggle.hidden = !available;
+  if (!available) { boardMap?.show(false); return; }
+  if (!mapDecided) {
+    mapDecided = true;
+    const saved = innerWidth > 720 ? savedMapChoice() : false;
+    setMapOpen(saved ?? (innerWidth > 720 && boardIsLarge()));
+  } else if (mapWanted && !boardMap?.visible) setMapOpen(true);
+}
+// The board's content or selection changed: redraw the map once and recount.
+function contentChanged() {
+  readSelection();
+  syncFitControls();
+  boardMap?.invalidate();
+}
+document.addEventListener('tinka:selection', () => { readSelection(); syncFitControls(); boardMap?.invalidate(); requestAnimationFrame(placeSelectionBar); });
+// The selection bar never runs into the zoom controls or the map. When its usual
+// centred place would, it centres in the free space to their left: beside the
+// status line if it fits, otherwise over a quiet status line (which steps aside
+// while the bar shows), otherwise raised above the footer row. On a phone it spans
+// the width and the open map stacks above it instead.
+function placeSelectionBar() {
+  const bar = $('workspace-selection'), pill = document.querySelector('.canvas-footer .zoom-pill'), root = document.documentElement;
+  const footer = document.querySelector('.canvas-footer');
+  if (!bar || !footer) return;
+  if (!barObserved) { barObserved = true; footerObserver.observe(bar); }
+  root.style.setProperty('--selection-bar-space', !bar.hidden && innerWidth <= 720 ? `${bar.offsetHeight + 14}px` : '0px');
+  for (const property of ['left', 'max-width', 'bottom']) bar.style.removeProperty(property);
+  footer.classList.remove('status-yields');
+  if (bar.hidden || !pill || innerWidth <= 720) return;
+  const meets = (a, b) => a.right > b.left - 8 && a.left < b.right + 8 && a.bottom > b.top && a.top < b.bottom;
+  const b = bar.getBoundingClientRect(), p = pill.getBoundingClientRect();
+  const m = boardMap?.visible ? boardMapElement().getBoundingClientRect() : null;
+  if (!meets(b, p) && !(m && meets(b, m))) return;
+  const statusLine = footer.querySelector('.status-line'), status = statusLine?.getBoundingClientRect();
+  const right = Math.min(p.left, m ? m.left : Infinity) - 12, edge = footer.getBoundingClientRect().left + 12;
+  const beside = status && status.width && status.bottom > b.top && status.top < b.bottom ? Math.max(edge, status.right + 12) : edge;
+  const quiet = ['saved', 'saving', '', undefined].includes($('save-status').dataset.state) && $('live-refresh').hidden && $('live-status').dataset.connection !== 'offline';
+  let from = edge;
+  if (b.width <= right - beside) from = beside;
+  else if (quiet && b.width <= right - edge) footer.classList.add('status-yields');
+  else bar.style.bottom = `${Math.max(72, innerHeight - p.top + 12)}px`;
+  bar.style.left = `${Math.round((from + right) / 2)}px`;
+  bar.style.maxWidth = `${Math.max(160, Math.round(right - from))}px`;
+}
+let barObserved = false;
+const footerObserver = new ResizeObserver(() => placeSelectionBar());
+for (const element of document.querySelectorAll('.canvas-footer, .canvas-footer .zoom-pill, .canvas-footer .status-line')) footerObserver.observe(element);
+addEventListener('resize', () => { placeSelectionBar(); boardMap?.resize(); });
+$('board-map-toggle').onclick = () => setMapOpen(!boardMap?.visible, { remember: true });
 // Dots, Grid or Plain: a per-board view preference kept in this browser.
 const PATTERNS = ['dots', 'grid', 'plain'];
 let canvasPattern = 'dots';
@@ -1410,6 +1612,8 @@ function syncViewChrome() {
   const ox = canvasMode ? view.x + (graph?.origin?.x || 0) * zoom : 0, oy = canvasMode ? view.y + (graph?.origin?.y || 0) * zoom : 0;
   viewport.style.setProperty('--pattern-x', `${Math.round(ox)}px`);
   viewport.style.setProperty('--pattern-y', `${Math.round(oy)}px`);
+  syncFitControls();
+  boardMap?.syncFrame();
 }
 $('close-reader').onclick = () => closeReader();
 $('reader-board-link').addEventListener('click', event => {
@@ -1656,8 +1860,7 @@ viewport.addEventListener('keydown', event => {
   const page = viewport.clientHeight * .875;
   const key = event.key === ' ' && onCanvas ? (event.shiftKey ? 'PageUp' : 'PageDown') : event.key;
   const step = { ArrowLeft: [80, 0], ArrowRight: [-80, 0], ArrowUp: [0, 80], ArrowDown: [0, -80], PageUp: [0, page], PageDown: [0, -page] }[key];
-  if (event.shiftKey && (key === ')' || key === '0')) { changeZoom(1); event.preventDefault(); return; }
-  if (graph && event.shiftKey && (key === '@' || key === '2')) { fitSelection(); event.preventDefault(); return; }
+  if (event.shiftKey && (event.code === 'Digit0' || key === ')' || key === '0')) { changeZoom(1); event.preventDefault(); return; }
   if (onCanvas && (key === '+' || key === '=')) changeZoom(zoom * 1.15);
   else if (onCanvas && (key === '-' || key === '_')) changeZoom(zoom / 1.15);
   else if (key.startsWith('Arrow') && step) moveView(view.x + step[0], view.y + step[1]);
@@ -1725,6 +1928,7 @@ async function openBoardView() {
       else { resting = false; Object.assign(view, { x: saved.x, y: saved.y }); applyView(); }
     }
   } catch {}
+  syncMapAvailability();
   const revealId=new URLSearchParams(location.search).get('reveal');
   if(revealId&&graph)await graph.revealPlacement(revealId);
   if (!dialog.open && document.activeElement === document.body) viewport.focus({ preventScroll: true });

@@ -593,6 +593,8 @@ export class WorkspaceBoard {
     document.addEventListener("keydown", event => {
       if (event.isComposing || event.keyCode === 229 || event.altKey) return;
       const command = event.metaKey || event.ctrlKey;
+      // Shift-1/2 match the physical keys, so they work on any keyboard layout.
+      const shifted = digit => event.shiftKey && (event.code ? event.code === `Digit${digit}` : event.key === "!@"[digit - 1] || event.key === String(digit));
       const key = event.key.toLowerCase();
       if (command && !event.shiftKey && key === "d") {
         const editing = "input,textarea,select,[contenteditable],[role=textbox],[role=dialog]";
@@ -615,7 +617,7 @@ export class WorkspaceBoard {
           this.selectionMenu();
         };
       else if (!command && !event.shiftKey && key === "enter" &&
-          !event.target.closest?.("button,a,[role=button]") && this.clipboardCandidates().length === 1) {
+          !event.target.closest?.("button,a,[role=button],.board-map-stage") && this.clipboardCandidates().length === 1) {
         const id = this.clipboardCandidates()[0].id;
         const card = [...$("world").querySelectorAll(".workspace-card[data-placement]")].find(card => card.dataset.placement === id);
         const open = card?.querySelector("[data-open]:not(:disabled)");
@@ -623,8 +625,15 @@ export class WorkspaceBoard {
       } else if (!command && !event.shiftKey && key === "/") action = () => {
         document.dispatchEvent(new CustomEvent("tinka:navigator-open"));
       };
-      else if (!command && event.shiftKey && (key === "!" || key === "1") && this.mode === "canvas")
-        action = () => $("fit").click();
+      else if (!command && shifted(1) && this.mode === "canvas")
+        action = () => this.hooks.fit?.("board");
+      else if (!command && shifted(2) && this.mode === "canvas")
+        action = () => this.hooks.fit?.("selection");
+      // F fits the selection, then the board; M shows or hides the board map.
+      else if (!command && !event.shiftKey && key === "f" && this.mode === "canvas")
+        action = () => this.hooks.fit?.("smart");
+      else if (!command && !event.shiftKey && key === "m" && this.mode === "canvas")
+        action = () => this.hooks.toggleMap?.();
       else if (!command && key === "?") action = () => this.keyboardShortcuts();
       if (!action) return;
       event.preventDefault(); event.stopImmediatePropagation();
@@ -643,7 +652,9 @@ export class WorkspaceBoard {
       <dt>⌘/Ctrl-K or /</dt><dd>Find across this project (Navigator)</dd>
       <dt>⌘/Ctrl-I</dt><dd>Inspector for the selected Tinka or this board</dd>
       <dt>Shift-click · ⌘/Ctrl-click</dt><dd>Add a Tinka to the selection</dd>
+      <dt>F</dt><dd>Fit the selection, then the whole board (⌥-click Fit always fits the board)</dd>
       <dt>Shift-1 · Shift-2 · Shift-0</dt><dd>Fit the canvas · Fit the selection · Zoom to 100%</dd>
+      <dt>M</dt><dd>Show or hide the board map (click or drag in it to move there)</dd>
       <dt>?</dt><dd>Show keyboard shortcuts</dd>
       <dt>⌘/Ctrl-C · X · V</dt><dd>Copy · Cut · Paste</dd>
       <dt>Delete / Backspace</dt><dd>Remove selection from this board</dd>
@@ -2335,6 +2346,8 @@ export class WorkspaceBoard {
     });
     document.addEventListener("keydown", async e => {
       if (document.querySelector("#reader-dialog[open],dialog.workspace-dialog[open]")) return;
+      // The focused board map owns its arrows, Escape and +/−.
+      if (e.target.closest?.(".board-map-stage")) return;
       if (e.isComposing || e.keyCode === 229 || e.repeat || e.defaultPrevented) return;
       if (this.feedback?.consumeEscape(e)) return;
       if (this.whiteboard?.handleEscape(e)) return;

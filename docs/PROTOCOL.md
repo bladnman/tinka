@@ -89,7 +89,7 @@ the pending Cut captured before the command, allowing the next Cmd/Ctrl-Z to und
 duplication; failure or a newer cross-tab Cut leaves that intent intact.
 
 Cmd/Ctrl-A selects all valid rendered placements under the current filters. Enter
-opens one selected Tinka through its existing open action. Cmd/Ctrl-K or slash opens Navigator and focuses project search; Cmd/Ctrl-I opens the Inspector. Shift-1 fits the Canvas, Shift-2 fits the selection and Shift-0 zooms to 100%. Shift-, Cmd- or Ctrl-click toggles one Tinka's selection. Question mark or Inspector → Keyboard
+opens one selected Tinka through its existing open action. Cmd/Ctrl-K or slash opens Navigator and focuses project search; Cmd/Ctrl-I opens the Inspector. F fits the selection, then the Canvas; Shift-1 fits the Canvas, Shift-2 fits the selection and Shift-0 zooms to 100% (matched by physical key); M shows or hides the board map. Shift-, Cmd- or Ctrl-click toggles one Tinka's selection. Question mark or Inspector → Keyboard
 shortcuts opens a concise key guide. Native editing fields, readers, dialogs,
 iframe focus, held key repeat, gestures and pending writes/history block these
 commands. Browser defaults are prevented only when a command is handled.

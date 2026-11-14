@@ -24,3 +24,8 @@ export function wheelZoomFactor(event) {
   const delta = event.deltaMode === 1 ? event.deltaY * 16 : event.deltaMode === 2 ? event.deltaY * 100 : event.deltaY;
   return Math.exp(-Math.max(-30, Math.min(30, delta)) / 100);
 }
+// A board counts as large, so its map opens by itself on desktop widths, when
+// fitting all of it would need less than this zoom.
+export const LARGE_BOARD_ZOOM = .4;
+// Two views match when pan and zoom agree to within rounding.
+export const sameView = (a, b) => !!a && !!b && Math.abs(a.x - b.x) < 1 && Math.abs(a.y - b.y) < 1 && Math.abs(a.zoom - b.zoom) < 1e-4;

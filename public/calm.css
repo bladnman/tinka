@@ -558,3 +558,37 @@ body.navigator-docked .canvas-footer { left: var(--navigator-dock-width, 340px);
 /* Grid cards need the same local chrome anchor as positioned Canvas cards.
    This does not alter either layout's saved placement geometry. */
 body[data-board-layout="grid"] #world .workspace-card { position:relative; }
+
+/* ---------- Smart Fit, Back and the board map (zoom controls) ---------- */
+body .canvas-footer .zoom-pill .fit[data-target="selection"] { background: var(--accent-soft); color: var(--accent-text); }
+.fit .fit-count { display: inline-grid; place-items: center; min-width: 18px; height: 18px; margin-left: 6px; padding: 0 5px; border-radius: 9px; background: var(--accent); color: var(--on-accent); font: 600 var(--t-xs)/1 var(--font-ui); font-variant-numeric: tabular-nums; }
+.fit .fit-count[hidden], body .canvas-footer .zoom-pill .view-back[hidden], body .canvas-footer .zoom-pill .board-map-toggle[hidden] { display: none; }
+body .canvas-footer .zoom-pill .view-back { display: inline-flex; align-items: center; gap: 4px; padding: 0 10px 0 6px; color: var(--accent-text); background: var(--accent-soft); background-clip: padding-box; }
+body .canvas-footer .zoom-pill .view-back svg, body .canvas-footer .zoom-pill .board-map-toggle svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; }
+body .canvas-footer .zoom-pill .board-map-toggle[aria-pressed="true"] { background: var(--accent-soft); color: var(--accent-text); }
+.board-map { position: fixed; right: 12px; bottom: 64px; z-index: 29; display: flex; flex-direction: column; padding: 6px; border-radius: var(--r-lg); background: var(--surface-2); color: var(--ink); box-shadow: var(--e3); animation: calm-map-in .14s var(--ease); }
+.board-map[hidden] { display: none; }
+@keyframes calm-map-in { from { opacity: 0; transform: translateY(6px); } }
+.board-map-head { display: flex; align-items: center; gap: 2px; padding: 0 0 6px 6px; }
+.board-map-head .tk-eyebrow { margin-right: auto; }
+.board-map-head .tk-btn.tk-sm { height: 26px; min-height: 0; font-size: var(--t-xs); padding: 0 8px; }
+.board-map-head .tk-btn.tk-sm.tk-icon { width: 26px; min-width: 26px; padding: 0; }
+.board-map-head .tk-btn[hidden] { display: none; }
+.board-map-head .tk-btn svg { width: 14px; height: 14px; }
+.board-map-stage { position: relative; align-self: center; overflow: hidden; border-radius: var(--r-md); background: var(--bg-canvas); box-shadow: inset 0 0 0 1px var(--line); touch-action: none; cursor: pointer; -webkit-user-select: none; user-select: none; }
+.board-map-stage canvas { display: block; }
+.board-map-stage:focus-visible { outline: 2px solid var(--accent-ring); outline-offset: 2px; }
+.board-map-frame { position: absolute; left: 0; top: 0; border-radius: 3px; pointer-events: none; cursor: grab; background: color-mix(in srgb, var(--accent) 8%, transparent); box-shadow: 0 0 0 1.5px var(--accent-ring), 0 0 0 9999px color-mix(in srgb, var(--bg-canvas) 34%, transparent); }
+.board-map-frame[hidden] { display: none; }
+.board-map-stage.dragging { cursor: grabbing; }
+/* A quiet status line steps aside while the selection bar needs its place. */
+body .canvas-footer.status-yields .status-line { visibility: hidden; }
+/* The Inspector takes the right edge; the map moves aside with the zoom controls. */
+@media (min-width: 721px) { body:has(#workspace-item-controls, #board-info:not([hidden])) .board-map { right: 388px; } }
+@media (max-width: 720px) {
+  .board-map { right: 8px; bottom: calc(60px + var(--selection-bar-space, 0px)); }
+  body .canvas-footer .zoom-pill .view-back { width: 44px; padding: 0; justify-content: center; }
+  body .canvas-footer .zoom-pill .view-back .view-back-label { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+}
+@media (prefers-reduced-motion: reduce) { .board-map { animation: none; } }
+.tinka-overview .board-map { display: none !important; }

@@ -24,13 +24,17 @@
       <p id="board-description"></p>
       <p class="info-meta"><span id="experiment-count">Experiments</span><span id="round-count">Explorations</span><span>Notes saved on this Mac</span></p>
       <details class="board-help"><summary>How to use this board</summary>
-        <div id="help-panel"><strong>Make yourself at home.</strong> Drag or scroll to move anywhere on the canvas, past the edges of the board too. Pinch, or hold Control or ⌘ while scrolling, to zoom; the zoom controls and Fit float at the lower right. With the canvas focused, the arrow keys and Page Up / Page Down pan, Home and End go to the first and last exploration, and + / − zoom. Open an experiment to try it, then step through the others with Previous, Next or the dots. Escape returns here. Stars and notes are saved on this Mac.</div>
+        <div id="help-panel"><strong>Make yourself at home.</strong> Drag or scroll to move anywhere on the canvas, past the edges of the board too. Pinch, or hold Control or ⌘ while scrolling, to zoom; the zoom controls and Fit float at the lower right. With items selected, Fit (or F) frames the selection, then the whole board; ⌥-click fits the board. Back returns to where you were before a fit. The map button (M) shows the whole board: click or drag in it to move there. With the canvas focused, the arrow keys and Page Up / Page Down pan, Home and End go to the first and last exploration, and + / − zoom. Open an experiment to try it, then step through the others with Previous, Next or the dots. Escape returns here. Stars and notes are saved on this Mac.</div>
       </details>
       <div class="info-actions"><button id="export" type="button">Export notes</button></div>
     </section>
   </header>
   <div id="board-error" class="board-error" role="alert" hidden></div>
   <main id="viewport" data-canvas-pattern="dots" aria-label="Experiments canvas: drag or scroll to pan, pinch or Control-scroll to zoom" tabindex="0"><div id="plane"><div id="world"></div></div></main>
+  <section id="board-map" class="board-map" aria-label="Board map" hidden>
+    <header class="board-map-head"><span class="tk-eyebrow" aria-hidden="true">Map</span><button class="tk-btn tk-sm" type="button" data-map-fit="selection" title="Fit the selection (F or ⇧2)" hidden>Fit selected</button><button class="tk-btn tk-sm" type="button" data-map-fit="board" title="Fit board (⇧1)">Fit board</button><button class="tk-btn tk-sm tk-icon" type="button" data-map-close aria-label="Close map" title="Close map (M)"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="m5.5 5.5 9 9m0-9-9 9"/></svg></button></header>
+    <div class="board-map-stage" tabindex="0" role="application" aria-roledescription="board map" aria-label="Board map"><canvas aria-hidden="true"></canvas><div class="board-map-frame" aria-hidden="true" hidden></div></div>
+  </section>
   <footer class="control-footer canvas-footer">
     <div class="status-line"><span id="save-status" role="status">Loading notes…</span><span id="live-status" role="status" aria-live="polite"></span><button id="live-refresh" type="button" aria-label="New work available · Refresh" hidden><span class="refresh-detail">New work available · </span>Refresh</button><span id="round-status">Loading board</span></div>
     <section class="view-tools zoom-pill" role="toolbar" aria-label="Board view controls">
@@ -52,8 +56,11 @@
       </span>
       <button id="zoom-plus" class="tk-btn tk-icon" type="button" aria-label="Zoom in" title="Zoom in (+)"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M5 10h10M10 5v10"/></svg></button>
       <span class="tk-divider" aria-hidden="true"></span>
-      <button id="fit" class="fit tk-btn" type="button" title="Fit every item in view (⇧1)"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M3.5 7.5v-4h4M16.5 7.5v-4h-4M3.5 12.5v4h4M16.5 12.5v4h-4"/></svg><span class="fit-label">Fit</span></button>
+      <button id="view-back" class="tk-btn view-back" type="button" aria-label="Back to the previous view" title="Back to where you were before this fit" hidden><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M8 5 4.5 8.5 8 12"/><path d="M5 8.5h7a4 4 0 0 1 0 8h-2"/></svg><span class="view-back-label">Back</span></button>
+      <button id="board-map-toggle" class="tk-btn tk-icon board-map-toggle" type="button" aria-pressed="false" aria-controls="board-map" aria-label="Board map" aria-keyshortcuts="M" title="Board map (M)" hidden><svg viewBox="0 0 20 20" aria-hidden="true"><rect x="2.5" y="4" width="15" height="12" rx="2"/><rect x="9.5" y="7.5" width="5.5" height="5" rx="1"/></svg></button>
+      <button id="fit" class="fit tk-btn" type="button" aria-label="Fit board" aria-keyshortcuts="F Shift+1" title="Fit every item in view (F or ⇧1)"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M3.5 7.5v-4h4M16.5 7.5v-4h-4M3.5 12.5v4h4M16.5 12.5v4h-4"/></svg><span class="fit-label">Fit</span><span class="fit-count" aria-hidden="true" hidden></span></button>
     </section>
+    <span id="view-announce" class="sr-only" role="status" aria-live="polite"></span>
   </footer>
   <dialog id="reader-dialog" aria-labelledby="reader-name">
     <header class="reader-header">

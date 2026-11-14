@@ -187,8 +187,8 @@ details, help, shortcuts and notes export; a tile's ⋯ menu groups Open experim
 Remove from board; Details… (or ⌘/Ctrl-I with one tile selected) shows that item's notes, feedback, appearance and paper, created/edited
 dates and actions. Click-away or Escape closes any temporary panel or menu. Zoom
 lives in one floating pill at the lower right: −, the zoom percentage (a menu with
-50/100/125%, a precise slider, Fit board, Fit selection and Dots / Grid / Plain),
-+ and Fit. The background choice is a per-board view preference kept in this
+50/100/125%, a precise slider, Fit board, Fit selection while something is
+selected, and Dots / Grid / Plain), +, the board map and Fit. The background choice is a per-board view preference kept in this
 browser; it never changes board data. The reader keeps its containing-board return
 beside Home, with comparison settings and item actions in View.
 
@@ -227,7 +227,18 @@ New graph boards open in Canvas unless you have already chosen Grid. Scroll with
 a mouse or trackpad to pan; Shift-scroll moves sideways. On a touch screen, swipe
 the background. Pinch or Control/⌘-scroll zooms, from 2% to 1000%, around the
 pointer, including over a Tinka or the floating controls; previews never zoom
-themselves. Fit board and Fit selection never magnify past 125%. Drag a card’s body to move it;
+themselves. Fit board and Fit selection never magnify past 125%.
+Fit follows the selection: with items selected it reads **Fit selection** with a
+count and frames them; pressed again, or with nothing selected, it fits the whole
+board. **F** does the same, and ⌥/Alt-click on Fit always fits the board. After any
+fit a **Back** button returns to exactly where you were; it goes away once used or
+when you pan or zoom yourself. The map button (**M**) shows the whole board as
+outlines with your view as a frame and the selection in green: click or tap to
+move there, drag the frame to pan at the same zoom, scroll over it to zoom, or
+focus it and use the arrow keys and + / −. Its header fits the selection or the
+board. It opens by itself on large boards (when fitting all of it would need less
+than 40%) at desktop widths, and this browser remembers your open/closed choice
+per board; on a phone it starts closed. Fits leave room for an open map. Drag a card’s body to move it;
 a click opens its preview, while notes, links and buttons keep their normal
 behavior. Drag onto the interior of a board card to move the item inside it;
 the destination outline and “Move into…” hint confirm the target. Its automatic
@@ -263,8 +274,9 @@ The independent copies retain arrangement, dimensions, appearance and feedback,
 share existing resource files, and appear 32 canvas units diagonally from the
 originals. They become selected and are one Undo/Redo step. ⌘A / Ctrl-A selects
 all rendered cards; Enter opens the sole selected item; ⌘/Ctrl-K or / opens
-Navigator; ⌘/Ctrl-I opens the Inspector; Shift-1 fits the board, Shift-2 fits the
-selection and Shift-0 zooms to 100%. ? or Inspector → Keyboard shortcuts shows the
+Navigator; ⌘/Ctrl-I opens the Inspector; F fits the selection, then the board;
+Shift-1 fits the board, Shift-2 fits the selection (by physical key, on any
+layout) and Shift-0 zooms to 100%; M shows or hides the board map. ? or Inspector → Keyboard shortcuts shows the
 shortcut sheet.
 Editing fields, readers, iframes and dialogs keep their native keys.
 
