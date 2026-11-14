@@ -326,7 +326,7 @@ keep their normal keys. A successful removal cancels any pending Cut intent.
 Use ⌘Z / Ctrl-Z to undo a move and ⇧⌘Z / Ctrl-Shift-Z to redo it. The top bar and Inspector also have
 Undo and Redo. This tab remembers up to 50 successful movement, paste or board-removal steps for this
 workspace, including across Parent/child navigation: card positioning, resizing,
-selected-card nudges, and moves into or out of existing boards. A selection moves
+selected-card nudges, moving or resizing text, shapes and arrows, and moves into or out of existing boards. A selection moves
 as one step, with exact placement identities and arrangement restored. Movement undo keeps notes,
 titles and content; paste undo removes only the copies that paste created. New-board creation and canonical item deletion are outside
 movement history. Text fields keep their own undo, and replay is available after
@@ -390,7 +390,8 @@ logical board units and shows free, attached or detached endpoints. Dragging an 
 to reconnect, or More → Detach start/end/both to make resolved endpoints free.
 Reverse swaps the complete endpoints while keeping the arrow identity. Arrow text appears at its midpoint. Escape
 cancels a gesture. Focus a decoration and press Enter for exact geometry or F2
-to edit its text. Decoration edits do not join card movement Undo/Redo.
+to edit its text. ⌘Z / Ctrl-Z undoes moving or resizing text, shapes and arrows like
+cards; their text, color, creation and removal are not part of Undo.
 Sticky and label text use plain Enter for a newline and Cmd/Ctrl+Enter to finish.
 Notes and conversation composers use the same scoped shortcut, with a platform
 hint. Failed saves preserve drafts; click-away never posts a comment. Small saved

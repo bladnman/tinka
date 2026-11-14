@@ -156,7 +156,7 @@ values. Successful server-authenticated movement inverses are treated as opaque;
 restoreMovement returns a reciprocal receipt for the opposite stack. No receipt is
 recorded for failure, cancellation or no-op, and a new eligible movement clears redo.
 Eligible changes are placement geometry/resize, translatePlacements (including one
-atomic selected arrow nudge), source-placement moves to existing boards, pastePlacements and board-placement remove. Moves
+atomic selected arrow nudge), source-placement moves to existing boards, pastePlacements, board-placement remove and decoration geometry (an updateDecoration patch with x/y/width/height/from/to: text, shapes, regions and arrows moved, resized, nudged or re-pointed; text, color and creation/removal stay outside). Moves
 creating a board, home-only operations and canonical deletion are outside browser movement
 history. Movement replay does not roll back canonical content, review or titles. Paste
 receipts remove/restore only the new copied identities and arrangements. Replay refreshes
@@ -361,8 +361,8 @@ ports, paired attached/free endpoints and midpoint text labels. Exact inspector
 values are board units and expose attached/free/detached state. Temporary card
 and decoration geometry drives connectors and relative feedback pins through the
 same pure helpers without remounting card media. Attached whole-line movement preserves its endpoint objects; explicit Detach
-captures resolved free points. Scoped decoration mutations preserve peers; card movement
-Undo/Redo does not cover decoration edits.
+captures resolved free points. Scoped decoration mutations preserve peers. Decoration
+geometry joins movement Undo/Redo; its text, color, creation and removal do not.
 
 Point feedback optionally adds normalized relative:{x,y} within one placement or
 decoration; saved board x/y remains the creation fallback. Read results derive

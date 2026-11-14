@@ -165,3 +165,49 @@ test("cached old responses make room for a new movement without weakening its id
   await f.op("restoreMovement",{history:moved.history});
   assert.deepEqual(f.arrangements(await f.snapshot()),f.arrangements(original));
 });
+
+test("moving or resizing text, shapes and arrows records a receipt that undoes and redoes exactly",async t => {
+  const f = await fixture(t), boardId = f.source.boardId;
+  const board = async () => (await f.snapshot()).boards.find(b => b.id === boardId);
+  const title = (await f.op("createDecoration",{boardId,decoration:{type:"text",x:0,y:800,width:1400,height:56,color:"#536044",text:"Concepts"}})).result.decorationId;
+  const box = (await f.op("createDecoration",{boardId,decoration:{type:"region",shape:"rounded",x:600,y:600,width:200,height:120,color:"#f3d36b",text:"Box"}})).result.decorationId;
+  const arrow = (await f.op("createDecoration",{boardId,decoration:{type:"line",x:0,y:0,width:10,height:10,color:"#6c8060",text:"",
+    from:{decorationId:box,side:"left"},to:{x:300,y:300}}})).result.decorationId;
+  const start = await board(), placements = JSON.stringify(start.placements), order = JSON.stringify(start.reviewOrder);
+  const find = (b,id) => b.decorations.find(d => d.id === id);
+  // A text-only edit is not a movement.
+  assert.equal((await f.op("updateDecoration",{boardId,decorationId:title,patch:{text:"Concepts · open one"}})).history,undefined);
+  const named = await board();
+  const moved = await f.op("updateDecoration",{boardId,decorationId:title,patch:{x:-1,y:814}});
+  assert.ok(moved.history,"a dragged title returns a receipt");
+  assert.deepEqual([find(await board(),title).x,find(await board(),title).y],[-1,814]);
+  const undone = await f.op("restoreMovement",{history:moved.history});
+  assert.deepEqual(find(await board(),title),find(named,title),"undo restores the exact title");
+  assert.equal(JSON.stringify((await board()).placements),placements,"placements are untouched");
+  assert.equal(JSON.stringify((await board()).reviewOrder),order);
+  await f.op("restoreMovement",{history:undone.history});
+  assert.deepEqual([find(await board(),title).x,find(await board(),title).y],[-1,814],"redo moves it again");
+  // Moving a shape freezes its arrow's fallback point; undo restores both.
+  const beforeBox = await board();
+  const shaped = await f.op("updateDecoration",{boardId,decorationId:box,patch:{x:900,y:700,width:260}});
+  assert.ok(shaped.history);
+  await f.op("restoreMovement",{history:shaped.history});
+  assert.deepEqual(find(await board(),box),find(beforeBox,box));
+  assert.deepEqual(find(await board(),arrow),find(beforeBox,arrow));
+  // An arrow's own endpoints move and come back.
+  const beforeArrow = await board();
+  const dragged = await f.op("updateDecoration",{boardId,decorationId:arrow,patch:{to:{x:500,y:420}}});
+  assert.ok(dragged.history);
+  await f.op("restoreMovement",{history:dragged.history});
+  assert.deepEqual(find(await board(),arrow),find(beforeArrow,arrow));
+  // A later change to the moved decoration rejects the stale receipt without changing anything.
+  const again = await f.op("updateDecoration",{boardId,decorationId:title,patch:{x:40}});
+  await f.op("updateDecoration",{boardId,decorationId:title,patch:{color:"#8b6fb0"}});
+  const changed = await board();
+  await assert.rejects(f.op("restoreMovement",{history:again.history}),error => error.status === 409);
+  assert.deepEqual(await board(),changed);
+  // Card movement receipts are unchanged by decoration support.
+  const cardMove = await f.op("translatePlacements",{boardId,placementIds:[f.ids[0]],dx:10,dy:0});
+  assert.equal(cardMove.history.boards[0].decorationIds,undefined);
+  await f.op("restoreMovement",{history:cardMove.history});
+});

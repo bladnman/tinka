@@ -255,12 +255,14 @@ coordinates, then moves the entire selection by that delta in one revision. Size
 presentation, z order and canonical items stay unchanged. An invalid/missing ID,
 coordinate overflow or revision conflict rejects the entire operation.
 
-Successful `remove`, `pastePlacements`, geometry `updatePlacement`, `translatePlacements` and `move` operations
+Successful `remove`, `pastePlacements`, geometry `updatePlacement`, `translatePlacements`, geometry `updateDecoration` (a patch with `x`, `y`, `width`, `height`, `from` or `to`) and `move` operations
 from source placements into an existing board also return an opaque, signed
 top-level `history` receipt beside `revision` and `result`. A geometry patch can
 include presentation changes; presentation-only patches and unchanged arrangements
-do not return receipts. New-board creation, home-only moves, references, canonical
-deletion and canonical item edits are outside movement history.
+do not return receipts. A decoration receipt restores the moved decoration and any arrow
+whose fallback point the move froze, and rejects with 409 if any of them changed since; its
+board's placements are not compared. New-board creation, home-only moves, references, canonical
+deletion, canonical item edits and decoration text, color, creation and removal are outside movement history.
 
 Submit `{"type":"restoreMovement","history":RECEIPT}` to undo that movement.
 The operation accepts the usual `expectedRevision` and `operationId`, restores
