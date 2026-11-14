@@ -132,6 +132,46 @@ try{
  await page.keyboard.press('Shift+Tab');
  const tabbed=await page.evaluate(()=>({id:document.activeElement.id,outline:getComputedStyle(document.activeElement).outlineStyle}));
  ok(tabbed.id==='zoom-menu-toggle'&&tabbed.outline==='solid',`Tab focus keeps its ring: ${JSON.stringify(tabbed)}`);
+ // Hold F while drawing a selection box: releasing zooms to the box (Fit selection's margin), once.
+ await open('steps');
+ const viewNow=()=>page.evaluate(()=>{const m=new DOMMatrix(getComputedStyle(document.getElementById('plane')).transform);return {zoom:new DOMMatrix(getComputedStyle(document.getElementById('world')).transform).a,x:m.e,y:m.f};});
+ await page.keyboard.press('Shift+1');await page.waitForTimeout(80);
+ const vp=await page.locator('#viewport').boundingBox();
+ const start={x:vp.x+vp.width*.3,y:vp.y+vp.height*.3},end={x:vp.x+vp.width*.55,y:vp.y+vp.height*.6};
+ // The drawn box in board units, read from the same transform the page uses.
+ const boxBoard=await page.evaluate(([a,b])=>{const w=document.getElementById('world').getBoundingClientRect(),z=new DOMMatrix(getComputedStyle(document.getElementById('world')).transform).a;
+  return {cx:((a.x+b.x)/2-w.left)/z,cy:((a.y+b.y)/2-w.top)/z,w:Math.abs(b.x-a.x)/z,h:Math.abs(b.y-a.y)/z};},[start,end]);
+ const beforeArea=await viewNow();
+ await page.mouse.move(start.x,start.y);await page.keyboard.down('f');await page.mouse.down();
+ await page.mouse.move((start.x+end.x)/2,(start.y+end.y)/2,{steps:4});
+ await page.keyboard.down('f');await page.keyboard.down('f');// key repeat while held
+ const during=await viewNow();
+ ok(during.zoom===beforeArea.zoom&&during.x===beforeArea.x&&during.y===beforeArea.y,'No fit happens while the box is being drawn, F held and repeating');
+ ok(await page.evaluate(()=>document.body.classList.contains('workspace-fit-held')&&/Zoom here/.test(document.getElementById('workspace-marquee-count')?.textContent||'')),'The box says it will zoom');
+ await page.mouse.move(end.x,end.y,{steps:4});await page.mouse.up();await page.waitForTimeout(80);
+ const zoomed=await viewNow();
+ await page.keyboard.up('f');await page.waitForTimeout(80);
+ const afterRelease=await viewNow();
+ ok(afterRelease.zoom===zoomed.zoom&&afterRelease.x===zoomed.x,'Letting go of F afterwards does not fit again');
+ const centre=await page.evaluate(({cx,cy})=>{const w=document.getElementById('world').getBoundingClientRect(),z=new DOMMatrix(getComputedStyle(document.getElementById('world')).transform).a,v=document.getElementById('viewport').getBoundingClientRect(),map=document.getElementById('board-map');
+  const right=map&&!map.hidden&&map.offsetWidth&&innerWidth>720?map.offsetWidth+24:0;return {x:w.left+cx*z,y:w.top+cy*z,ax:v.left+(v.width-right)/2,ay:v.top+v.height/2};},boxBoard);
+ ok(Math.abs(centre.x-centre.ax)<2&&Math.abs(centre.y-centre.ay)<2,`The drawn box is centred in the canvas: ${JSON.stringify(centre)}`);
+ const area=await page.evaluate(()=>{const v=document.getElementById('viewport'),map=document.getElementById('board-map');return {w:v.clientWidth-(map&&!map.hidden&&map.offsetWidth&&innerWidth>720?map.offsetWidth+24:0),h:v.clientHeight};});
+ const expected=Math.min((area.w-96)/boxBoard.w,(area.h-96)/boxBoard.h);
+ ok(Math.abs(zoomed.zoom-expected)<1e-3,`The zoom fits the box with Fit selection's margin: ${zoomed.zoom} vs ${expected}`);
+ ok(zoomed.zoom>beforeArea.zoom,'Zoomed in to the box');
+ ok(await page.locator('#view-back').isVisible(),'Back is offered after the zoom');
+ await page.locator('#view-back').click();await page.waitForTimeout(80);
+ const returned=await viewNow();
+ ok(Math.abs(returned.zoom-beforeArea.zoom)<1e-9&&Math.abs(returned.x-beforeArea.x)<1&&Math.abs(returned.y-beforeArea.y)<1,'Back returns to the view before the zoom');
+ // A tiny box with F held is a click: no zoom.
+ await page.mouse.move(start.x,start.y);await page.keyboard.down('f');await page.mouse.down();await page.mouse.move(start.x+10,start.y+8,{steps:3});await page.mouse.up();await page.keyboard.up('f');await page.waitForTimeout(60);
+ const tiny=await viewNow();ok(tiny.zoom===returned.zoom&&tiny.x===returned.x,'A tiny box does not zoom, and F released after it does not fit');
+ // A plain F tap still fits (the board, with nothing selected).
+ await page.keyboard.press('Escape');await page.locator('#zoom-plus').click();await page.locator('#zoom-plus').click();
+ const zoomedIn=await viewNow();await page.keyboard.press('f');await page.waitForTimeout(60);
+ ok((await viewNow()).zoom<zoomedIn.zoom,'A plain F tap still fits');
+
  // With motion the step glides there rather than jumping.
  const moving=await browser.newContext({viewport:{width:1244,height:820},colorScheme:'dark'});const mp=await moving.newPage();mp.on('pageerror',e=>errors.push(e.message));
  await mp.goto(base+'/boards/steps/',{waitUntil:'load'});await mp.locator('.workspace-card').first().waitFor();await mp.waitForTimeout(150);

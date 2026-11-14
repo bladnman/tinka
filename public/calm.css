@@ -596,3 +596,6 @@ body .canvas-footer.status-yields .status-line { visibility: hidden; }
 /* Focus rings are for the keyboard: a control focused by a click or tap (pointer-focus.js)
    shows none, even after a later key press. Tab and keyboard commands keep the ring. */
 [data-pointer-focus]:focus-visible { outline: none !important; }
+
+/* Holding F while drawing a selection box: releasing zooms to the box, so it says so. */
+body.workspace-fit-held #workspace-marquee { border-style: dashed; background: color-mix(in srgb, var(--accent) 12%, transparent); }

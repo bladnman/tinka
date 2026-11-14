@@ -264,7 +264,9 @@ pointer, including over a Tinka or the floating controls; previews never zoom
 themselves. Fit board and Fit selection never magnify past 125%.
 Fit follows the selection: with items selected it reads **Fit selection** with a
 count and frames them; pressed again, or with nothing selected, it fits the whole
-board. **F** does the same, and ⌥/Alt-click on Fit always fits the board. After any
+board. **F** does the same when you let it go, and ⌥/Alt-click on Fit always fits the board.
+Hold **F** while drawing a selection box and, when you let go of the box, the view zooms to
+it (it selects as usual, and Back returns). After any
 fit a **Back** button returns to exactly where you were; it goes away once used or
 when you pan or zoom yourself. The map button (**M**) shows the whole board as
 outlines with your view as a frame and the selection in green: click or tap to

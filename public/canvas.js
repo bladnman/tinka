@@ -134,7 +134,7 @@ async function fetchBoard() {
   if (!response.ok) throw new Error(`Board metadata unavailable (${response.status})`);
   const data = await response.json();
   if (data.schemaVersion === 2) {
-    if (!graph) graph = new WorkspaceBoard(appConfig, data, { concepts:()=>all, active:()=>active, zoom:()=>zoom, shiftOrigin:(dx,dy)=>{if(dx||dy){view.x-=dx*zoom;view.y-=dy*zoom;resting=false;shiftSavedViews(dx,dy);}}, shiftViewport:(dx,dy)=>{if(dx||dy)moveView(view.x+dx,view.y+dy);}, holdView:()=>{resting=false;}, revealPlacements:revealPlacements, revealTarget:placement=>{const fit=Math.min((viewport.clientWidth-80)/placement.width,(viewport.clientHeight-80)/placement.height,1);changeZoom(fit);const rect=world.getBoundingClientRect(),region=viewport.getBoundingClientRect();moveView(view.x+region.left+viewport.clientWidth/2-(rect.left+(placement.x+graph.origin.x+placement.width/2)*zoom),view.y+region.top+viewport.clientHeight/2-(rect.top+(placement.y+graph.origin.y+placement.height/2)*zoom));}, preview:c=>previewHref(c), layout:()=>{ if(resting)rest();else applyView(); contentChanged(); }, mode:mode=>{ if(mode==='canvas'){zoom=1;settleCushion();}else{viewport.scrollLeft=0;viewport.scrollTop=0;} requestAnimationFrame(syncMapAvailability); }, fit:kind=>runFit(kind==='smart'?smartFitTarget():kind), toggleMap:()=>setMapOpen(!boardMap.visible,{remember:true}), reloadReader:()=>loadRevision(), saveStatus:setSaveStatus, openOwner:()=>{const c=graph.ownerConcept();if(c)openReader(c.key);}, closeReader:()=>closeReader(), flushNotes:flushNoteEdits, liveReady:()=>{void drainLiveUpdates().catch(()=>{});}, data:acceptGraphData, editNote:(key,anchor)=>openTileNote(key,anchor), readerChanged:()=>{if(active&&dialog.open)renderReaderChrome();}, viewOnly:overview });
+    if (!graph) graph = new WorkspaceBoard(appConfig, data, { concepts:()=>all, active:()=>active, zoom:()=>zoom, shiftOrigin:(dx,dy)=>{if(dx||dy){view.x-=dx*zoom;view.y-=dy*zoom;resting=false;shiftSavedViews(dx,dy);}}, shiftViewport:(dx,dy)=>{if(dx||dy)moveView(view.x+dx,view.y+dy);}, holdView:()=>{resting=false;}, revealPlacements:revealPlacements, revealTarget:placement=>{const fit=Math.min((viewport.clientWidth-80)/placement.width,(viewport.clientHeight-80)/placement.height,1);changeZoom(fit);const rect=world.getBoundingClientRect(),region=viewport.getBoundingClientRect();moveView(view.x+region.left+viewport.clientWidth/2-(rect.left+(placement.x+graph.origin.x+placement.width/2)*zoom),view.y+region.top+viewport.clientHeight/2-(rect.top+(placement.y+graph.origin.y+placement.height/2)*zoom));}, preview:c=>previewHref(c), layout:()=>{ if(resting)rest();else applyView(); contentChanged(); }, mode:mode=>{ if(mode==='canvas'){zoom=1;settleCushion();}else{viewport.scrollLeft=0;viewport.scrollTop=0;} requestAnimationFrame(syncMapAvailability); }, fit:(kind,area)=>runFit(kind==='smart'?smartFitTarget():kind,area), toggleMap:()=>setMapOpen(!boardMap.visible,{remember:true}), reloadReader:()=>loadRevision(), saveStatus:setSaveStatus, openOwner:()=>{const c=graph.ownerConcept();if(c)openReader(c.key);}, closeReader:()=>closeReader(), flushNotes:flushNoteEdits, liveReady:()=>{void drainLiveUpdates().catch(()=>{});}, data:acceptGraphData, editNote:(key,anchor)=>openTileNote(key,anchor), readerChanged:()=>{if(active&&dialog.open)renderReaderChrome();}, viewOnly:overview });
     if (overview) graph.mode = 'canvas';
     return graph.adapt(data);
   }
@@ -370,12 +370,12 @@ function fitBoardView(area = fitArea(), cap = FIT_MAX_ZOOM) {
   return { zoom: z, x: (area.width - contentWidth * z) / 2 - pad, y: (area.height - contentHeight * z) / 2 - pad };
 }
 // The view that fits the rendered selected placements, capped like Fit board.
-function fitSelectionView(placements, area = fitArea()) {
+function fitSelectionView(placements, area = fitArea(), cap = FIT_MAX_ZOOM) {
   if (!placements.length) return null;
   const x = Math.min(...placements.map(p => p.x)), y = Math.min(...placements.map(p => p.y));
   const width = Math.max(1, Math.max(...placements.map(p => p.x + p.width)) - x), height = Math.max(1, Math.max(...placements.map(p => p.y + p.height)) - y);
   const margin = 48;
-  const z = clampZoom(Math.min(FIT_MAX_ZOOM, (area.width - margin * 2) / width, (area.height - margin * 2) / height));
+  const z = clampZoom(Math.min(cap, (area.width - margin * 2) / width, (area.height - margin * 2) / height));
   return { zoom: z, x: area.width / 2 - (x + graph.origin.x + width / 2) * z, y: area.height / 2 - (y + graph.origin.y + height / 2) * z };
 }
 function fitBoard() { runFit('board'); }
@@ -396,11 +396,13 @@ function isFramed(kind) {
 }
 // The Fit button fits the selection first, then the board on the next press.
 function smartFitTarget() { return selectionInfo.count && !isFramed('selection') ? 'selection' : 'board'; }
-function runFit(kind) {
+// 'area' fits a box drawn with F held (board units), with Fit selection's margin; unlike
+// the item fits it may magnify past 125%, since a small box asks to look closer.
+function runFit(kind, box) {
   if (graph?.mode === 'grid') { viewport.scrollTo({top:0,left:0}); return; }
-  const placements = kind === 'selection' ? selectedPlacements() : [];
+  const placements = kind === 'selection' ? selectedPlacements() : kind === 'area' && box ? [box] : [];
   if (!placements.length) kind = 'board';
-  const target = kind === 'selection' ? fitSelectionView(placements) : fitBoardView();
+  const target = kind === 'area' ? fitSelectionView(placements, fitArea(), Infinity) : kind === 'selection' ? fitSelectionView(placements) : fitBoardView();
   if (!target) return;
   if (graph) graph.revealedPlacement = null;
   const before = currentView();
@@ -411,7 +413,7 @@ function runFit(kind) {
   framed = { kind, key: selectionInfo.key, view: after };
   // A fit that changes nothing keeps the earlier way back.
   if (!sameView(before, after)) backView = before;
-  if (!overview) announceView(kind === 'selection' ? `Fitted ${placements.length} selected` : 'Fitted the whole board');
+  if (!overview) announceView(kind === 'area' ? 'Zoomed to the drawn area' : kind === 'selection' ? `Fitted ${placements.length} selected` : 'Fitted the whole board');
   syncFitControls();
 }
 function goBack() {
