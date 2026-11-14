@@ -10,6 +10,12 @@ be found again: add it there and give the user the board link, as well as showin
 it the way you otherwise would, such as sending the same image or file in the
 conversation. Board links open only on this computer.
 
+Always give the user the Tinka link to exactly what you added or changed (the
+`link` in each tool result), not just the board; it lets them review and decide
+fast. When the user may be away from this computer (on a phone, say) or just
+needs to see the work, consider also sending a picture of it with that link
+(`item shot` or `board overview`, described in the app's agent guide).
+
 Read the project's `AGENTS.md` and `TINKA.md` to locate its boards and
 installation. Follow the selected app's `docs/AGENT.md` (or its README on older
 installs) and `docs/PROTOCOL.md`, plus the board's own instructions. Those files carry the guidance for that installed version.

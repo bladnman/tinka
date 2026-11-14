@@ -24,13 +24,16 @@ test('the managed block routes visual work to boards in a few lines',()=>{
   assert.equal(BLOCK,`${TINKA_START}\n${TINKA_SECTION}\n${TINKA_END}`);
   assert.match(TINKA_START,/^<!-- tinka:start .*-->$/);
   assert.equal(TINKA_END,'<!-- tinka:end -->');
-  assert(TINKA_SECTION.split('\n').length<=8);
+  assert(TINKA_SECTION.split('\n').length<=11);
   assert.match(TINKA_SECTION,/^## Tinka\n/);
-  assert.match(TINKA_SECTION,/board link/);
   // The board is added to the usual way of showing work, not substituted for it.
-  assert.match(TINKA_SECTION,/board link as well as showing it/);
+  assert.match(TINKA_SECTION,/add it to a board as well as showing\nit the way you otherwise would/);
+  // The direct link to what changed, with the reason, as a firm habit.
+  assert.match(TINKA_SECTION,/Always\ngive the user the Tinka link to exactly what you added or changed \(the `link` in each tool\nresult\), not just the board or Home; it lets them review and decide fast\./);
+  // A picture is a suggestion for when the user may be away or just needs to see it.
+  assert.match(TINKA_SECTION,/may be away \(on a phone, say\) or just needs to see it, consider\nalso sending a picture with the link \(`item shot` or `board overview`/);
   assert.doesNotMatch(TINKA_SECTION,/instead of/);
-  assert.match(TINKA_SECTION,/open only on this computer/);
+  assert.match(TINKA_SECTION,/open only on\sthis computer/);
   assert.match(TINKA_SECTION,/\[TINKA\.md\]\(TINKA\.md\)/);
 });
 
@@ -107,4 +110,18 @@ test('project instructions requires a Tinka project',async()=>{
     await assert.rejects(plain.instructions(),/No tinka\/project\.json/);
     assert.equal(await plain.read('AGENTS.md'),`${ONE_LINER}\n`);
   }finally{await plain.done();}
+});
+
+test('a new TINKA.md says to share the direct link and, when useful, a picture; an existing one is kept',async()=>{
+  const fresh=await project({},{pinned:false});
+  const custom=await project({'TINKA.md':'# Our own Tinka notes\n'},{pinned:false});
+  try{
+    await fresh.init();await custom.init();
+    const text=await fresh.read('TINKA.md');
+    assert.match(text,/## Share what you add or change\n\nGive the user the Tinka link to exactly what you added or changed\. Tool results\nthat change a board carry it as `link`/);
+    assert.match(text,/node tinka\/app\/cli\.mjs item shot ITEM_ID --config tinka\/local\/config\.json --out \/absolute\/shot\.png/);
+    assert.match(text,/node tinka\/app\/cli\.mjs board overview BOARD_ID --config tinka\/local\/config\.json --out/);
+    assert.match(text,/`--width 390` for a phone-sized page/);
+    assert.equal(await custom.read('TINKA.md'),'# Our own Tinka notes\n');
+  }finally{await fresh.done();await custom.done();}
 });

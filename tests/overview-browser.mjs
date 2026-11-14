@@ -14,6 +14,7 @@ import {loadConfig} from '../lib/config.mjs';
 import {applyOperation} from '../lib/workspace.mjs';
 import {createAppServer,closeAppServer} from '../server.mjs';
 import {saveOverview} from '../lib/overview.mjs';
+import {saveShot,shotSource} from '../lib/shot.mjs';
 const {chromium}=await import(process.env.PLAYWRIGHT_MODULE?pathToFileURL(process.env.PLAYWRIGHT_MODULE).href:'playwright');
 const repo=path.resolve(path.dirname(fileURLToPath(import.meta.url)),'..');
 const fixture=await mkdtemp(path.join(os.tmpdir(),'tinka-overview-browser-'));
@@ -128,6 +129,23 @@ try{
   checks.push('legacy board: frames load, card controls and notes hidden, live badges read once');
   assert.deepEqual(requests.filter(entry=>!entry.startsWith('GET ')),[],'newer browser notes are not saved from an overview');
   assert.equal(JSON.parse(await readFile(path.join(boardsRoot,'first-steps/.state/notes.json'),'utf8').catch(()=>'{}'))['first/one-step']?.note,undefined);
+
+  // item shot: one Tinka's own content at a readable size, through the same browser.
+  const items=Object.values((await (await fetch(`${url}api/boards/looks`)).json()).items),named=title=>items.find(item=>item.title===title);
+  const proto=path.join(shots,'shot-prototype.png');
+  const protoShot=await saveShot({source:shotSource(named('Prototype'),url),out:proto,width:640,browser:executable});
+  assert.equal(protoShot.state,'ready');
+  assert.deepEqual(pngSize(await readFile(proto)),{width:1280,height:protoShot.height*2});
+  assert((await pixels(proto)).counts.prototype>200000,'the prototype fills the shot at twice the pixels');
+  const red=path.join(shots,'shot-image.png');
+  await saveShot({source:shotSource(named('Look red'),url),out:red,browser:executable});
+  assert.deepEqual(pngSize(await readFile(red)),{width:320,height:180});
+  assert((await pixels(red)).counts.red>320*180*0.95,'an image keeps its own pixels');
+  const note=path.join(shots,'shot-note.png');
+  const noteShot=await saveShot({source:shotSource(named('Which look? Star one.'),url),out:note,width:600,browser:executable});
+  assert(noteShot.height<600,`a short note is not padded to the window (${noteShot.height})`);
+  await assert.rejects(saveShot({source:shotSource(named('Prototype'),url),out:proto,width:640,browser:executable}),/EEXIST/);
+  checks.push('item shot: an HTML item at its width and twice the pixels, an image at its own size, a note sized to its text, never overwrites');
   console.log(JSON.stringify({passed:true,evidence:shots,checks},null,1));
 }finally{
   await browser?.close();

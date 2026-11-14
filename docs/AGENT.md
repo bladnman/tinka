@@ -36,7 +36,7 @@ Do not kill, adopt or reconfigure another instance to resolve a collision.
 In a project with Tinka, visual work you make for the user to look at (designs,
 mockups, images, illustrations, diagrams, prototypes, alternatives to compare,
 screenshots for review) goes on a board, where it can be found again, and you
-give the user the board link. The board is added to the usual way of showing
+give the user the Tinka link to that item. The board is added to the usual way of showing
 work, not substituted for it: also send the same image or file in the
 conversation, or show it however you otherwise would. Board links open only on
 this computer (Tinka answers only `127.0.0.1`), so the copy in the conversation
@@ -59,8 +59,47 @@ starts keep current. Do not edit between its markers; put project rules outside.
    `content:{kind,resource:{rootId,path}}` (`html`, `image`, `pdf`, `markdown`,
    `video`). Visual kinds default to a Full preview panel; size detailed designs
    as described in [Make the work visible](#make-the-work-visible).
-5. Check the rendered board, then give the user `URL/boards/BOARD_ID/`, adding
-   `?reveal=PLACEMENT_ID` from the result's `placementIds` to focus one item.
+5. Check the rendered board, then give the user the link to exactly what you
+   added or changed: the `link` in the call's result (below), not just the board
+   or Home.
+
+### Share the link, and a picture when useful
+
+Always give the user the Tinka link to exactly what you added or changed; it lets
+them review and decide fast. Every changing tool call (and `workspace op` and
+`status`) returns it as `link`. For one Tinka it is
+`URL/boards/BOARD_ID/#items/PLACEMENT_ID`, which opens that Tinka on its board;
+leaving it lands on its tile. When a call changes several Tinkas, `link` is the
+board and `links` lists each one (at most 20); an item on several boards gets its
+first place as `link` and every place in `links`. Board-only changes return the
+board's link; deleting or archiving an item returns none. Give one link per
+changed item; for many, the board link plus the key items. The links use this
+instance's saved port and open only on this computer.
+
+When the user may be away from this computer (on a phone, say) or just needs to
+see the work, consider also saving a picture and sending it in the conversation
+with your host's file-sharing tool, together with the link, so they can look now
+and jump straight to the item to decide:
+
+```sh
+node tinka/app/cli.mjs item shot ITEM_ID --config tinka/local/config.json \
+  --out /absolute/scratch/pricing-phone.png --width 390
+```
+
+`item shot ITEM_OR_PLACEMENT --out FILE.png` saves one Tinka's own content, the
+thing to decide on, not its small tile: an HTML item rendered as a page 1280 CSS
+pixels wide by default (`--width` 320–2560; 390 is a phone), at twice the pixels
+(`--scale 1` for plain), the whole page down to 4000 CSS pixels (`--height` to
+choose; a longer page is cut there with a note); an image at its own size (at
+most 4000 pixels a side); a Markdown or other document as Tinka's reader shows it,
+without its controls; a note or title-only idea as a card. An item whose only
+content is its board points you to `board overview`. A remote web page is not
+loaded; give the item a saved preview image instead. A local app item
+(`http://127.0.0.1:…`) is loaded only if it is answering. `--appearance dark`
+asks the page for its dark look. It prints the item's Tinka link (`--board` picks
+which board's), uses the same headless browser as `board overview`, never
+overwrites a file and usually takes a few seconds. Save it wherever your chat
+tool can send it; it is a copy for the conversation, not project material.
 
 To show another board from a board, place that board itself rather than a card
 holding its URL: `reference` its `ownerItemId` (from `board.get`) with
@@ -86,7 +125,7 @@ node tinka/app/cli.mjs tools call item.create --config tinka/local/config.json \
   "placement":{"x":0,"y":0,"width":560,"height":300}}'
 ```
 
-A changing call prints `{"revision":N,"result":{"itemId":"…","boardId":"…","placementIds":["…"]}}`.
+A changing call prints `{"revision":N,"result":{"itemId":"…","boardId":"…","placementIds":["…"]},"link":"http://127.0.0.1:PORT/boards/…/#items/…"}`.
 `board.get` prints the board object itself (`id`, `ownerItemId`, `placements`
 with x/y/width/height, and canonical `items` keyed by ID), not `{"board":…}`.
 Over HTTP the same reads are GET `/api/boards/BOARD_ID` (plural `boards`) and
@@ -94,7 +133,8 @@ POST `/api/tools/call`. Coordinates are board units; leave 40–60 units between
 neighbours.
 
 To send a whole board as one picture (for someone on a phone, or a chat that
-cannot open the link), save an overview into the project and send that file:
+cannot open the link), save an overview and send that file with the board link
+(for one item, `item shot` above shows it larger):
 
 ```sh
 node tinka/app/cli.mjs board overview BOARD_ID --config tinka/local/config.json \

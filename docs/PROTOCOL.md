@@ -371,6 +371,10 @@ expose the same named tools as GET `/api/tools` and POST `/api/tools/call`
 origin guards. files.import takes local paths through CLI only, opens regular
 files with byte limits before reading, and uses the existing import transaction.
 Browser file imports retain the multipart route. Existing operations remain.
+A changing tool call's response adds `link`, the direct Tinka link to what it
+added or changed (`/boards/BOARD/#items/PLACEMENT` for one Tinka, the board for
+board-level changes), plus `links` when it changed several; `revision` and
+`result` are unchanged. `workspace op` adds the same; POST `/api/operations` does not.
 
 workspace.search accepts query, fields title/description, kind items/boards/all,
 withinBoardId, recursive, createdAfter/Before, updatedAfter/Before, sort

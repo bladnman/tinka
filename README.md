@@ -53,7 +53,7 @@ node /absolute/tinka-install.mjs --project /absolute/project \
 Setup creates an empty boards folder and this project structure:
 
 ```text
-AGENTS.md                 Short Tinka section: visual work also goes on boards; see TINKA.md
+AGENTS.md                 Short Tinka section: visual work also goes on boards, share direct links; see TINKA.md
 TINKA.md                  Board location, restore and operating instructions
 tinka/
   project.json            Version pin, project label, relative boards path
@@ -143,6 +143,28 @@ file. It usually takes about ten seconds, during which other Tinka commands for
 this app wait; it gives up after 45 seconds, and saves nothing if the board page
 fails to load. Without a browser, open `URL/boards/BOARD_ID/?overview` and take a
 screenshot; that view changes nothing in the browser or the project.
+
+### One image of an item, and its link
+
+To show one Tinka itself, larger than its tile, save a shot of it:
+
+```sh
+node /absolute/project/tinka/app/cli.mjs item shot ITEM_OR_PLACEMENT_ID \
+  --config /absolute/project/tinka/local/config.json --out /absolute/shot.png --width 390
+```
+
+An HTML item renders as a page at `--width` CSS pixels (default 1280, 320–2560; 390
+is a phone) at twice the pixels (`--scale 1` for plain), down to 4000 CSS pixels of
+its height (`--height` to choose); an image keeps its own size (at most 4000 pixels
+a side); a document shows as Tinka's reader shows it, without its controls; a note
+or idea as a card. It prints the item's Tinka link (`--board` chooses which board's),
+uses the same headless browser and limits as an overview, and never overwrites a
+file. Remote web pages are not loaded; a local app item is, when it is answering.
+
+Every tool call that changes a board also returns `link`, the direct Tinka link
+to what it added or changed (`URL/boards/BOARD/#items/PLACEMENT` opens that Tinka;
+several changed Tinkas also get `links`). Agents give the user that link, and
+when the user is away from this computer, a picture with it.
 
 Stop only this instance with `node /absolute/project/tinka/app/cli.mjs stop --config /absolute/project/tinka/local/config.json`. Use `serve` for a foreground process and Ctrl-C to stop it. PID and log files live beside the config. Managed stop checks the recorded PID, CLI path, config path, and unique process token before signaling anything.
 
