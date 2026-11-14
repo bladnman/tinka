@@ -148,7 +148,7 @@ test('a failed upgrade restart restores the old app and service without changing
   const url=(await read(`${config}.pid.json`)).url;
   const brokenSource=path.join(root,'broken-source');
   await mkdir(brokenSource);
-  for(const name of ['README.md','AGENTS.md','IMPLEMENTATION_CONTRACT.md','package.json','cli.mjs','server.mjs','public','lib','docs','examples','scripts','skill'])await cp(path.resolve(name),path.join(brokenSource,name),{recursive:true});
+  for(const name of ['README.md','LICENSE','AGENTS.md','IMPLEMENTATION_CONTRACT.md','package.json','cli.mjs','server.mjs','public','lib','docs','examples','scripts','skill'])await cp(path.resolve(name),path.join(brokenSource,name),{recursive:true});
   const cli=path.join(brokenSource,'lib/cli.mjs');
   await writeFile(cli,(await readFile(cli,'utf8')).replace("if(command==='start'&&positionals.length===1){", "if(command==='start'&&positionals.length===1){throw new Error('Injected restart failure');"));
   const badRelease=path.join(root,'bad-release');

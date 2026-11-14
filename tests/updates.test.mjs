@@ -254,7 +254,7 @@ test('failed candidate health rolls back app, exact config and pin; a prior owne
   const f = await fixture(t);
   const broken = path.join(f.project, 'broken-source');
   await mkdir(broken);
-  for (const file of ['README.md','AGENTS.md','IMPLEMENTATION_CONTRACT.md','package.json','cli.mjs','server.mjs','public','lib','docs','examples','scripts','skill']) await cp(path.resolve(file), path.join(broken, file), {recursive: true});
+  for (const file of ['README.md','LICENSE','AGENTS.md','IMPLEMENTATION_CONTRACT.md','package.json','cli.mjs','server.mjs','public','lib','docs','examples','scripts','skill']) await cp(path.resolve(file), path.join(broken, file), {recursive: true});
   const server = path.join(broken, 'server.mjs');
   await writeFile(server, (await readFile(server, 'utf8')).replace("app:'board-room'", "app:'broken-health'"));
   // Health route's literal identity is changed; candidate still binds successfully.

@@ -33,13 +33,14 @@ test('release archives include app instructions and installer; optional skill is
   try {
     const names = readSafeZip(fixture.zipBytes).map(entry => entry.relative);
     assert(names.includes('cli.mjs'));
+    assert(names.includes('LICENSE'));
     assert(names.includes('docs/PROTOCOL.md'));
     assert(names.includes('docs/AGENT.md'));
     assert(names.includes('docs/BOARD.md'));
     assert(names.includes('scripts/install.mjs'));
     assert(names.includes('public/home.html'));
     assert(names.some(name => name.startsWith('lib/')));
-    assert(names.every(name => /^(?:README\.md|AGENTS\.md|IMPLEMENTATION_CONTRACT\.md|package\.json|cli\.mjs|server\.mjs|public\/|lib\/|examples\/|scripts\/install\.mjs$|docs\/(?:README|AGENT|BOARD|PROTOCOL|RELEASE)\.md)/.test(name)));
+    assert(names.every(name => /^(?:README\.md|LICENSE$|AGENTS\.md|IMPLEMENTATION_CONTRACT\.md|package\.json|cli\.mjs|server\.mjs|public\/|lib\/|examples\/|scripts\/install\.mjs$|docs\/(?:README|AGENT|BOARD|PROTOCOL|RELEASE)\.md)/.test(name)));
     assert(names.every(name => !/(?:^|\/)(?:boards|evidence|notes|skill|tests)(?:\/|$)/.test(name)));
     const digest = createHash('sha256').update(fixture.zipBytes).digest('hex');
     assert.match(fixture.checksumText, new RegExp(`^${digest}  ${fixture.zipName}\\n$`));

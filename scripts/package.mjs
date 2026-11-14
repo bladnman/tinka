@@ -7,7 +7,7 @@ import { fileURLToPath } from 'node:url';
 const sourceRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const maxFileBytes = 20 * 1024 * 1024;
 const maxArchiveBytes = 100 * 1024 * 1024;
-const appRoots = ['README.md', 'AGENTS.md', 'IMPLEMENTATION_CONTRACT.md', 'package.json', 'cli.mjs', 'server.mjs', 'public', 'lib', 'examples', 'scripts/install.mjs'];
+const appRoots = ['README.md', 'LICENSE', 'AGENTS.md', 'IMPLEMENTATION_CONTRACT.md', 'package.json', 'cli.mjs', 'server.mjs', 'public', 'lib', 'examples', 'scripts/install.mjs'];
 const publicDocs = ['docs/README.md', 'docs/AGENT.md', 'docs/BOARD.md', 'docs/PROTOCOL.md', 'docs/RELEASE.md'];
 const skillRoots = ['skill/tinka/SKILL.md'];
 const excludedNames = new Set(['.DS_Store', '.state', 'boards', 'evidence', 'notes', 'tests', 'test', 'skill', 'scripts', 'node_modules']);
