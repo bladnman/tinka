@@ -19,6 +19,7 @@ import {resolveResource,resourceUrl} from './lib/resources.mjs';
 import {withStore} from './lib/store.mjs';
 import {createLinkPreview} from './lib/link-preview.mjs';
 import {readImportRequest} from './lib/file-import.mjs';
+import {wantsReturnMark,injectReturnMark,resourcePlaces} from './lib/return-mark.mjs';
 
 const appRoot=path.dirname(fileURLToPath(import.meta.url));
 const publicRoot=path.join(appRoot,'public');
@@ -77,10 +78,21 @@ async function boardCatalog(config){
   });
   return {...legacy,boards:newestBoardsFirst([...legacy.boards.filter(board=>!migrated.has(board.id)),...boards]),workspaceRevision:workspace.revision,revision:`${legacy.revision}:${workspace.revision}`};
 }
-async function sendFile(req,res,root,relative){
+async function sendFile(req,res,root,relative,{url=null}={}){
   const file=await existingInside(root,relative);
   const size=file.stat.size;
   const headers={'Content-Type':types[path.extname(file.path).toLowerCase()]||'application/octet-stream','X-Content-Type-Options':'nosniff','Cache-Control':'no-cache','Accept-Ranges':'bytes'};
+  // Project HTML opened as the page itself gets the "Back to Tinka" mark (lib/return-mark.mjs);
+  // frames, ranges, curl and agents get the file's exact bytes, so caches must key on the header.
+  if(url&&/^text\/html\b/i.test(headers['Content-Type'])){
+    headers.Vary='Sec-Fetch-Dest';
+    if(wantsReturnMark(req,url,headers['Content-Type'],size)){
+      const original=await readFile(file.path);
+      const body=injectReturnMark(original)||original;
+      res.writeHead(200,{...headers,'Content-Length':body.length});
+      res.end(req.method==='HEAD'?undefined:body);return;
+    }
+  }
   const range=req.headers.range;
   if(range){
     const match=/^bytes=(\d*)-(\d*)$/.exec(range);
@@ -136,6 +148,8 @@ export function createAppServer(config){
         if(!input||typeof input!=='object'||Array.isArray(input)||typeof input.name!=='string'||Object.keys(input).some(key=>!['name','arguments'].includes(key)))throw new HttpError(400,'Provide {name,arguments}.');
         sendJson(res,200,await callTool(config,input.name,input.arguments??{},{transport:'http'}));return;
       }
+      // Which board placements show the file at a standalone address (read-only).
+      if(pathname==='/api/resource-places'&&method==='GET'){sendJson(res,200,await resourcePlaces(config,url.searchParams.get('url')||''));return;}
       if(pathname==='/api/highlights'&&method==='GET'){const input=Object.fromEntries(url.searchParams);if(input.limit!==undefined)input.limit=Number(input.limit);sendJson(res,200,await listHighlights(config,input));return;}
       if(pathname==='/api/feedback'&&method==='GET'){
         const input=Object.fromEntries(url.searchParams);
@@ -220,9 +234,9 @@ export function createAppServer(config){
       if(boardPage){const id=decodeSegment(boardPage[1]);if(!await loadGraphBoard(config,id))await boardDirectory(config.boardsRoot,id);await sendFile(req,res,publicRoot,'board.html');return;}
       if(pathname.startsWith('/app/')){await sendFile(req,res,publicRoot,safeRelative(pathname.slice('/app/'.length)));return;}
       const resourceFile=/^\/resources\/([^/]+)\/(.+)$/.exec(pathname);
-      if(resourceFile){const resource=await resolveResource(config,{rootId:decodeSegment(resourceFile[1]),path:safeRelative(resourceFile[2])});await sendFile(req,res,resource.rootPath,path.relative(resource.rootPath,resource.path).split(path.sep).join('/'));return;}
+      if(resourceFile){const resource=await resolveResource(config,{rootId:decodeSegment(resourceFile[1]),path:safeRelative(resourceFile[2])});await sendFile(req,res,resource.rootPath,path.relative(resource.rootPath,resource.path).split(path.sep).join('/'),{url});return;}
       const boardFile=/^\/boards\/([^/]+)\/files\/(.+)$/.exec(pathname);
-      if(boardFile){const boardRoot=await boardDirectory(config.boardsRoot,decodeSegment(boardFile[1]));await sendFile(req,res,boardRoot,safeRelative(boardFile[2]));return;}
+      if(boardFile){const boardRoot=await boardDirectory(config.boardsRoot,decodeSegment(boardFile[1]));await sendFile(req,res,boardRoot,safeRelative(boardFile[2]),{url});return;}
       throw new HttpError(404,'Not found.');
     }catch(error){sendError(res,error);}
   });
