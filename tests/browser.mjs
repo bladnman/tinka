@@ -11,6 +11,7 @@ import os from 'node:os';
 import path from 'node:path';
 import {pathToFileURL} from 'node:url';
 import {main} from '../cli.mjs';
+import {sliderFromZoom} from '../public/canvas-zoom.js';
 const modulePath=process.env.PLAYWRIGHT_MODULE;
 const {chromium}=await import(modulePath?pathToFileURL(modulePath).href:'playwright');
 const fixtures=await mkdtemp(path.join(os.tmpdir(),'tinka-browser-fixture-'));
@@ -243,7 +244,7 @@ try{
   await a.page.mouse.move(720,600);
   await a.page.mouse.wheel(0,610);
   await a.page.waitForFunction(()=>document.querySelector('#round-status').textContent.startsWith('Round 2 /'));
-  await a.page.locator('#zoom-slider').evaluate(el=>{el.value='20';el.dispatchEvent(new Event('input',{bubbles:true}));});
+  await a.page.locator('#zoom-slider').evaluate((el,value)=>{el.value=String(value);el.dispatchEvent(new Event('input',{bubbles:true}));},sliderFromZoom(.2));
   assert.equal(await a.page.locator('#world').evaluate(el=>el.style.transform),'scale(0.2)');
   await showRound('second');
   await settledRound(1);
@@ -435,7 +436,9 @@ try{
     await h.mouse.up();
   };
   const near=(a,b)=>Math.abs(a-b)<1.5;
-  const setRange=(selector,value)=>h.locator(selector).evaluate((el,value)=>{el.value=String(value);el.dispatchEvent(new Event('input',{bubbles:true}));},value);
+  // The zoom slider is logarithmic: set and read it in percent.
+  const setRange=(selector,percent)=>h.locator(selector).evaluate((el,value)=>{el.value=String(value);el.dispatchEvent(new Event('input',{bubbles:true}));},sliderFromZoom(percent/100));
+  const zoomPercent=async()=>parseInt(await h.locator('#zoom-slider').getAttribute('aria-valuetext'),10);
   await h.goto(a.url);
   await h.getByRole('heading',{name:'History'}).waitFor();
   // Home -> board is real page navigation.
@@ -454,7 +457,7 @@ try{
   assert.equal(await h.locator('.canvas-footer #zoom-slider').count(),1);
   assert.equal(await h.locator('.canvas-footer #fit').isVisible(),true);
   assert.equal(await h.locator('#dot-track').isVisible(),false);
-  assert.equal(await h.locator('#zoom-slider').inputValue(),'50');
+  assert.equal(await zoomPercent(),50);
   assert.equal(await h.locator('#zoom-slider').getAttribute('aria-valuetext'),'50 percent');
   // Board zoom: slider, Control-wheel, keyboard, Safari gesture and two-finger pinch stay in sync with the slider.
   await setRange('#zoom-slider',100);
@@ -464,7 +467,7 @@ try{
   await h.keyboard.down('Control');
   await h.mouse.wheel(0,-60);
   await h.keyboard.up('Control');
-  await h.waitForFunction(()=>Number(document.querySelector('#zoom-slider').value)>100);
+  await h.waitForFunction(full=>Number(document.querySelector('#zoom-slider').value)>full,sliderFromZoom(1));
   const wheelZoom=Number(await h.locator('#zoom-slider').inputValue());
   await h.locator('#viewport').focus();
   await h.keyboard.press('-');
@@ -473,13 +476,13 @@ try{
   assert.equal(Number(await h.locator('#zoom-slider').inputValue()),wheelZoom);
   await setRange('#zoom-slider',50);
   await h.locator('#viewport').evaluate(el=>{const event=new Event('gesturestart',{cancelable:true});el.dispatchEvent(event);const change=Object.assign(new Event('gesturechange',{cancelable:true}),{scale:1.5,clientX:700,clientY:500});el.dispatchEvent(change);});
-  assert.equal(await h.locator('#zoom-slider').inputValue(),'75');
+  assert.equal(await zoomPercent(),75);
   await setRange('#zoom-slider',40);
   await h.locator('#viewport').evaluate(el=>{
     const send=(type,id,x,y)=>el.dispatchEvent(new PointerEvent(type,{pointerId:id,pointerType:'touch',isPrimary:id===11,clientX:x,clientY:y,bubbles:true,cancelable:true}));
     send('pointerdown',11,600,500);send('pointerdown',12,700,500);send('pointermove',11,550,500);send('pointermove',12,750,500);send('pointerup',11,550,500);send('pointerup',12,750,500);
   });
-  assert.equal(await h.locator('#zoom-slider').inputValue(),'80');
+  assert.equal(await zoomPercent(),80);
   // The scroll wheel pans, and dragging empty canvas pans in both directions.
   await setRange('#zoom-slider',100);
   await h.mouse.move(700,500);
@@ -531,7 +534,7 @@ try{
   pan=await canvasState();
   assert(near((pan.left+pan.right)/2,pan.width/2)&&near((pan.top+pan.bottom)/2,pan.height/2),`Fit centres the board: ${JSON.stringify(pan)}`);
   const fitScale=Number((await boardView()).transform.match(/scale\(([^)]+)\)/)[1]);
-  assert.equal(await h.locator('#zoom-slider').inputValue(),String(Math.round(fitScale*100)));
+  assert.equal(await zoomPercent(),Math.round(fitScale*100));
   await h.screenshot({path:path.join(evidence,'history-board-fit.png')});
   // Keys pan the canvas: arrows by 80px, Page Down by most of a screen; Home and End show the first and last explorations.
   await h.locator('#viewport').focus();

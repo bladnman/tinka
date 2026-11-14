@@ -1,4 +1,5 @@
 import {openItemDetails} from './tile-test-helpers.mjs';
+import {sliderFromZoom} from '../public/canvas-zoom.js';
 // Focused appearance acceptance: real app + external disposable mixed workspace.
 import assert from 'node:assert/strict';
 import {mkdtemp,mkdir,writeFile,rm} from 'node:fs/promises';
@@ -101,7 +102,7 @@ try{
   await appearance.selectOption('system');assert.equal(await page.locator('html').getAttribute('data-appearance'),'light');
   await page.emulateMedia({colorScheme:'dark'});await page.waitForFunction(()=>document.documentElement.dataset.appearance==='dark');
   await page.locator('#board-info-toggle').click();
-  await page.setViewportSize({width:390,height:844});await page.goto(base+`/boards/round/?reveal=${placements.town}`);await page.locator(`[data-placement="${placements.town}"]`).waitFor();await page.waitForFunction(()=>document.querySelector('#zoom-slider').value>50);await page.locator('#workspace-toast').waitFor({state:'hidden'});
+  await page.setViewportSize({width:390,height:844});await page.goto(base+`/boards/round/?reveal=${placements.town}`);await page.locator(`[data-placement="${placements.town}"]`).waitFor();await page.waitForFunction(half=>Number(document.querySelector('#zoom-slider').value)>half,sliderFromZoom(.5));await page.locator('#workspace-toast').waitFor({state:'hidden'});
   await page.screenshot({path:path.join(evidence,'mixed-dark-narrow.png')});
   await openItemDetails(page.locator(`[data-placement="${placements.town}"] [data-item-controls]`));await page.screenshot({path:path.join(evidence,'item-popup-dark-narrow.png')});await page.locator('[data-context-close]').click();
   await page.getByRole('button',{name:'Navigator',exact:true}).click();await page.locator('#project-navigator').waitFor({state:'visible'});await page.getByText('Loading project boards…',{exact:true}).waitFor({state:'hidden'});await check('.navigator-status','#project-navigator');

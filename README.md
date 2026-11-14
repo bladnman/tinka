@@ -225,7 +225,9 @@ Inspector → Appearance → Full when you want to change an existing placement.
 
 New graph boards open in Canvas unless you have already chosen Grid. Scroll with
 a mouse or trackpad to pan; Shift-scroll moves sideways. On a touch screen, swipe
-the background. Pinch or Control/⌘-scroll zooms. Drag a card’s body to move it;
+the background. Pinch or Control/⌘-scroll zooms, from 2% to 1000%, around the
+pointer, including over a Tinka or the floating controls; previews never zoom
+themselves. Fit board and Fit selection never magnify past 125%. Drag a card’s body to move it;
 a click opens its preview, while notes, links and buttons keep their normal
 behavior. Drag onto the interior of a board card to move the item inside it;
 the destination outline and “Move into…” hint confirm the target. Its automatic

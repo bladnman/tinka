@@ -8,6 +8,7 @@ import { WorkspaceBoard } from './workspace-board.js';
 import { contentURL, enableOrganization } from './workspace.js';
 import { validTextAnchor } from './markdown-document.js';
 import {bindCommitShortcut,commitShortcutLabel} from './interaction.js';
+import {clampZoom, FIT_MAX_ZOOM, sliderFromZoom, zoomFromSlider, wheelZoomFactor} from './canvas-zoom.js';
 
 const $ = id => document.getElementById(id);
 mountAppearance($('board-info'));
@@ -20,8 +21,6 @@ const track = $('dot-track');
 const tooltip = $('dot-tooltip');
 const sizeMenu = $('size-menu');
 const geometry = { pad: 70, gap: 68, cardWidth: 1000, rowHeight: 1220 };
-const MIN_ZOOM = .05;
-const MAX_ZOOM = 1.25;
 const SIZE_NAMES = { fit: 'Fit', custom: 'Custom', compact: 'Compact', standard: 'Standard', wide: 'Wide' };
 const boardMatch = location.pathname.match(/^\/boards\/([a-z0-9][a-z0-9-]*)\/?$/);
 const boardId = boardMatch?.[1];
@@ -32,7 +31,6 @@ const overview = new URLSearchParams(location.search).has('overview');
 if (overview) document.documentElement.classList.add('tinka-overview');
 let notesKey, viewKey, workspaceId;
 const esc = value => String(value ?? '').replace(/[&<>"']/g, char => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[char]);
-const clampZoom = value => Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, value));
 
 let board = null;
 let graph = null;
@@ -235,13 +233,28 @@ function clampView({ x, y }) {
   };
 }
 
+// The plane keeps will-change for smooth panning, which freezes its raster scale:
+// after zooming in, text and previews would stay a magnified bitmap. Once the zoom
+// settles, drop the hint for two frames so the browser redraws them sharp.
+let rasterZoom = null, sharpenTimer = 0;
+function sharpenAfterZoom() {
+  if (rasterZoom === zoom) return;
+  clearTimeout(sharpenTimer);
+  sharpenTimer = setTimeout(() => {
+    rasterZoom = zoom;
+    plane.style.willChange = 'auto';
+    requestAnimationFrame(() => requestAnimationFrame(() => { plane.style.willChange = ''; }));
+  }, 150);
+}
+
 function applyView() {
   if (graph?.mode === 'grid') { plane.style.transform='none'; world.style.transform='none'; syncViewChrome(); return; }
   Object.assign(view, clampView(view));
   plane.style.transform = `translate(${Math.round(view.x)}px, ${Math.round(view.y)}px)`;
   world.style.transform = `scale(${zoom})`;
+  sharpenAfterZoom();
   const percent = Math.round(zoom * 100);
-  slider.value = String(percent);
+  slider.value = String(sliderFromZoom(zoom));
   slider.setAttribute('aria-valuetext', `${percent} percent`);
   slider.title = `Zoom ${percent}%`;
   syncViewChrome();
@@ -347,7 +360,7 @@ function fitBoard() {
   const contentWidth = world.offsetWidth - geometry.pad * 2;
   const contentHeight = world.offsetHeight - geometry.pad * 2;
   if (contentWidth <= 0 || contentHeight <= 0) return;
-  zoom = clampZoom(Math.min((viewport.clientWidth - margin * 2) / contentWidth, (viewport.clientHeight - margin * 2) / contentHeight));
+  zoom = clampZoom(Math.min(FIT_MAX_ZOOM, (viewport.clientWidth - margin * 2) / contentWidth, (viewport.clientHeight - margin * 2) / contentHeight));
   const pad = geometry.pad * zoom;
   moveView((viewport.clientWidth - contentWidth * zoom) / 2 - pad, (viewport.clientHeight - contentHeight * zoom) / 2 - pad);
 }
@@ -1302,7 +1315,7 @@ document.addEventListener('keydown', event => {
   if (!$('board-info').hidden) { event.preventDefault(); setInfoOpen(false, { focus: true }); }
 }, true);
 
-slider.addEventListener('input', () => {if(graph)graph.revealedPlacement=null;changeZoom(Number(slider.value) / 100);});
+slider.addEventListener('input', () => {if(graph)graph.revealedPlacement=null;changeZoom(zoomFromSlider(slider.value));});
 $('fit').onclick = fitBoard;
 $('board-info-toggle').onclick = () => setInfoOpen($('board-info').hidden, { focus: true });
 $('board-info-close').onclick = () => setInfoOpen(false, { focus: true });
@@ -1358,7 +1371,7 @@ function fitSelection() {
   const x = Math.min(...placements.map(p => p.x)), y = Math.min(...placements.map(p => p.y));
   const width = Math.max(...placements.map(p => p.x + p.width)) - x, height = Math.max(...placements.map(p => p.y + p.height)) - y;
   const margin = 48;
-  changeZoom(Math.min((viewport.clientWidth - margin * 2) / width, (viewport.clientHeight - margin * 2) / height));
+  changeZoom(Math.min(FIT_MAX_ZOOM, (viewport.clientWidth - margin * 2) / width, (viewport.clientHeight - margin * 2) / height));
   const rect = world.getBoundingClientRect(), region = viewport.getBoundingClientRect();
   moveView(view.x + region.left + viewport.clientWidth / 2 - (rect.left + (x + graph.origin.x + width / 2) * zoom), view.y + region.top + viewport.clientHeight / 2 - (rect.top + (y + graph.origin.y + height / 2) * zoom));
 }
@@ -1385,7 +1398,7 @@ function syncViewChrome() {
   if (readout && readout.textContent !== `${percent}%`) { readout.textContent = `${percent}%`; readout.setAttribute('aria-label', `Zoom ${percent}%, zoom and background options`); }
   const canvasMode = graph?.mode !== 'grid';
   viewport.style.setProperty('--canvas-zoom', String(canvasMode ? zoom : 1));
-  viewport.style.setProperty('--chrome-scale', String(canvasMode ? Math.min(2.4, Math.max(.8, 1 / zoom)) : 1));
+  viewport.style.setProperty('--chrome-scale', String(canvasMode ? Math.min(2.4, 1 / zoom) : 1));
   // Tile chrome steps back on tiles too small on screen to carry it, so it never covers the drag surface.
   const bucket = !canvasMode ? '100' : zoom >= .85 ? '100' : zoom >= .6 ? '60' : zoom >= .4 ? '40' : zoom >= .25 ? '25' : '0';
   if (viewport.dataset.zoomBucket !== bucket) viewport.dataset.zoomBucket = bucket;
@@ -1587,8 +1600,7 @@ viewport.addEventListener('wheel', event => {
   if (graph?.mode === 'grid') return;
   if (event.ctrlKey || event.metaKey) {
     event.preventDefault();
-    const delta = Math.max(-60, Math.min(60, event.deltaMode === 1 ? event.deltaY * 16 : event.deltaY));
-    changeZoom(zoom * Math.exp(-delta * .005), ...viewportPoint(event.clientX, event.clientY));
+    changeZoom(zoom * wheelZoomFactor(event), ...viewportPoint(event.clientX, event.clientY));
     return;
   }
   const unit = event.deltaMode === 1 ? 16 : event.deltaMode === 2 ? viewport.clientHeight : 1;
@@ -1599,10 +1611,41 @@ viewport.addEventListener('wheel', event => {
   event.preventDefault();
   moveView(view.x - dx, view.y - dy);
 }, { passive: false });
-let gestureZoom = zoom;
-viewport.addEventListener('gesturestart', event => { event.preventDefault(); gestureZoom = zoom; });
-viewport.addEventListener('gesturechange', event => { event.preventDefault(); changeZoom(gestureZoom * event.scale, ...viewportPoint(event.clientX, event.clientY)); });
+// Safari reports a trackpad pinch as gesture events with a running scale. Apply each
+// change as a ratio, so a pinch that reaches a zoom limit reverses at once.
+let gestureScale = 1;
+viewport.addEventListener('gesturestart', event => { event.preventDefault(); gestureScale = 1; });
+viewport.addEventListener('gesturechange', event => {
+  event.preventDefault();
+  const scale = event.scale > 0 ? event.scale : 1;
+  changeZoom(zoom * scale / gestureScale, ...viewportPoint(event.clientX, event.clientY));
+  gestureScale = scale;
+});
 viewport.addEventListener('gestureend', event => event.preventDefault());
+// A pinch over the board's floating chrome (header, panels, zoom pill) zooms the
+// board too, rather than magnifying the whole page. The reader and open dialogs
+// keep the browser's own zoom.
+function boardOwnsPinch(event) {
+  if (graph?.mode === 'grid' || viewport.contains(event.target)) return false;
+  return !document.querySelector('dialog[open]');
+}
+function viewportPinchPoint(event) {
+  const r = viewport.getBoundingClientRect();
+  return viewportPoint(Math.max(r.left, Math.min(r.right, event.clientX)), Math.max(r.top, Math.min(r.bottom, event.clientY)));
+}
+document.addEventListener('wheel', event => {
+  if (!(event.ctrlKey || event.metaKey) || !boardOwnsPinch(event)) return;
+  event.preventDefault();
+  changeZoom(zoom * wheelZoomFactor(event), ...viewportPinchPoint(event));
+}, { passive: false });
+document.addEventListener('gesturestart', event => { if (boardOwnsPinch(event)) { event.preventDefault(); gestureScale = 1; } });
+document.addEventListener('gesturechange', event => {
+  if (!boardOwnsPinch(event)) return;
+  event.preventDefault();
+  const scale = event.scale > 0 ? event.scale : 1;
+  changeZoom(zoom * scale / gestureScale, ...viewportPinchPoint(event));
+  gestureScale = scale;
+});
 // Keys pan as scrolling did: arrows, Page Up/Down and Space (on the canvas itself), Home and End for the first and
 // last explorations. + and − zoom about the centre.
 viewport.addEventListener('keydown', event => {

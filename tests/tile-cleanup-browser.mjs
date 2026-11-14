@@ -1,5 +1,6 @@
 // Real tile review loops at saved geometry, with external mixed-board fixtures.
 import assert from 'node:assert/strict';
+import {sliderFromZoom} from '../public/canvas-zoom.js';
 import {mkdtemp,mkdir,writeFile,rm} from 'node:fs/promises';
 import os from 'node:os';import path from 'node:path';import {pathToFileURL} from 'node:url';
 import {main} from '../cli.mjs';import {loadConfig} from '../lib/config.mjs';
@@ -38,7 +39,7 @@ try{
  const panelCard=page.locator(`[data-placement="${panel.placementIds[0]}"]`);assert.equal(await panelCard.locator('iframe').evaluate(el=>getComputedStyle(el).width),'360px');
  for(const theme of ['light','dark']){
   await page.evaluate(v=>localStorage.setItem('tinka/appearance',v),theme);await page.reload();await card.waitFor();await page.waitForFunction(()=>[...document.querySelectorAll('.workspace-live-preview iframe')].every(frame=>frame.contentDocument?.querySelector('iframe')?.contentDocument?.querySelector('h1')));
-  for(const percent of [100,50,25]){await page.locator('#zoom-menu-toggle').click();await page.locator('#zoom-slider').evaluate((el,v)=>{el.value=String(v);el.dispatchEvent(new Event('input',{bubbles:true}));},percent);await page.keyboard.press('Escape');await page.waitForTimeout(200);const fade=await page.locator('#viewport').evaluate(el=>Number(el.style.getPropertyValue('--pattern-fade')));assert.ok(percent===100?fade===1:percent===50?fade<.2:fade===0);await page.screenshot({path:path.join(evidence,`mixed-${theme}-${percent}.png`)});}
+  for(const percent of [100,50,25]){await page.locator('#zoom-menu-toggle').click();await page.locator('#zoom-slider').evaluate((el,v)=>{el.value=String(v);el.dispatchEvent(new Event('input',{bubbles:true}));},sliderFromZoom(percent/100));await page.keyboard.press('Escape');await page.waitForTimeout(200);const fade=await page.locator('#viewport').evaluate(el=>Number(el.style.getPropertyValue('--pattern-fade')));assert.ok(percent===100?fade===1:percent===50?fade<.2:fade===0);await page.screenshot({path:path.join(evidence,`mixed-${theme}-${percent}.png`)});}
  }
  await page.setViewportSize({width:390,height:844});await page.goto(base+`/boards/mixed/?reveal=${compact.placementIds[0]}`);await card.waitFor();await graphOpen();const box=await popup.boundingBox();assert.ok(box.x>=0&&box.x+box.width<=390&&box.y>=0);await page.screenshot({path:path.join(evidence,'notes-dark-narrow.png')});await page.keyboard.press('Escape');await page.locator('#viewport').focus();await page.keyboard.press('Escape');
  assert.deepEqual((await getBoardSnapshot(config,'mixed')).placements,before.placements);assert.deepEqual(errors,[]);console.log(JSON.stringify({passed:true,evidence,checks:['legacy and graph explicit Save/Cancel/Escape/re-edit','failed-save retained draft and deliberate retry','persisted note/star reload','legacy remove prompt preserves target','reader return','graph menu Handoff/Details/paper','saved geometry and viewport preserved','light/dark dots100/50/25','390px note popup'],errors}));

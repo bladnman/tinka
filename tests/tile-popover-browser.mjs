@@ -1,6 +1,7 @@
 // Spatial regression: the resulting popup must stay beside the actual invoker.
 // TINKA_POPUP_APP can point at a retained installed build for before/after proof.
 import assert from 'node:assert/strict';import {mkdtemp,mkdir,writeFile,rm} from 'node:fs/promises';import os from 'node:os';import path from 'node:path';import {pathToFileURL,fileURLToPath} from 'node:url';
+import {sliderFromZoom} from '../public/canvas-zoom.js';
 const app=process.env.TINKA_POPUP_APP||fileURLToPath(new URL('..',import.meta.url));
 const {main}=await import(pathToFileURL(path.join(app,'cli.mjs')));const {loadConfig}=await import(pathToFileURL(path.join(app,'lib/config.mjs')));const {applyOperation,getBoardSnapshot}=await import(pathToFileURL(path.join(app,'lib/workspace.mjs')));const {listen,closeAppServer}=await import(pathToFileURL(path.join(app,'server.mjs')));
 const {chromium}=await import(process.env.PLAYWRIGHT_MODULE?pathToFileURL(process.env.PLAYWRIGHT_MODULE).href:'playwright');const root=await mkdtemp(path.join(os.tmpdir(),'tinka-popover-')),evidence=process.env.TINKA_EVIDENCE_DIR||await mkdtemp(path.join(os.tmpdir(),'tinka-popover-evidence-'));await mkdir(evidence,{recursive:true});let browser,server,version;const errors=[],cases=[],writes=[];
@@ -15,7 +16,7 @@ try{
   if(pointer){assert.ok(Math.min(Math.abs(pop.x-pointer.x),Math.abs(pop.right-pointer.x))<=8,`${label}: menu stays beside pointer horizontally`);assert.ok(Math.min(Math.abs(pop.y-pointer.y),Math.abs(pop.bottom-pointer.y))<=8,`${label}: menu stays beside pointer vertically`);}
   else{assert.ok(pop.x<=invoker.right+8&&pop.right>=invoker.x-8,`${label}: popup overlaps the invoker's horizontal span, rather than another part of the board`);assert.ok(Math.min(Math.abs(pop.y-invoker.bottom),Math.abs(pop.bottom-invoker.y))<=8,`${label}: popup stays adjacent vertically`);if(above)assert.ok(pop.bottom<=invoker.y-4,`${label}: popup flips above a bottom-edge invoker`);}
  };
- const zoom=async value=>{await page.locator('#zoom-menu-toggle').click();await page.locator('#zoom-slider').evaluate((el,value)=>{el.value=String(value);el.dispatchEvent(new Event('input',{bubbles:true}));},value);await page.keyboard.press('Escape');};
+ const zoom=async value=>{await page.locator('#zoom-menu-toggle').click();await page.locator('#zoom-slider').evaluate((el,value)=>{el.value=String(value);el.dispatchEvent(new Event('input',{bubbles:true}));},sliderFromZoom(value/100));await page.keyboard.press('Escape');};
  const position=async(control,side,bottom=false)=>{
   const v=await page.locator('#viewport').boundingBox(),target={x:side==='right'?v.x+v.width-65:v.x+65,y:bottom?v.y+v.height-65:v.y+115};
   for(let i=0;i<3;i++){const r=await rect(control),dx=r.x+r.width/2-target.x,dy=r.y+r.height/2-target.y;if(Math.abs(dx)<2&&Math.abs(dy)<2)break;await page.mouse.move(v.x+v.width-2,v.y+v.height/2);await page.mouse.wheel(dx,dy);await page.waitForTimeout(80);}

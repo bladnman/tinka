@@ -1,6 +1,7 @@
 // Disposable, headless acceptance for duplication and the small board command set.
 // No OS clipboard calls or personal board/config writes are used.
 import strict from 'node:assert/strict';
+import {sliderFromZoom} from '../public/canvas-zoom.js';
 import {mkdtemp,mkdir,writeFile,readFile,rm} from 'node:fs/promises';
 import path from 'node:path';
 import os from 'node:os';
@@ -169,7 +170,7 @@ try {
   const input=page.locator('#active-reader').contentFrame().locator('.item-full-frame').contentFrame().getByRole('textbox',{name:'Prototype input'});
   await input.focus();await zero(async()=>{for(const key of ['Meta+d','Meta+a','/','Shift+1','?'])await page.keyboard.press(key);},async()=>assert.equal(await page.locator('dialog.workspace-dialog[open]').count(),0));
   await page.locator('#close-reader').click();await page.locator('#viewport').focus();await page.locator('#board-info-toggle').click();await page.locator('#workspace-search').fill('');await page.keyboard.press('Escape');await page.locator('#viewport').focus();
-  await page.locator('#zoom-slider').evaluate(el=>{el.value='5';el.dispatchEvent(new Event('input',{bubbles:true}));});const zoomBefore=await page.locator('#zoom-slider').inputValue();
+  await page.locator('#zoom-slider').evaluate((el,value)=>{el.value=String(value);el.dispatchEvent(new Event('input',{bubbles:true}));},sliderFromZoom(.05));const zoomBefore=await page.locator('#zoom-slider').inputValue();
   await zero(()=>page.keyboard.press('Shift+1'),async()=>assert.notEqual(await page.locator('#zoom-slider').inputValue(),zoomBefore));
   await zero(()=>page.keyboard.press('?'),async()=>{await page.getByRole('dialog',{name:'Keyboard shortcuts'}).waitFor();assert.match(await page.getByRole('dialog',{name:'Keyboard shortcuts'}).textContent(),/Duplicate/);});
   await page.screenshot({path:path.join(evidence,'keyboard-shortcuts-1440.png')});await page.keyboard.press('Escape');assert.equal(await page.locator('#viewport').evaluate(el=>document.activeElement===el),true);

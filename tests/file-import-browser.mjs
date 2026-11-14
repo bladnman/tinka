@@ -1,5 +1,6 @@
 // Headless file-intake acceptance. Synthetic browser events never touch the OS clipboard.
 import assert from 'node:assert/strict';
+import {sliderFromZoom} from '../public/canvas-zoom.js';
 import {mkdtemp,mkdir,readFile,writeFile} from 'node:fs/promises';
 import path from 'node:path';
 import os from 'node:os';
@@ -48,7 +49,7 @@ try{
   const beforeGuard=await snapshot(),guardWrites=writes.length;await page.locator('#board-info-toggle').click();await page.locator('#workspace-search').focus();assert.equal((await event('paste',[image],{},'#workspace-search')).prevented,false);await page.locator('#board-info-toggle').click();await page.evaluate(()=>document.activeElement?.blur());assert.equal(writes.length,guardWrites);assert.equal((await snapshot()).revision,beforeGuard.revision);
   await card(pasted.result.placementIds[0]).locator('.workspace-preview-launch').click();await page.locator('#reader-dialog[open]').waitFor();assert.equal((await event('paste',[image])).prevented,false);assert.equal(writes.length,guardWrites);await page.locator('#close-reader').click();await page.locator('#reader-dialog').waitFor({state:'hidden'});
   // Mixed file drops anchor at the logical cursor coordinate, including zoom and pan.
-  await page.locator('#zoom-slider').evaluate(el=>{el.value='125';el.dispatchEvent(new Event('input',{bubbles:true}));});await page.mouse.move(1100,650);await page.mouse.wheel(75,55);
+  await page.locator('#zoom-slider').evaluate((el,value)=>{el.value=String(value);el.dispatchEvent(new Event('input',{bubbles:true}));},sliderFromZoom(1.25));await page.mouse.move(1100,650);await page.mouse.wheel(75,55);
   const geometry=await page.evaluate(id=>{const v=document.getElementById('viewport').getBoundingClientRect(),c=document.querySelector(`[data-placement="${id}"]`).getBoundingClientRect(),z=new DOMMatrix(getComputedStyle(document.getElementById('world')).transform).a;return{point:{x:v.left+v.width*.55,y:v.top+v.height*.4},card:{x:c.left,y:c.top},zoom:z};},pasted.result.placementIds[0]);
   const anchor=active(await snapshot()).find(p=>p.id===pasted.result.placementIds[0]);const expected={x:Math.round(anchor.x+(geometry.point.x-geometry.card.x)/geometry.zoom),y:Math.round(anchor.y+(geometry.point.y-geometry.card.y)/geometry.zoom)};
   assert.equal((await event('dragover',[image,documentFile],{},'#viewport',geometry.point)).prevented,true);await page.locator('#workspace-import-drop').waitFor();
