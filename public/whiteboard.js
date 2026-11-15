@@ -1,7 +1,9 @@
 import {bindForm, restoreFocus, commitShortcutLabel} from './interaction.js';
 import {escape as esc, makeDialog, showFailure} from './workspace.js';
-import {resolveEndpoint, resolveLine, decorationBounds} from './whiteboard-geometry.js';
+import {resolveEndpoint, resolveLine, decorationBounds, linePath, targetBox} from './whiteboard-geometry.js';
 import {formatToHTMLString} from './deco-format.js';
+import {snapBox, snapDisabled} from './snap-guides.js';
+import {isMacPlatform} from './reader-keys.js';
 
 const sides = ['top', 'right', 'bottom', 'left'];
 const shapeNames = {rectangle:'Sticky note', rounded:'Process', diamond:'Decision', ellipse:'Start / end'};
@@ -24,6 +26,37 @@ const decorationInk = color => {
     return `--decoration-ink-${theme}:${ink};--decoration-wash-${theme}:${dark ? '#fdfdfb' : '#1c1d1a'};`;
   }).join('');
 };
+const lineWidths = {thin:1.25, medium:2, thick:3.5};
+// The arrow bar's preset palette; More keeps a custom colour picker.
+const arrowColors = [['#6c8060','Green'],['#7d8590','Grey'],['#4a78b0','Blue'],['#c0564b','Red'],['#d08a2e','Amber'],['#8a63b3','Purple']];
+const icon = body => `<svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">${body}</svg>`;
+const icons = {
+  straight:'<path d="M3 13L13 3"/>', elbow:'<path d="M3 13H8V3H13"/>', curved:'<path d="M3 13C3 6 13 10 13 3"/>',
+  none:'<path d="M2 8H14"/>', end:'<path d="M2 8H14M10 4L14 8L10 12"/>', start:'<path d="M2 8H14M6 4L2 8L6 12"/>', both:'<path d="M2 8H14M6 4L2 8L6 12M10 4L14 8L10 12"/>',
+  thin:'<path d="M2 8H14" stroke-width="1"/>', medium:'<path d="M2 8H14" stroke-width="2.2"/>', thick:'<path d="M2 8H14" stroke-width="4"/>',
+  dashed:'<path d="M2 8H14" stroke-dasharray="3 2.6"/>', reverse:'<path d="M3 5H13M10 2L13 5L10 8M13 11H3M6 8L3 11L6 14"/>',
+  label:'<path d="M3 4.5V3H13V4.5M8 3V13M6 13H10"/>', remove:'<path d="M3 4.5H13M6.5 4.5V3H9.5V4.5M4.5 4.5L5.2 13H10.8L11.5 4.5"/>',
+  'align-left':'<path d="M2.5 4H13.5M2.5 8H9.5M2.5 12H11.5"/>', 'align-center':'<path d="M2.5 4H13.5M4.5 8H11.5M3.5 12H12.5"/>', 'align-right':'<path d="M2.5 4H13.5M6.5 8H13.5M4.5 12H13.5"/>',
+  connect:'<circle cx="3.5" cy="12.5" r="1.6"/><path d="M5 11L12.5 3.5M8.5 3.5H12.5V7.5"/>',
+  rounded:'<rect x="2" y="4" width="12" height="8" rx="2.6"/>', diamond:'<path d="M8 2.5L13.5 8L8 13.5L2.5 8Z"/>', ellipse:'<ellipse cx="8" cy="8" rx="6" ry="4.5"/>',
+  arrange:'<path d="M2.5 2V14"/><rect x="4.5" y="3.5" width="9" height="3.5" rx=".6"/><rect x="4.5" y="9" width="6" height="3.5" rx=".6"/>',
+  more:'<circle cx="3.5" cy="8" r=".8" fill="currentColor"/><circle cx="8" cy="8" r=".8" fill="currentColor"/><circle cx="12.5" cy="8" r=".8" fill="currentColor"/>',
+};
+const barParts = {
+  button:(action,label,body,{value,pressed,extra=''}={})=>`<button type="button" class="whiteboard-bar-button" data-whiteboard-action="${action}"${value!==undefined?` data-value="${value}"`:''} aria-label="${esc(label)}" title="${esc(label)}"${pressed!==undefined?` aria-pressed="${pressed}"`:''}${extra}>${body}</button>`,
+  group:(label,body)=>`<div class="whiteboard-bar-group" role="group" aria-label="${label}">${body}</div>`,
+};
+// Preset palettes per kind; More keeps a custom colour picker for anything else.
+const palettes = {
+  sticky:[['#f6e6a4','Yellow'],['#f4c9d0','Pink'],['#d3e8c6','Green'],['#cfe0f1','Blue'],['#f7d3a8','Orange'],['#ddd1ef','Purple']],
+  shape:[['#e0e8da','Sage'],['#dfe7ed','Mist'],['#f6e6a4','Yellow'],['#f4c9d0','Pink'],['#f7d3a8','Orange'],['#ddd1ef','Purple']],
+  text:[['#7a8a68','Green'],['#7d8590','Grey'],['#4a78b0','Blue'],['#c0564b','Red'],['#d08a2e','Amber'],['#8a63b3','Purple']],
+};
+palettes.area=[['#e1e8d5','Sage'],...palettes.shape.slice(1)];
+const defaultAlign = d => d.shape && d.shape !== 'rectangle' ? 'center' : 'left';
+const kindOf = d => d.type==='line'?'line':d.type==='text'?'text':d.shape==='rectangle'?'sticky':d.shape?'shape':'area';
+const headsOf = d => d.startArrow ? d.endArrow ? 'both' : 'start' : d.endArrow ? 'end' : 'none';
+const sameTarget = (a,b) => !!a && !!b && (a.placementId ? a.placementId === b.placementId : !!a.decorationId && a.decorationId === b.decorationId);
 const isAttachment = endpoint => !!(endpoint?.placementId || endpoint?.decorationId);
 const pointOnly = point => ({x:point.x, y:point.y});
 // Key-order independent comparison of saved decoration state.
@@ -57,19 +90,21 @@ export function decorationMarkup(d, board, origin, selected=false, overrides) {
   const color = cleanColor(current.color), w = Math.max(1,box.width), h = Math.max(1,box.height);
   let mark, handles = '';
   if (line) {
-    const r = resolveLine(current,board,overrides);
+    const r=resolveLine(current,board,overrides),path=linePath(r,current.route);
     const x1=r.from.x-box.x, y1=r.from.y-box.y, x2=r.to.x-box.x, y2=r.to.y-box.y;
-    mark = `<svg class="workspace-decoration-line" viewBox="0 0 ${w} ${h}" preserveAspectRatio="none" aria-hidden="true"><defs><marker id="arrow-${esc(d.id)}" markerWidth="12" markerHeight="12" refX="10" refY="6" orient="auto" markerUnits="userSpaceOnUse"><path d="M2 2L10 6L2 10" fill="none" stroke="${color}" stroke-width="2"/></marker></defs><line class="whiteboard-line-hit" x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}"/><line x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}" stroke="${color}" stroke-width="2" vector-effect="non-scaling-stroke" ${r.detached?'stroke-dasharray="6 4"':''} ${d.endArrow?`marker-end="url(#arrow-${esc(d.id)})"`:''}/></svg><span class="workspace-decoration-label whiteboard-line-label" data-decoration-label style="left:${(x1+x2)/2}px;top:${(y1+y2)/2}px">${esc(current.text||'')}</span>${r.detached?'<span class="whiteboard-detached">Detached</span>':''}`;
-    if (selected) handles = `<button type="button" class="workspace-endpoint endpoint-tail" data-endpoint="from" aria-label="Reconnect arrow start" title="Reconnect start" style="left:${x1}px;top:${y1}px"></button><button type="button" class="workspace-endpoint endpoint-head" data-endpoint="to" aria-label="Reconnect arrow end" title="Reconnect end" style="left:${x2}px;top:${y2}px"></button>`;
+    const sw=lineWidths[current.thickness]||lineWidths.medium, k=Math.max(1,sw/2), head=`url(#arrow-${esc(d.id)})`;
+    const dash=current.dashed?`stroke-dasharray="${7*k} ${5*k}"`:r.detached?'stroke-dasharray="1 5" stroke-linecap="round"':'';
+    mark = `<svg class="workspace-decoration-line" viewBox="0 0 ${w} ${h}" preserveAspectRatio="none" aria-hidden="true"><defs><marker id="arrow-${esc(d.id)}" markerWidth="${12*k}" markerHeight="${12*k}" refX="${10*k}" refY="${6*k}" orient="auto-start-reverse" markerUnits="userSpaceOnUse"><path d="M${2*k} ${2*k}L${10*k} ${6*k}L${2*k} ${10*k}" fill="none" stroke="${color}" stroke-width="${sw}" stroke-linecap="round" stroke-linejoin="round"/></marker></defs><g transform="translate(${-box.x} ${-box.y})"><path class="whiteboard-line-hit" d="${path.d}"/><path class="whiteboard-line-stroke" d="${path.d}" fill="none" stroke="${color}" stroke-width="${sw}" stroke-linejoin="round" vector-effect="non-scaling-stroke" ${dash} ${current.startArrow?`marker-start="${head}"`:''} ${current.endArrow?`marker-end="${head}"`:''}/></g></svg><span class="workspace-decoration-label whiteboard-line-label" data-decoration-label style="left:${path.mid.x-box.x}px;top:${path.mid.y-box.y}px">${esc(current.text||'')}</span>${r.detached?'<span class="whiteboard-detached">Detached</span>':''}`;
+    if (selected === true) handles = `<button type="button" class="workspace-endpoint endpoint-tail" data-endpoint="from" aria-label="Arrow start: drag to move or attach" title="Drag to move or attach the start" style="left:${x1}px;top:${y1}px"></button><button type="button" class="workspace-endpoint endpoint-head" data-endpoint="to" aria-label="Arrow end: drag to move or attach" title="Drag to move or attach the end" style="left:${x2}px;top:${y2}px"></button>`;
   } else {
     const shape = current.shape;
     const silhouette = shape === 'diamond' ? `<polygon points="${w/2},0 ${w},${h/2} ${w/2},${h} 0,${h/2}"/>`
       : shape === 'ellipse' ? `<ellipse cx="${w/2}" cy="${h/2}" rx="${Math.max(1,w/2-1)}" ry="${Math.max(1,h/2-1)}"/>`
       : `<rect x="1" y="1" width="${Math.max(1,w-2)}" height="${Math.max(1,h-2)}" rx="${shape==='rounded'?Math.min(20,w/2,h/2):2}"/>`;
     mark = `${shape?`<svg class="whiteboard-silhouette" viewBox="0 0 ${w} ${h}" preserveAspectRatio="none" aria-hidden="true">${silhouette}</svg>`:''}<span class="workspace-decoration-label" data-decoration-label><span class="deco-body">${formatToHTMLString(current.text||'')}</span></span>`;
-    if (selected) handles = '<button type="button" class="workspace-decoration-resize" data-decoration-resize aria-label="Resize decoration">◢</button>';
+    if (selected === true) handles = '<button type="button" class="workspace-decoration-resize" data-decoration-resize aria-label="Resize decoration">◢</button>';
   }
-  return `<div tabindex="0" role="group" aria-label="${esc(line?'Arrow':shapeNames[current.shape]||current.type)}: ${esc(current.text||'Untitled')}" class="workspace-decoration decoration-${esc(d.type)} ${current.shape?'whiteboard-shape shape-'+esc(current.shape):''} ${selected?'selected':''}" data-decoration="${esc(d.id)}" style="left:${box.x+origin.x}px;top:${box.y+origin.y}px;width:${w}px;height:${h}px;--decoration-color:${color};${decorationInk(color)}">${mark}${handles}</div>`;
+  return `<div tabindex="0" role="group" aria-label="${esc(line?'Arrow':shapeNames[current.shape]||current.type)}: ${esc(current.text||'Untitled')}" class="workspace-decoration decoration-${esc(d.type)} ${current.shape?'whiteboard-shape shape-'+esc(current.shape):''}${!line&&['small','large'].includes(current.textSize)?' text-size-'+current.textSize:''}${!line&&['left','center','right'].includes(current.textAlign)?' text-align-'+current.textAlign:''} ${selected?'selected':''}" data-decoration="${esc(d.id)}" style="left:${box.x+origin.x}px;top:${box.y+origin.y}px;width:${w}px;height:${h}px;--decoration-color:${color};${decorationInk(color)}">${mark}${handles}</div>`;
 }
 
 export class Whiteboard {
@@ -142,18 +177,26 @@ export class Whiteboard {
   renderPorts() {
     if(this.host.mode!=='canvas'||this.editor) { this.ports.remove(); return; }
     const source=this.selectedRef();
-    const refs=this.drag?.endpoint||this.pendingFrom ? this.targets() : this.connectMode&&source ? [source] : [];
-    const origin=this.host.origin||{x:0,y:0};
+    // A selected sticky, text or shape shows its edge handles: drag one out to draw an arrow.
+    // Plain coloured regions are left out: their border is the move gesture.
+    const ownTarget=source?.decorationId&&this.find(source.decorationId);
+    const own=ownTarget&&!this.drag&&(ownTarget.type==='text'||ownTarget.shape) ? [source] : [];
+    const refs=this.drag?.endpoint||this.pendingFrom ? this.targets() : this.connectMode&&source ? [source] : own;
+    const origin=this.host.origin||{x:0,y:0},snap=this.drag?.snap;
     const markup=refs.flatMap(ref=>sides.map(side=>{
       const end={...ref,side},p=resolveEndpoint(end,this.host.snapshot,this.overrides);
-      return p.detached?'':`<button type="button" class="whiteboard-port" data-port="${esc(JSON.stringify(end))}" aria-label="Connect ${esc(this.name(ref))} ${side}" title="${esc(this.name(ref))}: ${side}" style="left:${p.x+origin.x}px;top:${p.y+origin.y}px"></button>`;
+      const state=sameTarget(snap?.ref,ref)?snap.endpoint.side===side&&(snap.endpoint.offset??.5)===.5?' near snapped':' near':'';
+      return p.detached?'':`<button type="button" class="whiteboard-port${state}" data-port="${esc(JSON.stringify(end))}" aria-label="Connect ${esc(this.name(ref))} ${side}" title="${esc(this.name(ref))}: ${side}" style="left:${p.x+origin.x}px;top:${p.y+origin.y}px"></button>`;
     })).join('');
     if(this.ports.innerHTML!==markup)this.ports.innerHTML=markup;
+    this.ports.classList.toggle('snapping',!!snap);
+    // Decoration patches rewrite class attributes, so the target mark follows each render.
+    if(this.drag?.endpoint)this.highlight(snap?.ref);
     document.getElementById('world').append(this.ports);
   }
   markup(d) {
     const draft=this.drafts.get(d.id);
-    const markup=decorationMarkup(draft?{...d,text:draft.text}:d,this.host.snapshot,this.host.origin||{x:0,y:0},this.host.activeDecoration===d.id,this.overrides);
+    const markup=decorationMarkup(draft?{...d,text:draft.text}:d,this.host.snapshot,this.host.origin||{x:0,y:0},this.host.activeDecoration===d.id||(this.host.decorationSelection?.has(d.id)&&(this.host.decorationSelection.size>1||this.host.selection.size)?'group':false),this.overrides);
     let rendered=draft?.error?markup.replace(/<\/div>$/,`<div class="whiteboard-draft-state" role="status"><span>Text not saved</span><button type="button" data-whiteboard-retry="${esc(d.id)}">Retry</button></div></div>`):markup;
     // A host keyed build that was already in flight must retain this native form.
     // Its live value/selection remain properties of the existing textarea node.
@@ -176,43 +219,134 @@ export class Whiteboard {
   }
   reconcileSelection() {
     if(this.host.activeDecoration&&!this.find())this.host.activeDecoration=null;
+    if(this.host.decorationSelection?.size){const kept=[...this.host.decorationSelection].filter(id=>this.find(id));this.host.decorationSelection=new Set(kept.length>1||kept.length&&this.host.selection.size?kept:[]);}
     if(this.host.mode!=='canvas') { this.connectMode=false; this.pendingFrom=null; this.closeMenu(); }
     if(this.pendingFrom&&!this.target(this.pendingFrom)){this.pendingFrom=null;this.connectMode=false;this.hint.hidden=true;}
     if(!this.selectedRef()&&!this.drag?.endpoint&&!this.pendingFrom)this.connectMode=false;
   }
   select(id) {
-    if(this.host.activeDecoration===id)return;
+    if(this.host.activeDecoration===id&&!(this.host.decorationSelection?.size>1))return;
     this.commitEdit({focus:false}); this.connectMode=false; this.pendingFrom=null; this.closeMenu();
-    this.host.activeDecoration=id; this.host.selection.clear(); this.host.syncSelection(); this.host.selectionMenu(); this.sync(this.overrides);
+    this.host.activeDecoration=id; this.host.decorationSelection=new Set(); this.host.selection.clear(); this.host.syncSelection(); this.host.selectionMenu(); this.sync(this.overrides);
   }
   clearSelection({finishEdit=true,focus=false}={}) {
     if(finishEdit)this.commitEdit({focus});
-    this.host.activeDecoration=null; this.connectMode=false; this.pendingFrom=null; this.closeMenu();
+    this.host.activeDecoration=null; this.host.decorationSelection=new Set(); this.connectMode=false; this.pendingFrom=null; this.closeMenu();
     this.sync(this.overrides);
   }
   connectPlacement(id,invoker) {
     this.connectInvoker=invoker;
     this.clearSelection(); this.host.selection=new Set([id]); this.host.syncSelection(); this.startConnect();
   }
+  // The decorations the bar acts on: a multi-selection (host.decorationSelection,
+  // two or more ids) or the single active decoration.
+  selectedDecorations() {
+    const many=this.host.decorationSelection;
+    const ids=many?.size&&this.host.selection.size?[]:many?.size>1?[...many]:this.host.activeDecoration?[this.host.activeDecoration]:[];
+    return ids.map(id=>this.find(id)).filter(Boolean);
+  }
+  // Select several decorations at once (marquee, shift-click). One id selects it
+  // normally; none clears. Card selection is cleared, as for a single decoration.
+  selectDecorations(ids) {
+    ids=[...new Set(ids)].filter(id=>this.find(id));
+    if(ids.length<2){if(ids.length)this.select(ids[0]);else this.clearSelection();return;}
+    this.commitEdit({focus:false});this.connectMode=false;this.pendingFrom=null;this.closeMenu();
+    this.host.activeDecoration=null;this.host.decorationSelection=new Set(ids);
+    this.host.selection.clear();this.host.syncSelection();this.host.selectionMenu();this.sync(this.overrides);
+  }
   renderToolbar() {
-    const d=this.find(),ref=this.selectedRef(),draft=d&&this.drafts.get(d.id);
-    this.toolbar.hidden=this.host.mode!=='canvas'||!d;
+    const list=this.selectedDecorations(),d=list[0],multi=list.length>1,ref=this.selectedRef(),draft=!multi&&d&&this.drafts.get(d.id);
+    // The bar steps aside while a drag is under way, as in FigJam or Miro.
+    this.toolbar.hidden=this.host.mode!=='canvas'||!d||!!this.drag?.active;
     if(this.toolbar.hidden){this.closeMenu();return;}
-    const stamp=JSON.stringify([d?.id,ref,this.editor?.id,draft?.pending,draft?.error,this.connectMode]);
+    const line=!multi&&d.type==='line',style=list.map(d=>[d.id,d.color,d.route,d.thickness,d.dashed,d.startArrow,d.endArrow,d.shape,d.textSize,d.textAlign]);
+    const stamp=JSON.stringify([ref,this.editor?.id,draft?.pending,draft?.error,this.connectMode,style]);
     if(stamp!==this.toolbar.dataset.stamp) {
       this.toolbar.dataset.stamp=stamp;
+      // Keep keyboard focus on the same control across a re-render.
+      const focused=this.toolbar.contains(document.activeElement)?document.activeElement:null;
+      const focusKey=focused&&[focused.dataset.whiteboardAction,focused.dataset.value];
+      this.toolbar.classList.toggle('whiteboard-arrow-bar',!this.editor);
+      this.toolbar.setAttribute('aria-label',this.groupName(list));
       this.toolbar.innerHTML=this.editor
-        ? `<span class="whiteboard-edit-hint">${esc(commitShortcutLabel())} to finish</span><button type="button" data-whiteboard-action="done">Done</button><button type="button" data-whiteboard-action="cancel-edit">Cancel</button>`
-        : `${d?`<button type="button" data-whiteboard-action="edit">${d.type==='line'?'Edit label':'Edit text'}</button>`:''}${ref?`<button type="button" data-whiteboard-action="connect" aria-pressed="${this.connectMode}">Connect</button>`:''}<button type="button" data-whiteboard-action="more" aria-haspopup="menu" aria-expanded="${!this.menu.hidden}">More</button>${draft?.pending?'<span role="status">Saving…</span>':''}`;
+        ? `<span class="whiteboard-edit-hint">${esc(line?'Enter':commitShortcutLabel())} to finish</span><button type="button" data-whiteboard-action="done">Done</button><button type="button" data-whiteboard-action="cancel-edit">Cancel</button>`
+        : this.bar(list,draft);
+      if(focusKey)[...this.toolbar.querySelectorAll('button')].find(b=>b.dataset.whiteboardAction===focusKey[0]&&b.dataset.value===focusKey[1])?.focus({preventScroll:true});
     }
     this.positionToolbar();
   }
+  kindName(d) { return d.type==='line'?'Arrow':d.type==='text'?'Text':shapeNames[d.shape]||'Area'; }
+  groupName(list) {
+    if(list.length<2)return list[0]?this.kindName(list[0]):'Selected object';
+    const kinds=new Set(list.map(kindOf)),name=this.kindName(list[0]).toLowerCase();
+    return kinds.size===1?`${list.length} ${name==='text'?'text boxes':name+'s'}`:`${list.length} objects`;
+  }
+  // FigJam/Miro-style contextual bar: every common choice is one click away. With
+  // several decorations it shows the options all of them share; a value that
+  // differs across them shows no current choice (a toggle reads "mixed").
+  bar(list,draft) {
+    const {button,group}=barParts,multi=list.length>1,kinds=new Set(list.map(kindOf)),kind=kinds.size===1?[...kinds][0]:null;
+    const shared=read=>{const values=list.map(read);return values.every(v=>v===values[0])?values[0]:undefined;};
+    const families=new Set([...kinds].map(k=>k==='line'||k==='text'?'ink':'fill'));
+    const palette=kind==='line'?arrowColors:kind?palettes[kind]:families.size===1?families.has('ink')?arrowColors:palettes.shape:null;
+    const color=shared(d=>cleanColor(d.color).toLowerCase()),more=button('more',multi?'More options':`More ${kind==='line'?'arrow ':''}options`,icon(icons.more),{extra:` aria-haspopup="menu" aria-expanded="${!this.menu.hidden}"`});
+    const name=multi?this.groupName(list):this.kindName(list[0]).toLowerCase(),remove=(multi?button('arrange','Arrange: align, distribute, tidy',icon(icons.arrange),{extra:' aria-haspopup="menu"'}):'')+button('remove',`Delete ${multi?name:name}`,icon(icons.remove));
+    const groups=[palette?group(kind==='text'?'Text color':'Color',palette.map(([value,label])=>button('color',`${label}${value===color?' (current)':''}`,`<i class="whiteboard-swatch" style="background:${value}"></i>`,{value,pressed:value===color})).join('')):''];
+    if(kind==='line') {
+      const route=shared(d=>d.route||'straight'),thickness=shared(d=>d.thickness||'medium'),heads=shared(headsOf),dashed=shared(d=>!!d.dashed);
+      const names={straight:'Straight',elbow:'Elbow',curved:'Curved',none:'No arrowheads',end:'Arrowhead at end',start:'Arrowhead at start',both:'Arrowheads at both ends',thin:'Thin',medium:'Medium',thick:'Thick'};
+      groups.push(group('Line style',['straight','elbow','curved'].map(v=>button('route',`${names[v]} line`,icon(icons[v]),{value:v,pressed:v===route})).join('')),
+        group('Arrowheads',['none','end','start','both'].map(v=>button('heads',names[v],icon(icons[v]),{value:v,pressed:v===heads})).join('')),
+        group('Thickness',['thin','medium','thick'].map(v=>button('thickness',`${names[v]} line`,icon(icons[v]),{value:v,pressed:v===thickness})).join('')),
+        group('Pattern and direction',button('dashed','Dashed line',icon(icons.dashed),{pressed:dashed===undefined?'mixed':dashed})+button('reverse',multi?'Reverse directions':'Reverse direction',icon(icons.reverse))),
+        group(multi?'Selection actions':'Arrow actions',(multi?'':button('edit','Edit label (double-click)',icon(icons.label)))+remove+more));
+    } else if(!kinds.has('line')) {
+      const size=shared(d=>d.textSize||'medium'),align=shared(d=>d.textAlign||defaultAlign(d));
+      if(kind==='shape')groups.push(group('Shape',['rounded','diamond','ellipse'].map(v=>button('shape',shapeNames[v],icon(icons[v]),{value:v,pressed:v===shared(d=>d.shape)})).join('')));
+      groups.push(group('Text size',[['small','S','Small text'],['medium','M','Medium text'],['large','L','Large text']].map(([v,letter,label])=>button('size',label,`<b class="whiteboard-size-letter size-${v}">${letter}</b>`,{value:v,pressed:v===size})).join('')),
+        group('Alignment',['left','center','right'].map(v=>button('align',`Align ${v}`,icon(icons['align-'+v]),{value:v,pressed:v===align})).join('')),
+        group(multi?'Selection actions':`${this.kindName(list[0])} actions`,(multi?'':button('edit','Edit text (double-click)',icon(icons.label))+button('connect','Connect: drag from an edge handle, or choose two points',icon(icons.connect),{pressed:this.connectMode}))+remove+more));
+    } else groups.push(group('Selection actions',remove+more));
+    if(draft?.pending)groups.push('<span class="whiteboard-bar-status" role="status">Saving…</span>');
+    return groups.join('');
+  }
+  // One bar choice as a patch for one decoration, or null when it changes nothing.
+  stylePatch(d,action,value) {
+    let patch;
+    if(action==='reverse') {
+      if(d.type!=='line')return null;
+      const r=resolveLine(d,this.host.snapshot),from=d.to?structuredClone(d.to):pointOnly(r.to),to=d.from?structuredClone(d.from):pointOnly(r.from),g=resolveLine({...d,from,to},this.host.snapshot);
+      return {from,to,...lineBox(g.from,g.to)};
+    }
+    patch=action==='color'?{color:value}:action==='route'?{route:value}:action==='thickness'?{thickness:value}
+      :action==='size'?{textSize:value}:action==='align'?{textAlign:value}:action==='shape'?{shape:value}
+      :action==='dashed'?{dashed:value}:{startArrow:value==='start'||value==='both',endArrow:value==='end'||value==='both'};
+    const defaults={route:'straight',thickness:'medium',dashed:false,startArrow:false,endArrow:false,textSize:'medium',textAlign:defaultAlign(d)};
+    return Object.entries(patch).every(([key,v])=>(d[key]??defaults[key])===v)?null:patch;
+  }
+  // Apply a bar choice to every selected decoration. Several at once save as one
+  // atomic board write, refused (and reported) if the board changed meanwhile.
+  async restyle(ids,action,value) {
+    const list=ids.map(id=>this.find(id)).filter(Boolean);if(!list.length)return;
+    if(action==='dashed')value=!list.every(d=>d.dashed);
+    const patches=new Map(list.map(d=>[d.id,this.stylePatch(d,action,value)]).filter(([,patch])=>patch));
+    if(!patches.size)return;
+    if(list.length===1){const [[id,patch]]=patches;await this.save(id,patch);return;}
+    await this.saveMany(this.host.snapshot.decorations.map(d=>patches.has(d.id)?{...d,...patches.get(d.id)}:d));
+  }
+  async saveMany(decorations) {
+    const before=canonical(this.host.snapshot.decorations);
+    this.host.decorationCommitting=true;
+    try{await this.host.writeArrangement('updateBoard',{boardId:this.host.snapshot.id,patch:{decorations}},latest=>canonical(latest.decorations)===before);await this.host.refresh({saveReview:false});}
+    finally{this.host.decorationCommitting=false;this.host.hooks.liveReady?.();}
+  }
   positionToolbar() {
     if(this.toolbar.hidden)return;
-    const d=this.find(),ref=this.selectedRef();
-    const element=d?document.querySelector(selector(d.id)):ref?.placementId?document.querySelector(`[data-placement="${CSS.escape(ref.placementId)}"]`):null;
-    if(!element)return;
-    const r=element.getBoundingClientRect(),viewport=document.getElementById('viewport').getBoundingClientRect();
+    const list=this.selectedDecorations(),ref=this.selectedRef();
+    const elements=list.length?list.map(d=>document.querySelector(selector(d.id))).filter(Boolean):ref?.placementId?[document.querySelector(`[data-placement="${CSS.escape(ref.placementId)}"]`)].filter(Boolean):[];
+    if(!elements.length)return;
+    const rects=elements.map(e=>e.getBoundingClientRect()),r={left:Math.min(...rects.map(b=>b.left)),top:Math.min(...rects.map(b=>b.top)),right:Math.max(...rects.map(b=>b.right)),bottom:Math.max(...rects.map(b=>b.bottom))};
+    r.width=r.right-r.left;r.height=r.bottom-r.top;const viewport=document.getElementById('viewport').getBoundingClientRect();
     const width=this.toolbar.offsetWidth,height=this.toolbar.offsetHeight;
     const left=Math.max(8,Math.min(innerWidth-width-8,r.left+(r.width-width)/2));
     const top=r.top-height-8>=viewport.top+8?r.top-height-8:Math.min(viewport.bottom-height-8,Math.max(viewport.top+8,r.bottom+8));
@@ -224,8 +358,17 @@ export class Whiteboard {
     Object.assign(this.menu.style,{left:`${Math.max(8,Math.min(innerWidth-this.menu.offsetWidth-8,r.right-this.menu.offsetWidth))}px`,top:`${Math.max(8,Math.min(innerHeight-this.menu.offsetHeight-8,r.bottom+6))}px`});
   }
   openMenu() {
-    const d=this.find();if(!d)return;
-    this.menu.innerHTML=`<label class="whiteboard-color">Color<input type="color" data-whiteboard-menu-color value="${this.pickerColor(d.color)}"></label><button type="button" role="menuitem" data-whiteboard-action="inspect">${d.type==='line'?'Arrow settings…':'Position & size…'}</button>${d.type==='line'?'<button type="button" role="menuitem" data-whiteboard-action="reverse">Reverse direction</button><button type="button" role="menuitem" data-whiteboard-action="reconnect-from">Reconnect start…</button><button type="button" role="menuitem" data-whiteboard-action="reconnect-to">Reconnect end…</button><button type="button" role="menuitem" data-whiteboard-action="detach-from">Detach start</button><button type="button" role="menuitem" data-whiteboard-action="detach-to">Detach end</button><button type="button" role="menuitem" data-whiteboard-action="detach-both">Detach both ends</button>':''}<hr><button type="button" role="menuitem" data-whiteboard-action="remove">Remove ${d.type==='line'?'arrow':d.shape==='rectangle'?'sticky note':'object'}</button>`;
+    const list=this.selectedDecorations(),d=list[0];if(!d)return;
+    if(list.length>1) {
+      // Several selected: a custom colour for all of them is the rare choice left.
+      this.menu.innerHTML=`<label class="whiteboard-color">Custom color<input type="color" data-whiteboard-menu-color value="${this.pickerColor(d.color)}"></label>`;
+      this.menu.hidden=false;this.toolbar.querySelector('[data-whiteboard-action=more]')?.setAttribute('aria-expanded','true');this.positionMenu();
+      const input=this.menu.querySelector('input');input.onchange=e=>this.restyle(list.map(d=>d.id),'color',e.target.value).catch(showFailure);input.focus({preventScroll:true});return;
+    }
+    // Arrows keep only rare choices here; ends attach and detach by dragging them.
+    this.menu.innerHTML=d.type==='line'
+      ? `<label class="whiteboard-color">Custom color<input type="color" data-whiteboard-menu-color value="${this.pickerColor(d.color)}"></label><button type="button" role="menuitem" data-whiteboard-action="edit">Edit label</button><button type="button" role="menuitem" data-whiteboard-action="detach-both">Detach both ends</button><button type="button" role="menuitem" data-whiteboard-action="inspect">Advanced…</button>`
+      : `<label class="whiteboard-color">Color<input type="color" data-whiteboard-menu-color value="${this.pickerColor(d.color)}"></label><button type="button" role="menuitem" data-whiteboard-action="inspect">Position & size…</button>`;
     this.menu.hidden=false;this.toolbar.querySelector('[data-whiteboard-action=more]')?.setAttribute('aria-expanded','true');this.positionMenu();
     this.menu.querySelector('[data-whiteboard-menu-color]').onchange=e=>this.save(d.id,{color:e.target.value}).catch(showFailure);
     this.menu.querySelector('button')?.focus({preventScroll:true});
@@ -243,19 +386,24 @@ export class Whiteboard {
     if(retry){e.preventDefault();e.stopPropagation();await this.saveDraft(retry.dataset.whiteboardRetry,{retry:true});return;}
     const port=e.target.closest('[data-port]');
     if(port&&e.detail===0){e.preventDefault();await this.choosePort(JSON.parse(port.dataset.port));return;}
-    const action=e.target.closest('[data-whiteboard-action]')?.dataset.whiteboardAction;if(!action)return;
+    const handle=e.target.closest('.workspace-decoration [data-endpoint]');
+    // Keyboard activation of an arrow end opens its exact connection fields.
+    if(handle&&e.detail===0){e.preventDefault();e.stopPropagation();this.inspect(handle.closest('[data-decoration]').dataset.decoration,handle.dataset.endpoint);return;}
+    const control=e.target.closest('[data-whiteboard-action]'),action=control?.dataset.whiteboardAction;if(!action)return;
     e.preventDefault();e.stopPropagation();
     if(action==='more'){this.menu.hidden?this.openMenu():this.closeMenu({focus:true});return;}
-    const id=this.host.activeDecoration;this.closeMenu();
+    if(action==='arrange'){this.closeMenu();this.host.arrangeMenu?.(control);return;}
+    const id=this.host.activeDecoration,ids=this.selectedDecorations().map(d=>d.id);this.closeMenu();
     if(action==='done'){this.commitEdit({focus:true});return;}
     if(action==='cancel-edit'){this.cancelEdit();return;}
     if(action==='edit'){this.edit(id);return;}
     if(action==='connect'){this.startConnect();return;}
     if(action==='retry'){this.saveDraft(id,{retry:true});return;}
     this.commitEdit({focus:false});
+    if(['color','route','heads','thickness','dashed','size','align','shape'].includes(action)){try{await this.restyle(ids,action,control.dataset.value);}catch(error){showFailure(error);}return;}
     if(action==='inspect'||action.startsWith('reconnect-')){this.inspect(id,action.slice(10));return;}
     try {
-      if(action==='reverse')await this.reverse(id);
+      if(action==='reverse')await this.restyle(ids,'reverse');
       if(action.startsWith('detach-'))await this.detach(id,action.slice(7));
       if(action==='remove')await this.remove();
     } catch(error){showFailure(error);}
@@ -289,15 +437,15 @@ export class Whiteboard {
     await this.host.refresh({saveReview:false});this.sync();
   }
   async remove() {
+    const many=this.selectedDecorations();
+    if(many.length>1) {
+      // Several selected: one atomic board write removes them all.
+      const gone=new Set(many.map(d=>d.id));this.host.decorationSelection=new Set();this.connectMode=false;this.pendingFrom=null;
+      await this.saveMany(this.host.snapshot.decorations.filter(d=>!gone.has(d.id)));this.sync();return;
+    }
     const id=this.host.activeDecoration;if(!id)return;
     this.cancelEdit({focus:false});this.host.activeDecoration=null;this.connectMode=false;this.pendingFrom=null;
     await this.host.client.write('removeDecoration',{boardId:this.host.snapshot.id,decorationId:id});await this.host.refresh({saveReview:false});this.sync();
-  }
-  async reverse(id) {
-    const d=this.find(id),r=resolveLine(d,this.host.snapshot);
-    const from=d.to?structuredClone(d.to):pointOnly(r.to),to=d.from?structuredClone(d.from):pointOnly(r.from);
-    const next={...d,from,to},g=resolveLine(next,this.host.snapshot);
-    await this.save(id,{from,to,...lineBox(g.from,g.to)});
   }
   async detach(id,which) {
     const d=this.find(id),r=resolveLine(d,this.host.snapshot);
@@ -322,6 +470,13 @@ export class Whiteboard {
     this.editor=session;element.append(form);element.classList.add('whiteboard-editing');
     session.binding=bindForm(form,{submit:async values=>{if(!session.requested)session.finishFocus=true;return this.finishEditor(session,String(values.get('text')??''));},onError:()=>{}});
     form.addEventListener('keydown',event=>{if(event.key!=='Escape')event.stopPropagation();});
+    if(d.type==='line') {
+      // Arrow labels edit in place on the line: Enter (or Escape) keeps the text.
+      const label=element.querySelector('.whiteboard-line-label');form.classList.add('whiteboard-label-editor');
+      Object.assign(form.style,{left:label?.style.left||'50%',top:label?.style.top||'50%'});
+      textarea.rows=1;textarea.placeholder='Label';
+      textarea.addEventListener('keydown',event=>{if(event.key==='Enter'&&!event.shiftKey&&!event.isComposing&&event.keyCode!==229&&!session.composing){event.preventDefault();this.commitEdit({focus:true});}});
+    }
     textarea.addEventListener('compositionstart',()=>{session.composing=true;});
     textarea.addEventListener('compositionend',()=>{session.composing=false;if(session.requested)queueMicrotask(()=>this.submitEditor(session));});
     textarea.addEventListener('blur',event=>{
@@ -391,6 +546,24 @@ export class Whiteboard {
     }catch(error){draft.pending=false;draft.error=error.conflict?'Text changed elsewhere. Review before retrying.':'Could not save text. Retry when the connection is available.';}
     finally{draft.pending=false;this.persistDrafts();this.sync();this.host.hooks.liveReady?.();}
   }
+  // Where a dragged arrow end would attach: an exact port within reach first,
+  // else the smallest target under (or just outside) the pointer, on its nearest side.
+  snapAt(point) {
+    const board=this.host.snapshot,pad=14/this.host.hooks.zoom(),port=this.nearest(point);
+    let hover=null,area=Infinity;
+    for(const ref of this.targets()) {
+      const b=targetBox(ref,board,this.overrides);if(!b)continue;
+      if(point.x>=b.x-pad&&point.x<=b.x+b.width+pad&&point.y>=b.y-pad&&point.y<=b.y+b.height+pad&&b.width*b.height<area){hover={ref,box:b};area=b.width*b.height;}
+    }
+    if(!hover||port)return port?{endpoint:port,ref:port.placementId?{placementId:port.placementId}:{decorationId:port.decorationId}}:null;
+    const b=hover.box,distance={top:Math.abs(point.y-b.y),right:Math.abs(b.x+b.width-point.x),bottom:Math.abs(b.y+b.height-point.y),left:Math.abs(point.x-b.x)};
+    return {endpoint:{...hover.ref,side:sides.reduce((best,side)=>distance[side]<distance[best]?side:best)},ref:hover.ref};
+  }
+  highlight(ref) {
+    const element=!ref?null:ref.decorationId?document.querySelector(selector(ref.decorationId)):document.querySelector(`#world .workspace-card[data-placement="${CSS.escape(ref.placementId)}"]`);
+    if(this.highlighted&&this.highlighted!==element)this.highlighted.classList.remove('whiteboard-snap-target');
+    element?.classList.add('whiteboard-snap-target');this.highlighted=element;
+  }
   nearest(point) {
     let best=null,distance=20/this.host.hooks.zoom();
     for(const ref of this.targets())for(const side of sides){const endpoint={...ref,side},p=resolveEndpoint(endpoint,this.host.snapshot,this.overrides),n=Math.hypot(point.x-p.x,point.y-p.y);if(n<=distance){distance=n;best=endpoint;}}
@@ -411,6 +584,12 @@ export class Whiteboard {
     if(this.host.mode!=='canvas'||e.button!==0||e.isPrimary===false||document.querySelector('dialog[open]')||this.host.pointerGesture||this.host.movePending)return;
     if(e.target.closest('input,textarea,[contenteditable]'))return;
     let d=element&&this.find(element.dataset.decoration);if(!port&&!d)return;
+    // Shift-click adds or removes a decoration from a multi-selection; no drag starts.
+    if(e.shiftKey&&d&&!port) {
+      const current=this.selectedDecorations().map(x=>x.id);
+      this.selectDecorations(current.includes(d.id)?current.filter(id=>id!==d.id):[...current,d.id]);
+      this.suppressClick=true;e.preventDefault();e.stopImmediatePropagation();return;
+    }
     if(d?.type==='region'&&!d.shape&&!e.target.closest('[data-decoration-label],button')) {
       const r=element.getBoundingClientRect();if(e.clientX>r.left+6&&e.clientX<r.right-6&&e.clientY>r.top+28&&e.clientY<r.bottom-6)return;
     }
@@ -431,17 +610,27 @@ export class Whiteboard {
     g.active=true;e.preventDefault();e.stopImmediatePropagation();
     const dx=(e.clientX-g.x)/g.zoom,dy=(e.clientY-g.y)/g.zoom,d=g.d;
     if(g.endpoint) {
-      const p=this.host.canvasPoint({x:e.clientX,y:e.clientY}),snap=this.nearest(p),r=resolveLine(d,this.host.snapshot);
+      const p=this.host.canvasPoint({x:e.clientX,y:e.clientY}),hit=this.snapAt(p),snap=hit?.endpoint,r=resolveLine(d,this.host.snapshot);
+      g.snap=hit;this.highlight(hit?.ref);
       const from=g.endpoint==='from'?snap||p:d.from||pointOnly(r.from),to=g.endpoint==='to'?snap||p:d.to||pointOnly(r.to);
       g.next={...d,from,to};const geometry=resolveLine(g.next,this.host.snapshot);Object.assign(g.next,lineBox(geometry.from,geometry.to));
-      this.hint.hidden=false;this.hint.textContent=snap?`Attach to ${this.name(snap)}: ${snap.side}`:'Release for a free endpoint.';
+      this.hint.hidden=false;this.hint.textContent=snap?`Release to attach to ${this.name(snap)} (${snap.side})`:'Release to leave this end free.';
     } else if(d.type==='line') {
       if(isAttachment(d.from)||isAttachment(d.to)) {
-        g.blocked=true;this.hint.hidden=false;this.hint.textContent='Drag an endpoint, or use More → Detach to move the arrow freely.';return;
+        g.blocked=true;this.hint.hidden=false;this.hint.textContent='Drag an end to move or detach it, or More → Detach both ends.';return;
       }
       const r=resolveLine(d,this.host.snapshot),from={x:Math.round(r.from.x+dx),y:Math.round(r.from.y+dy)},to={x:Math.round(r.to.x+dx),y:Math.round(r.to.y+dy)};
       g.next={...d,...lineBox(from,to),from,to};
-    } else g.next={...d,...(g.resize?{width:Math.max(60,Math.round(d.width+dx)),height:Math.max(35,Math.round(d.height+dy))}:{x:Math.round(d.x+dx),y:Math.round(d.y+dy)})};
+    } else {
+      // Smart guides: edges and centres snap to other objects (⌘/Ctrl held turns it off).
+      let sx=dx,sy=dy;
+      if(!g.creating&&!snapDisabled(e,isMacPlatform())) {
+        g.snapTargets||=this.host.snapTargets(new Set(),new Set([d.id]));
+        const r=snapBox(g.resize?{x:d.x,y:d.y,width:d.width+dx,height:d.height+dy}:{x:d.x+dx,y:d.y+dy,width:d.width,height:d.height},g.snapTargets,6/g.zoom,{resize:!!g.resize});
+        sx+=r.dx;sy+=r.dy;this.host.showGuides(r.guides);
+      } else this.host.showGuides([]);
+      g.next={...d,...(g.resize?{width:Math.max(60,Math.round(d.width+sx)),height:Math.max(35,Math.round(d.height+sy))}:{x:Math.round(d.x+sx),y:Math.round(d.y+sy)})};
+    }
     if(g.creating) {
       const old=document.querySelector(selector(d.id));
       if(old)old.remove();document.getElementById('world').insertAdjacentHTML('beforeend',decorationMarkup(g.next,this.host.snapshot,this.host.origin,true));
@@ -449,7 +638,7 @@ export class Whiteboard {
     this.host.syncGeometry({decorations:new Map([[d.id,g.next]])});
   }
   finish(settled) {
-    const g=this.drag;this.drag=null;this.host.decorationGesture=false;this.hint.hidden=true;
+    const g=this.drag;this.drag=null;this.host.decorationGesture=false;this.hint.hidden=true;this.highlight(null);this.host.showGuides?.([]);
     // A released drop keeps its geometry until the save reconciles or rolls back.
     this.host.syncGeometry(settled?{decorations:new Map([[g.d.id,settled]])}:undefined);this.host.updateHistoryControls();this.host.hooks.liveReady?.();return g;
   }
@@ -483,11 +672,17 @@ export class Whiteboard {
     // Discarding stays an explicit choice (the toolbar's cancel-edit action).
     if(this.editor){if(e.isComposing||e.keyCode===229||this.editor.composing)return false;this.commitEdit({focus:true});return true;}
     if(!this.menu.hidden){this.closeMenu({focus:true});return true;}
+    if(this.host.decorationSelection?.size>1){this.clearSelection();return true;}
     return false;
   }
   keydown(e) {
     if(this.editor&&e.key==='Escape'&&(e.isComposing||e.keyCode===229||this.editor.composing)){e.stopImmediatePropagation();return;}
     if(this.handleEscape(e)){e.preventDefault();e.stopImmediatePropagation();return;}
+    if(e.target.closest('.whiteboard-toolbar')&&['ArrowRight','ArrowLeft','Home','End'].includes(e.key)) {
+      const buttons=[...this.toolbar.querySelectorAll('button')],index=buttons.indexOf(document.activeElement);
+      e.preventDefault();e.stopImmediatePropagation();
+      buttons[e.key==='Home'?0:e.key==='End'?buttons.length-1:(index+(e.key==='ArrowRight'?1:-1)+buttons.length)%buttons.length]?.focus();return;
+    }
     if(e.target.closest('.whiteboard-menu')) {
       const buttons=[...this.menu.querySelectorAll('button')],index=buttons.indexOf(document.activeElement);
       if(['ArrowDown','ArrowUp','Home','End'].includes(e.key)){e.preventDefault();buttons[e.key==='Home'?0:e.key==='End'?buttons.length-1:(index+(e.key==='ArrowDown'?1:-1)+buttons.length)%buttons.length]?.focus();}

@@ -93,7 +93,7 @@ try{
   await page.waitForFunction(()=>document.querySelectorAll('#world [data-decoration]').length===1);
   assert.equal(await empty.count(),0,'one remaining sticky keeps the board non-empty');
   await page.locator('[data-decoration=sticky] [data-decoration-label]').click();
-  await page.locator('[data-whiteboard-action=more]').click();await page.locator('[data-whiteboard-action=remove]').click();
+  await page.locator('.whiteboard-toolbar [data-whiteboard-action=remove]').click();
   await empty.waitFor();assert.equal(await page.locator('#world [data-decoration]').count(),0);
   const emptyState={afterLastRemoval:await empty.isVisible()};
   await applyOperation(config,{type:'createDecoration',boardId:board.boardId,decoration:{id:'returned',type:'region',shape:'rectangle',x:0,y:0,width:220,height:200,color:'#f6e6a4',text:'Back again'}});

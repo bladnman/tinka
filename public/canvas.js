@@ -1618,6 +1618,7 @@ document.addEventListener('pointerdown', event => {
   if (!$('board-info').hidden && !event.target.closest('#board-info, #board-info-toggle, .workspace-dialog, dialog[open], .workspace-add-menu, .workspace-popover, .feedback-panel')) setInfoOpen(false);
   if (!$('zoom-menu').hidden && !event.target.closest('.zoom-menu-wrap')) setZoomMenuOpen(false);
 }, true);
+let pendingDocumentOpen = 0;
 document.addEventListener('click', event => {
   const open = event.target.closest('[data-open]');
   const star = event.target.closest('[data-star]');
@@ -1625,6 +1626,16 @@ document.addEventListener('click', event => {
   if (remove && appConfig) {
     const concept = all.find(item => item.key === remove.dataset.removeExperiment);
     if (concept) {closeLegacyMenu();document.querySelector(`[data-legacy-menu="${CSS.escape(concept.key)}"]`)?.focus({preventScroll:true});openRemovalPrompt(appConfig, board, concept);}
+  }
+  // A single click on a document card's page opens it after a short pause, so a double-click
+  // can edit it in place instead (workspace-board.js). Keyboard activation opens at once.
+  if (open && !open.disabled && open.matches('.workspace-preview-launch') && event.detail > 0 && graph) {
+    const placement = graph.snapshot?.placements.find(p => p.id === open.closest('.workspace-card')?.dataset.placement);
+    if (graph.editableDocument?.(graph.snapshot.items[placement?.itemId])) {
+      clearTimeout(pendingDocumentOpen);
+      if (event.detail === 1) pendingDocumentOpen = setTimeout(() => { pendingDocumentOpen = 0; if (open.isConnected && !graph.documentEditing) { closeLegacyMenu(); tileNotes.close(); openReader(open.dataset.open, open.dataset.revision); } }, 280);
+      return;
+    }
   }
   if (open && !open.disabled) {
     closeLegacyMenu();
@@ -1658,7 +1669,8 @@ bindCommitShortcut($('reader-note'),{commit:flushNoteEdits,onError:error=>setSav
 $('reader-note').setAttribute('aria-keyshortcuts','Meta+Enter Control+Enter');
 const readerNoteHint=document.createElement('small');readerNoteHint.className='workspace-submit-hint';readerNoteHint.textContent=`${commitShortcutLabel()} to save`; $('reader-note').after(readerNoteHint);
 document.addEventListener('keydown', event => {
-  if (event.key !== 'Escape' || event.defaultPrevented || event.isComposing || event.keyCode===229 || event.repeat || document.querySelector('dialog.workspace-dialog[open]')) return;
+  // The document editor (board-document.js) handles its own Escape: save and close it, keep the reader open.
+  if (event.key !== 'Escape' || event.defaultPrevented || event.isComposing || event.keyCode===229 || event.repeat || document.querySelector('dialog.workspace-dialog[open],dialog.tinka-doc-editor[open]')) return;
   if (tileNotes.element) {event.preventDefault();event.stopImmediatePropagation();tileNotes.close({focus:true});return;}
   if (legacyMenu) {event.preventDefault();event.stopImmediatePropagation();closeLegacyMenu(true);return;}
   if (dialog.open) { if (projectNavigator?.panel?.contains(event.target)) return; handleEscape(event); event.preventDefault(); return; }
@@ -2027,6 +2039,16 @@ function readerContext(data,itemId){
 function refreshReaderAnnotations(detail={}){
   if(dialog.open&&activeVariantId==='original'&&active?.graphItem?.id===detail.itemId)
     $('active-reader').contentWindow?.postMessage({type:'tinka-annotations-refresh'},location.origin);
+  // Document cards and panels of the same item repaint their highlight and comment marks.
+  for(const frame of world.querySelectorAll('.workspace-live-preview iframe')){
+    try{const source=new URL(frame.getAttribute('src')||'',location.href);if(source.pathname==='/app/media.html'&&source.searchParams.get('item')===detail.itemId)frame.contentWindow?.postMessage({type:'tinka-annotations-refresh'},location.origin);}catch{}
+  }
+}
+// The reader edits its document in place (markdown-reader.js and document-editor.js). When editing
+// ends after a save, the board applies the auto title and the document's cards catch up.
+function readerEditEnded(itemId,data){
+  if(!graph||!data?.saved)return;
+  import('./board-document.js').then(module=>module.afterEdit(graph,itemId,data,null)).catch(error=>setSaveStatus(error.message,'local'));
 }
 function wireReaderReview(){
   if(graph?.feedback&&!graph.feedback.canvasReviewBound){graph.feedback.canvasReviewBound=true;graph.feedback.onCommitted=refreshReaderAnnotations;}
@@ -2036,6 +2058,9 @@ window.addEventListener('message', event => {
   if(event.data?.type==='reader-close'){handleEscape();return;}
   const item=active?.graphItem,data=event.data;
   if(!dialog.open||!graph||!item||activeVariantId!=='original'||data?.itemId!==item.id||item.content?.kind!=='markdown'||!item.content.resource||item.content.url)return;
+  if(data.type==='tinka-document-edit-end'){readerEditEnded(item.id,data);return;}
+  if(data.type==='tinka-document-status'){if(data.state==='saved'&&graph)import('./board-document.js').then(module=>module.documentSaved(graph,item.id,null)).catch(()=>{});return;}
+  if(data.type==='tinka-document-edit-started')return;
   wireReaderReview();const options=readerContext(data,item.id);
   if(data.type==='tinka-selection-context'){graph.feedback.updateReaderContext({selectionId:options.selectionId,selectionRect:options.selectionRect});return;}
   if(data.type==='tinka-comment-selection'&&validTextAnchor(data.anchor)&&/^sha256:[a-f0-9]{64}$/.test(data.anchor.sourceRevision||'')){

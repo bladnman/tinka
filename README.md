@@ -359,8 +359,9 @@ Linux) select the previous or next Tinka in the same order an opened Tinka steps
 and bring it into view. With nothing selected they continue from the board's current
 Tinka: the one you last opened or stepped to inside it, stepped to on the board or
 selected on its own (remembered per board in this tab). T, S and D add Text, a Sticky note or a Markdown
-Document at the pointer, N opens Quick jot, E edits the one selected Markdown
-document and ⇧⌘C / Ctrl-Shift-C copies the board's notes as Markdown.
+Document at the pointer, N opens Quick jot, A shows or hides the edit tools, E
+edits the one selected Markdown document and ⇧⌘C / Ctrl-Shift-C copies the
+board's notes as Markdown.
 ? or Inspector → Keyboard shortcuts shows the
 shortcut sheet.
 Editing fields, readers, iframes and dialogs keep their native keys.
@@ -448,17 +449,36 @@ Text and Sticky blocks show a small, safe Markdown subset: **bold**, *italic*,
 `code`, `- ` or `1. ` lists, `[ ]` / `[x]` checkboxes and `# ` headings; anything
 else stays plain text.
 
-Quick add sits beside + Add: **Text (T)**, **Sticky (S)**, **Document (D)** and
-**Jot (N)**; the letters work on a Canvas board wherever board keys do and place the
+The **edit tools** are a small floating palette on Canvas boards: **Text (T)**,
+**Sticky (S)**, **Document (D)**, **Quick jot (N)** and More to add (the rest of
++ Add). Press **A** or the pencil in the bottom bar to show or hide it (remembered in
+this browser); the letters work wherever board keys do, shown or not, and place the
 new block at the pointer. Double-click empty Canvas space to start a Text block
-there. **Document** (also in + Add) creates a Markdown file in the boards root's
-`imports/` folder and opens an editor with the source beside a live preview;
-⌘/Ctrl-Enter or Done saves it back to that file, Escape or Cancel closes it.
-Choose **Edit document** from a local Markdown item's ⋯ menu or the selection
-bar, or press **E** with it selected, to edit it the same way. **Quick jot** (N)
-is one floating line: each Enter adds a sticky below the last one, and Escape
-closes it. **⇧⌘C** / Ctrl-Shift-C, or + Add → Copy notes as Markdown, copies the
-board's text, stickies and item titles (with their Tinka links), top to bottom.
+there. **Document** creates a Markdown file in the boards root's `imports/` folder
+and starts editing it in place on its card.
+
+Local Markdown documents are edited where they are shown, on their card or in the
+reader: choose **Edit** on the card's hover toolbar, **Edit document** in its ⋯ menu
+or the selection bar, or press **E** with it selected. Editing is WYSIWYG with
+Markdown typing shortcuts, ⌘/Ctrl-B, -I, -K and -E, list keys and clickable
+checkboxes; it saves about a second after you stop typing and when you leave, and
+Escape or ⌘/Ctrl-Enter ends it. Blocks you did not touch keep their exact source.
+If the file changed elsewhere since editing began, the save is refused and Tinka
+says so instead of overwriting it. Document cards look like paper and fill their
+tile, with checklists, strikethrough, nested formatting, and live highlights and
+comments. After a save, highlights and comments follow their exact quoted text when
+it can be placed without guessing; edited quotes and ties stay for review.
+
+Select an arrow, sticky, text or shape for a contextual bar with its own
+options; with several selected, a choice applies to all of them. On Canvas
+a selection box also takes drawn elements, so cards and drawn elements move, copy
+and delete together as one group. Dragging or resizing snaps edges and centres to
+nearby objects with thin guides (hold ⌘, or Ctrl off macOS, to turn snapping off),
+and with two or more selected, **Arrange** aligns, distributes or tidies them into
+a grid in one Undo step. **Quick jot** (N) is one floating line: each Enter adds a
+sticky to a tidy grid in a clear area, and Escape closes it. **⇧⌘C** /
+Ctrl-Shift-C, or + Add → Copy notes as Markdown, copies the board's text, stickies
+and item titles (with their Tinka links), top to bottom.
 Notes and conversation composers use the same scoped shortcut, with a platform
 hint. Failed saves preserve drafts; click-away never posts a comment. Small saved
 cards keep their size and expose hidden actions through More and selection controls.

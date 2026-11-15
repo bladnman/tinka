@@ -1144,6 +1144,40 @@
                     "endArrow": {
                       "type": "boolean"
                     },
+                    "startArrow": {
+                      "type": "boolean"
+                    },
+                    "dashed": {
+                      "type": "boolean"
+                    },
+                    "route": {
+                      "enum": [
+                        "straight",
+                        "elbow",
+                        "curved"
+                      ]
+                    },
+                    "thickness": {
+                      "enum": [
+                        "thin",
+                        "medium",
+                        "thick"
+                      ]
+                    },
+                    "textSize": {
+                      "enum": [
+                        "small",
+                        "medium",
+                        "large"
+                      ]
+                    },
+                    "textAlign": {
+                      "enum": [
+                        "left",
+                        "center",
+                        "right"
+                      ]
+                    },
                     "flipX": {
                       "type": "boolean"
                     },
@@ -1562,7 +1596,7 @@
     },
     {
       "name": "placement.translate",
-      "description": "Translate selected placements atomically, preserving arrangement and returning movement history.",
+      "description": "Translate selected placements, and optionally drawn elements (decorationIds), atomically, preserving arrangement and returning movement history.",
       "inputSchema": {
         "type": "object",
         "additionalProperties": false,
@@ -1588,7 +1622,17 @@
               "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_-]{0,127}$",
               "maxLength": 128
             },
-            "minItems": 1
+            "description": "Placements to move; may be empty when decorationIds is given."
+          },
+          "decorationIds": {
+            "type": "array",
+            "description": "Optional drawn elements on this board (text, regions, shapes, arrows) to move in the same revision. Free arrow ends shift; attached ends follow their targets.",
+            "items": {
+              "type": "string",
+              "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_-]{0,127}$",
+              "maxLength": 128
+            },
+            "uniqueItems": true
           },
           "dx": {
             "type": "number",
@@ -1609,6 +1653,97 @@
         ]
       },
       "operation": "translatePlacements",
+      "mutating": true
+    },
+    {
+      "name": "placement.arrange",
+      "description": "Set per-object positions for placements and/or drawn elements on one board (align, distribute, tidy into a grid) in one revision with one movement-history entry. Sizes stay unchanged; a drawn element's free arrow ends move with it.",
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "expectedRevision": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "operationId": {
+            "type": "string",
+            "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_-]{0,127}$",
+            "maxLength": 128
+          },
+          "boardId": {
+            "type": "string",
+            "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_-]{0,127}$",
+            "maxLength": 128
+          },
+          "placements": {
+            "type": "array",
+            "maxItems": 10000,
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_-]{0,127}$",
+                  "maxLength": 128
+                },
+                "x": {
+                  "type": "number",
+                  "minimum": -10000000,
+                  "maximum": 10000000
+                },
+                "y": {
+                  "type": "number",
+                  "minimum": -10000000,
+                  "maximum": 10000000
+                }
+              },
+              "required": [
+                "id",
+                "x",
+                "y"
+              ]
+            },
+            "description": "Placements to position: unique ids on this board, each with its new top-left x/y in board units."
+          },
+          "decorations": {
+            "type": "array",
+            "maxItems": 10000,
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_-]{0,127}$",
+                  "maxLength": 128
+                },
+                "x": {
+                  "type": "number",
+                  "minimum": -10000000,
+                  "maximum": 10000000
+                },
+                "y": {
+                  "type": "number",
+                  "minimum": -10000000,
+                  "maximum": 10000000
+                }
+              },
+              "required": [
+                "id",
+                "x",
+                "y"
+              ]
+            },
+            "description": "Drawn elements (decorations) to position: unique ids on this board, each with its new top-left x/y in board units."
+          }
+        },
+        "required": [
+          "boardId"
+        ]
+      },
+      "operation": "arrangePlacements",
       "mutating": true
     },
     {
@@ -2069,6 +2204,40 @@
               "endArrow": {
                 "type": "boolean"
               },
+              "startArrow": {
+                "type": "boolean"
+              },
+              "dashed": {
+                "type": "boolean"
+              },
+              "route": {
+                "enum": [
+                  "straight",
+                  "elbow",
+                  "curved"
+                ]
+              },
+              "thickness": {
+                "enum": [
+                  "thin",
+                  "medium",
+                  "thick"
+                ]
+              },
+              "textSize": {
+                "enum": [
+                  "small",
+                  "medium",
+                  "large"
+                ]
+              },
+              "textAlign": {
+                "enum": [
+                  "left",
+                  "center",
+                  "right"
+                ]
+              },
               "flipX": {
                 "type": "boolean"
               },
@@ -2434,6 +2603,40 @@
               },
               "endArrow": {
                 "type": "boolean"
+              },
+              "startArrow": {
+                "type": "boolean"
+              },
+              "dashed": {
+                "type": "boolean"
+              },
+              "route": {
+                "enum": [
+                  "straight",
+                  "elbow",
+                  "curved"
+                ]
+              },
+              "thickness": {
+                "enum": [
+                  "thin",
+                  "medium",
+                  "thick"
+                ]
+              },
+              "textSize": {
+                "enum": [
+                  "small",
+                  "medium",
+                  "large"
+                ]
+              },
+              "textAlign": {
+                "enum": [
+                  "left",
+                  "center",
+                  "right"
+                ]
               },
               "flipX": {
                 "type": "boolean"
@@ -3392,6 +3595,34 @@
         "required": [
           "itemId",
           "highlightId"
+        ]
+      }
+    },
+    {
+      "name": "document.reanchor",
+      "mutating": true,
+      "description": "After editing a local Markdown document item's file, move its saved highlights and text-anchored comment threads to their passage in the current text. A mark moves only when its exact quote with its saved prefix and suffix occurs exactly once; edited, ambiguous or missing quotes stay for review. Each move is recorded in the mark's reanchored history. Writes nothing when nothing moves; saves made in Tinka do this automatically.",
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "itemId": {
+            "type": "string",
+            "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_-]{0,127}$",
+            "maxLength": 128
+          },
+          "expectedRevision": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "operationId": {
+            "type": "string",
+            "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_-]{0,127}$",
+            "maxLength": 128
+          }
+        },
+        "required": [
+          "itemId"
         ]
       }
     }

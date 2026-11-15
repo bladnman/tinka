@@ -11,8 +11,8 @@ html[data-appearance="dark"] .workspace-decoration { --decoration-ink:var(--deco
 .shape-ellipse .workspace-decoration-label { padding:15% 20%; }
 .workspace-decoration.decoration-line { background:transparent; pointer-events:none; outline:none; z-index:2; }
 .workspace-decoration.decoration-line.selected { outline:none; z-index:10000; }
-.workspace-decoration-line .whiteboard-line-hit { stroke:transparent; stroke-width:16; vector-effect:non-scaling-stroke; pointer-events:stroke; cursor:move; }
-.workspace-decoration .whiteboard-line-label { width:max-content; max-width:260px; bottom:auto; min-height:0; padding:3px 8px; transform:translate(-50%,-50%); background:var(--paper); border-radius:5px; color:var(--ink); font:400 15px/1.4 Georgia,serif; pointer-events:auto; white-space:pre-wrap; box-shadow:0 0 0 3px #f6f7f1bb; }
+.workspace-decoration-line .whiteboard-line-hit { fill:none; stroke:transparent; stroke-width:16; vector-effect:non-scaling-stroke; pointer-events:stroke; cursor:move; }
+.workspace-decoration .whiteboard-line-label { width:max-content; max-width:260px; bottom:auto; min-height:0; padding:3px 8px; transform:translate(-50%,-50%); background:var(--paper); border-radius:5px; color:var(--ink); font:400 15px/1.4 Georgia,serif; pointer-events:auto; white-space:pre-wrap; box-shadow:0 0 0 3px color-mix(in srgb,var(--paper) 73%,transparent); }
 .workspace-decoration .whiteboard-line-label:empty { display:none; }
 .workspace-decoration .workspace-endpoint { pointer-events:auto; }
 .workspace-decoration .endpoint-head { background:var(--green); border-color:var(--paper); }
@@ -41,7 +41,7 @@ html[data-appearance="dark"] .workspace-decoration { --decoration-ink:var(--deco
 .whiteboard-editing > .workspace-decoration-resize,.whiteboard-editing > .workspace-endpoint { display:none !important; }
 .whiteboard-draft-state { position:absolute; left:0; top:calc(100% + 6px); display:flex; gap:8px; align-items:center; padding:4px 6px; background:var(--paper); border:1px solid var(--line); border-radius:6px; white-space:nowrap; font:12px/1.4 system-ui; pointer-events:auto; z-index:5; }
 .whiteboard-draft-state button { min-height:32px; font-size:12px; padding:4px 8px; }
-.whiteboard-connect-hint { position:fixed; bottom:52px; left:50%; transform:translateX(-50%); padding:8px 14px; background:var(--night); color:var(--paper); border-radius:8px; font:13px/1.4 system-ui; z-index:100021; pointer-events:none; max-width:calc(100vw - 32px); }
+.whiteboard-connect-hint { position:fixed; bottom:52px; left:50%; transform:translateX(-50%); padding:8px 14px; background:var(--ink); color:var(--paper); border-radius:8px; box-shadow:0 4px 14px #0000002e; font:13px/1.4 system-ui; z-index:100021; pointer-events:none; max-width:calc(100vw - 32px); }
 .whiteboard-fields { display:grid; grid-template-columns:minmax(0,1fr) minmax(0,1fr); gap:8px 12px; }
 .whiteboard-fields label { min-width:0; }
 .whiteboard-fields input { width:100%; }
@@ -88,3 +88,60 @@ dialog.whiteboard-arrow-settings { width:min(700px,calc(100vw - 24px)); max-heig
 .whiteboard-arrow-settings .whiteboard-settings-body { clip-path:inset(0); }
 /* Formatted Markdown body for Text and Sticky decorations (deco-format.js). */
 .deco-body{display:block;max-width:100%;white-space:normal}.deco-body ul,.deco-body ol{margin:0;padding-left:1.3em;text-align:left}.deco-heading{font-size:1.3em;font-weight:600}.deco-body code{font-family:ui-monospace,monospace;font-size:.9em}
+/* Arrows: a FigJam/Miro-style contextual bar, draggable ends that snap to a
+   highlighted target, and the label typed in place on the line. */
+.decoration-line.selected .whiteboard-line-hit { stroke:color-mix(in srgb,var(--green) 13%,transparent); }
+.workspace-decoration.decoration-line > .workspace-endpoint { width:16px; min-width:16px; height:16px; min-height:16px; border:2px solid var(--green); background:var(--paper); box-shadow:0 1px 4px #0000003d; cursor:grab; }
+.workspace-decoration.decoration-line > .endpoint-head { background:var(--green); border-color:var(--paper); }
+.workspace-decoration.decoration-line > .workspace-endpoint:hover,.workspace-decoration.decoration-line > .workspace-endpoint:focus-visible { transform:translate(-50%,-50%) scale(1.2); outline:3px solid color-mix(in srgb,var(--green) 35%,transparent); }
+.whiteboard-toolbar.whiteboard-arrow-bar { gap:0; padding:3px; }
+.whiteboard-bar-group { display:flex; align-items:center; gap:1px; padding:0 4px; }
+.whiteboard-bar-group + .whiteboard-bar-group { border-left:1px solid var(--line); }
+.whiteboard-toolbar .whiteboard-bar-button { display:grid; place-items:center; width:30px; min-width:30px; height:30px; min-height:30px; padding:0; border:0; border-radius:6px; background:transparent; color:var(--ink); }
+.whiteboard-toolbar .whiteboard-bar-button:hover { background:var(--soft); }
+.whiteboard-toolbar .whiteboard-bar-button[aria-pressed=true] { background:var(--soft); color:var(--green); box-shadow:inset 0 0 0 1.5px var(--green); }
+.whiteboard-toolbar .whiteboard-bar-button:focus-visible { outline:2px solid var(--green); outline-offset:1px; }
+.whiteboard-toolbar .whiteboard-bar-button[data-whiteboard-action=remove]:hover { color:var(--danger,#b4463c); }
+.whiteboard-swatch { display:block; width:16px; height:16px; border-radius:50%; box-shadow:inset 0 0 0 1px #00000026; }
+.whiteboard-bar-button[data-whiteboard-action=color][aria-pressed=true] { box-shadow:none; background:transparent; }
+.whiteboard-bar-button[data-whiteboard-action=color][aria-pressed=true] .whiteboard-swatch { box-shadow:0 0 0 2px var(--paper),0 0 0 3.5px var(--ink); }
+.whiteboard-toolbar .whiteboard-bar-status { padding:0 6px; }
+.whiteboard-ports.snapping .whiteboard-port:not(.near) { opacity:.3; }
+.whiteboard-port.near { border-color:var(--green); }
+.whiteboard-port.snapped { background:var(--green); transform:translate(-50%,-50%) scale(1.3); box-shadow:0 0 0 5px color-mix(in srgb,var(--green) 25%,transparent); }
+#world .whiteboard-snap-target { outline:2px solid var(--green) !important; outline-offset:4px; border-radius:6px; }
+#world .whiteboard-shape.whiteboard-snap-target .whiteboard-silhouette { filter:drop-shadow(0 0 6px color-mix(in srgb,var(--green) 55%,transparent)); }
+.whiteboard-editing .whiteboard-line-label { visibility:hidden; }
+.decoration-line .whiteboard-editor.whiteboard-label-editor { right:auto; bottom:auto; width:auto; height:auto; transform:translate(-50%,-50%); }
+.workspace-decoration.decoration-line .whiteboard-label-editor textarea { field-sizing:content; width:auto; min-width:72px; max-width:280px; height:auto; min-height:0; padding:3px 8px; border:1.5px solid var(--green); border-radius:5px; outline:3px solid color-mix(in srgb,var(--paper) 73%,transparent); outline-offset:0; text-align:center; font:400 15px/1.4 Georgia,serif; }
+.workspace-decoration.decoration-line .whiteboard-label-editor textarea::placeholder { color:var(--muted); }
+html[data-appearance="dark"] .whiteboard-detached { background:#4a3d1f; color:#f3dfae; }
+@media(max-width:600px) { .whiteboard-toolbar .whiteboard-bar-button { width:40px; min-width:40px; height:40px; min-height:40px; } .whiteboard-bar-group + .whiteboard-bar-group { border-left:0; } }
+/* The same bar for Sticky notes, Text, shapes and areas: text size and alignment. */
+.whiteboard-size-letter { font:600 13px/1 -apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif; }
+.whiteboard-size-letter.size-small { font-size:10px; }
+.whiteboard-size-letter.size-large { font-size:16px; }
+.whiteboard-shape.text-size-small .workspace-decoration-label,.whiteboard-shape.text-size-small .whiteboard-editor textarea { font-size:15px; }
+.whiteboard-shape.text-size-large .workspace-decoration-label,.whiteboard-shape.text-size-large .whiteboard-editor textarea { font-size:28px; }
+.workspace-decoration:not(.whiteboard-shape):not(.decoration-line).text-size-small { font-size:18px; }
+.workspace-decoration:not(.whiteboard-shape):not(.decoration-line).text-size-large { font-size:36px; }
+.workspace-decoration:not(.whiteboard-shape):not(.decoration-line).text-size-small .whiteboard-editor textarea { font-size:16px; }
+.workspace-decoration:not(.whiteboard-shape):not(.decoration-line).text-size-large .whiteboard-editor textarea { font-size:30px; }
+.workspace-decoration.text-align-left .workspace-decoration-label,.workspace-decoration.text-align-left .whiteboard-editor textarea { text-align:left; justify-content:flex-start; }
+.workspace-decoration.text-align-center .workspace-decoration-label,.workspace-decoration.text-align-center .whiteboard-editor textarea { text-align:center; justify-content:center; }
+.workspace-decoration.text-align-right .workspace-decoration-label,.workspace-decoration.text-align-right .whiteboard-editor textarea { text-align:right; justify-content:flex-end; }
+.workspace-decoration:is(.text-align-center,.text-align-right) .deco-body :is(ul,ol) { display:inline-block; }
+
+/* Smart guides while dragging or resizing: thin accent lines; equal spacing dashed. */
+.snap-guides { position: fixed; inset: 0; pointer-events: none; z-index: 45; }
+.snap-guide { position: absolute; display: block; background: var(--snap-guide, var(--accent)); }
+.snap-guide.snap-v { width: 1px; }
+.snap-guide.snap-h { height: 1px; }
+.snap-guide.snap-space { background: none; }
+.snap-guide.snap-space.snap-h { border-top: 1px dashed var(--snap-guide, var(--accent)); height: 0; }
+.snap-guide.snap-space.snap-v { border-left: 1px dashed var(--snap-guide, var(--accent)); width: 0; }
+.snap-guide.snap-space::before, .snap-guide.snap-space::after { content: ""; position: absolute; background: var(--snap-guide, var(--accent)); }
+.snap-guide.snap-space.snap-h::before, .snap-guide.snap-space.snap-h::after { top: -4px; width: 1px; height: 7px; }
+.snap-guide.snap-space.snap-h::before { left: 0; } .snap-guide.snap-space.snap-h::after { right: 0; }
+.snap-guide.snap-space.snap-v::before, .snap-guide.snap-space.snap-v::after { left: -4px; height: 1px; width: 7px; }
+.snap-guide.snap-space.snap-v::before { top: 0; } .snap-guide.snap-space.snap-v::after { bottom: 0; }

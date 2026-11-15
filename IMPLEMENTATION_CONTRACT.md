@@ -41,7 +41,7 @@ preview resources retain priority.
 
 Boards have ownerItemId, placements [{id,itemId,x,y,width,height,z,...local state}],
 reviewOrder, retained rounds, decorations and optional background. Placements share
-canonical review; geometry, optional presentation and local archive state are board-scoped. Presentation accepts mode card/panel/icon, an optional viewport with integer width/height from 40 to 10000, and an optional hexadecimal paper color. Absence on stored placements retains cards; createItem defaults visual kinds (html/image/video/pdf/markdown) and saved-image previews to explicit panel at 720×560, with explicit mode/geometry taking priority. Title-only ideas retain cards; no saved placement is migrated. Panels fit the complete HTML/image viewport without cropping. The tile's ⋯ menu groups Open experiment, Handoff when available, Notes and Remove from board; Details…, right-click Details… or ⌘/Ctrl-I opens the nonmodal right-side Inspector with notes, feedback, Full preview, Compact card, Icon and paper choices, readable created/edited dates and item actions. Notes/star remain canonical; appearance remains placement-local. Presentation patches replace the object, so clients preserve existing viewport and paper values when changing one field. Line decorations optionally accept boolean endArrow/flipX/flipY for an arrowhead and its endpoint orientation within the positive-size bounding box; absent flags preserve existing lines. Text, Colored region and Arrow are available from Add with direct on-board controls; ordinary lines remain supported decoration metadata. Containment
+canonical review; geometry, optional presentation and local archive state are board-scoped. Presentation accepts mode card/panel/icon, an optional viewport with integer width/height from 40 to 10000, and an optional hexadecimal paper color. Absence on stored placements retains cards; createItem defaults visual kinds (html/image/video/pdf/markdown) and saved-image previews to explicit panel at 720×560, with explicit mode/geometry taking priority. Title-only ideas retain cards; no saved placement is migrated. Panels fit the complete HTML/image viewport without cropping. The tile's ⋯ menu groups Open experiment, Handoff when available, Notes and Remove from board; Details…, right-click Details… or ⌘/Ctrl-I opens the nonmodal right-side Inspector with notes, feedback, Full preview, Compact card, Icon and paper choices, readable created/edited dates and item actions. Notes/star remain canonical; appearance remains placement-local. Presentation patches replace the object, so clients preserve existing viewport and paper values when changing one field. Line decorations optionally accept boolean endArrow/flipX/flipY for an arrowhead and its endpoint orientation within the positive-size bounding box; absent flags preserve existing lines. Lines also optionally accept boolean startArrow/dashed, route straight/elbow/curved and thickness thin/medium/thick; absence keeps straight, medium and solid. Text and region decorations optionally accept textSize small/medium/large and textAlign left/center/right; absence keeps their defaults. Text, Colored region and Arrow are available from Add with direct on-board controls; ordinary lines remain supported decoration metadata. Containment
 is a DAG, with explicit homeBoardIds. Resource roots are named workspace-relative
 folder paths; files remain project-owned and standalone. Duplication creates a
 new canonical identity pointing at the same files; board duplication copies its
@@ -65,7 +65,7 @@ accepts {patch:{note?,star?},expectedRevision?,operationId?}. POST
 /resources/:rootId/PATH uses named-root realpath/dotfile/symlink containment and media
 byte ranges; ordinary relative HTML assets resolve in the same namespace.
 
-Operations: createItem, updateItem, createBoard, updateBoard, updatePlacement, translatePlacements,
+Operations: createItem, updateItem, createBoard, updateBoard, updatePlacement, translatePlacements, arrangePlacements,
 move, pastePlacements, restoreMovement, reference, duplicate, archive, archiveItem, remove, deleteItem, review,
 updateWorkspace, addHighlight, removeHighlight. CLI workspace show/op and item show use these same transactions.
 Graph-aware board create/status preserve existing command usage. See
@@ -128,7 +128,19 @@ single-placement. Hit testing ignores every moving card, and forbidden destinati
 combine the descendants of every selected item. Header returns place the complete
 group beside its containing board without navigating. Normal group positioning uses
 translatePlacements {boardId,placementIds,dx,dy}; finite supported deltas and every
-resulting coordinate are validated before one commit. Canonical items, dimensions,
+resulting coordinate are validated before one commit. Optional decorationIds move a
+mixed group's drawn elements in the same commit (placementIds may then be empty; free
+arrow ends move, attached ends follow) and join that one movement-history entry.
+arrangePlacements {boardId,placements?:[{id,x,y}],decorations?:[{id,x,y}]} sets per-object
+positions (at least one; unique ids; finite x/y; sizes unchanged; a drawn element's free
+arrow ends shift with it) in one commit and one movement-history entry. Canvas drags of
+cards, drawn elements and groups, and card/shape resizes, snap edges and centres to other
+rendered objects within six screen pixels (also midway between two row/column neighbours),
+drawing thin accent guides; ⌘ (Ctrl off macOS) held turns snapping off. With two or more
+selected (cards, drawn elements or mixed), the selection bar's (or object bar's) Arrange
+menu aligns left/centre/right/top/middle/bottom, distributes (three or more) and tidies the
+selection into a ⌈√n⌉-column grid in reading order with 40-unit gaps, anchored at its
+top-left; each is one arrangePlacements write. Arrows with an attached end are left out. Canonical items, dimensions,
 presentation and z are unchanged. Cancellation/conflicts restore all cards, preserve
 selection/drafts and reconcile the latest board. Moving away clears only moved
 selection/context; ordinary positioning retains selection. Keyed previews remain
@@ -136,7 +148,13 @@ mounted throughout dragging and reconciliation.
 Primary mouse/pen dragging on empty Canvas space creates a viewport-clipped
 selection box after six screen pixels. Positive intersection selects rendered
 outer placements under the current filters, including Archive results; removed,
-deleted and unrendered placements are excluded. Plain replaces selection, Shift
+deleted and unrendered placements are excluded. On Canvas the box also selects drawn
+elements (text, stickies, shapes, arrows) by positive intersection, and a plain colored
+region only when it encloses it. Cards with drawn elements form one mixed group: a drag
+of any member or an arrow key moves it in one translatePlacements (one Undo), ⌘/Ctrl-D
+copies it and Delete removes it (drawn-element copies and deletions are outside Undo);
+⌘/Ctrl-A selects both. Drawn elements alone become the whiteboard multi-selection, which
+the same keys move, copy and delete. Plain replaces selection, Shift
 at pointerdown adds to the original, and empty clicks clear/preserve respectively.
 Cancellation, Escape, blur, lost capture and a second pointer restore the original
 selection. This gesture makes no operations or geometry/review writes. Card and
@@ -155,7 +173,7 @@ WorkspaceClient exposes optional receipt capture while preserving existing resul
 values. Successful server-authenticated movement inverses are treated as opaque;
 restoreMovement returns a reciprocal receipt for the opposite stack. No receipt is
 recorded for failure, cancellation or no-op, and a new eligible movement clears redo.
-Eligible changes are placement geometry/resize, translatePlacements (including one
+Eligible changes are placement geometry/resize, arrangePlacements, translatePlacements (including one
 atomic selected arrow nudge), source-placement moves to existing boards, pastePlacements, board-placement remove and decoration geometry (an updateDecoration patch with x/y/width/height/from/to: text, shapes, regions and arrows moved, resized, nudged or re-pointed; text, color and creation/removal stay outside). Moves
 creating a board, home-only operations and canonical deletion are outside browser movement
 history. Movement replay does not roll back canonical content, review or titles. Paste
@@ -273,7 +291,7 @@ GET /api/boards/:id/live -> existing live.js schema {revision,shellRevision,mani
 GET/PUT /api/boards/:id/notes -> existing notes map shape.
 GET /api/health -> {app:"board-room",version,projectLabel,workspaceId,port,url,configPath,boardsRoot}.
 GET /api/update -> read-only update state for the browser notice; POST /api/update/install {version,consent?:"major"} -> 202 after starting `update now [--major] --to VERSION` detached (409 when off, running, modified or needing review; 400 without consent for a major step); POST /api/update/preference {action:later|check|policy,policy?} (lib/update-browser.mjs, public/update-notice.js; see PROTOCOL "Start and update this instance").
-POST /api/documents {workspaceId,targetBoardId,targetPosition?,expectedRevision,operationId,title?,text?,width?,height?} creates one Markdown file through the file-import transaction (boardsRoot/imports, one undo/redo receipt; text at most 900,000 bytes, no NUL); PUT /api/documents/:itemId {text} atomically replaces the bytes of that item's local named-root Markdown resource (regular file, resolveResource containment, temp file plus rename, mode kept) and changes no metadata (lib/documents.mjs, public/board-document.js). Both use the ordinary write guards.
+POST /api/documents {workspaceId,targetBoardId,targetPosition?,expectedRevision,operationId,title?,text?,width?,height?} creates one Markdown file through the file-import transaction (boardsRoot/imports, one undo/redo receipt; text at most 900,000 bytes, no NUL); PUT /api/documents/:itemId {text,baseRevision?} atomically replaces the bytes of that item's local named-root Markdown resource (regular file, resolveResource containment, temp file plus rename, mode kept). baseRevision is "sha256:" plus the lowercase hex SHA-256 of the file bytes the editor loaded (the anchor sourceRevision form); when present and different from the current file it returns 409 {error,currentRevision} and writes nothing; absent, the save is unconditional. Success returns {itemId,resource,bytes,revision,reanchored}: revision is the new file's hash, and the save then re-anchors that item's highlights and text-anchored threads by the document re-anchor rule in one scoped metadata transaction, skipped (no metadata write) when none is anchored or none moves; a re-anchor failure leaves marks for review and reports reanchored null without failing the saved file (lib/documents.mjs, lib/reanchor.mjs, public/board-document.js). Both use the ordinary write guards.
 GET /api/resource-places?url=/resources/ROOT/PATH|/boards/ID/files/PATH -> {workspace,file,url,places:[{boardId,boardTitle,placementId?,key,itemId?,title,number,revision?,href}]}: read-only, at most 50 active placements whose item content or saved version resolves to the same real file, plus an unmigrated legacy board's own concepts.
 
 Standalone pages: /resources/* and /boards/:id/files/* HTML responses carry Vary: Sec-Fetch-Dest. Only a GET/HEAD with Sec-Fetch-Dest: document, no Range, no ?tinka=off, at most 8 MiB, not UTF-16 and without <meta name="tinka-return" content="off"> gets `<script src="/app/return-mark.js" defer></script>` inserted byte-wise before the last </body> (else appended), with Content-Length recomputed. Iframes (Tinka's previews), curl and agents receive byte-identical files; other types are never changed. public/return-mark.js returns early in any frame, on either opt-out or after Hide (sessionStorage tinka/return-hidden); it renders one closed-shadow custom element fixed at the bottom left (z-index 2147483000, hidden in print), re-attaches when a page replaces its body, follows Tinka's appearance preference, and returns to the place last opened in this browser, else the only place, else offers a chooser. No item IDs are added to resource URLs.
@@ -455,7 +473,7 @@ of thread files, using the existing author/text-anchor model. Fixed yellow, max 
 and 256 KiB per item. Add/list/remove tools and addHighlight/removeHighlight operations
 use scoped transactions and compact ID receipts. Current source facts are checked
 at creation; list reports existing source matcher status without returning source
-bodies. Changed SHA never silently paints. Remove is metadata-only/idempotent;
+bodies. Changed SHA never paints from stale facts. Document re-anchoring: a saved text anchor follows its exact quote in the new rendered text when it can be placed without guessing. A quote that occurs exactly once moves there whatever its context; among several occurrences, the only one whose saved prefix and suffix both match exactly wins, else the one with the most matching context characters (prefix matched backwards plus suffix matched forwards, at least one) wins if strictly ahead of every other. The anchor takes the new start/end/sourceRevision and the 96-character context around its new place (the quote is unchanged), and the record's `reanchored` history gains `{from,to,start,end,at}` (at most 20). An edited or missing quote, a tie, or a legacy text model is never retargeted and reports uncertain/stale for review. Listing never writes: a mark that relocates under this rule lists as matched with a computed currentAnchor while its stored anchor is unchanged; a save through PUT /api/documents or document.reanchor (CLI/tool, mutating, nothing written when nothing moves) persists it. Threads share the rule and history. Remove is metadata-only/idempotent;
 references share marks and item duplicates snapshot independent maps. Existing
 note/star/vote fields survive all highlight mutations and vice versa. Compact
 Home/graph/discovery remain review-free; targeted board snapshots keep full review

@@ -196,6 +196,11 @@ authoritative data. Preserve complete metadata and the journal for recovery.
 Search still stats all item/board files; warmed searches avoid parsing unrelated
 bodies. Ordinary graph edits retain full load/clone/validation work.
 
+placement.arrange sets per-object positions in one revision and one Undo step:
+`{boardId,placements:[{id,x,y}],decorations:[{id,x,y}]}` (either list, unique ids,
+board units; sizes unchanged). Use it to align, distribute or tidy a board into a
+grid; placement.translate moves a selection by one delta.
+
 decoration.create/update/remove provide scoped text, region/sticky/shape and line
 operations. Region shape is rectangle/rounded/diamond/ellipse. Lines define both
 from/to as exact `{x,y}` or attachments such as
@@ -211,7 +216,10 @@ content and existing canonical review.note/star. Threads may be general, board
 point/placement/decoration attached, or anchored to item text quotes. Replies and
 resolution retain history. item.vote sets one yes/no/abstain value per actor;
 null clears it. Actors are self-reported local descriptors, not authentication.
-Inspect anchor status after document edits; quotes are never silently retargeted.
+Inspect anchor status after document edits. Saves in Tinka move a saved quote when its
+exact text occurs once in the new text, or, among repeats, when its saved context picks
+one clear winner; the move is recorded in `reanchored`. Edited quotes and ties stay for review. After editing a document's
+file yourself, call `document.reanchor {itemId}` to persist those moves.
 Independent threads/ID.json files use the same lock/journal/revision as graph work.
 
 Point comments can follow a target with normalized fractions while retaining a
@@ -244,7 +252,9 @@ Use that shared parser/matcher instead of guessing offsets from Markdown syntax.
 2 MiB per source, memoized within one query. It returns anchor status without
 returning document bodies: matched, uncertain, stale, unverified or detached.
 Changed revision/context can make a surviving quote uncertain; duplicate or
-missing quotes are never silently retargeted. Unsupported, unsafe or unavailable
+missing quotes are never retargeted. A quote that can be placed by that rule
+lists as matched with a computed `currentAnchor` until a save or `document.reanchor`
+stores it. Unsupported, unsafe or unavailable
 sources remain unverified. Saved anchor facts/replies remain unchanged. Current
 local-document readers can create comments; historical variant relays are declined.
 
@@ -450,7 +460,8 @@ inspect their bounded schemas with `tools describe`. Add needs the actual actor,
 canonical item and current text anchor. A unique quote/context can resolve once,
 while supplied stale SHA/offset facts reject. These marks have no comment body and
 do not change source files. Read current `anchorStatus` before treating a saved
-quote as current; changed source revisions are never silently highlighted. Remove
+quote as current; changed source revisions are highlighted only through a
+re-anchored or computed current anchor (exact quote placed without guessing). Remove
 only the requested highlight ID. References share marks; duplicates snapshot
 independent review. Compact discovery does not export marks; use targeted reads.
 Older apps may reject the new review field, so retained metadata is not proof of

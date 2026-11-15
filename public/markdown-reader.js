@@ -28,6 +28,10 @@ export function mountMarkdownReader({asset,query,resourceRoot,path,boardId,conte
   const outline=document.createElement('select');outline.setAttribute('aria-label','Document contents');
   const reload=document.createElement('button');reload.type='button';reload.textContent='Reload';reload.setAttribute('aria-label','Reload source');reload.title='Reload source';reload.dataset.documentReload='';
   const annotations=document.createElement('button');annotations.type='button';annotations.textContent='Annotations';annotations.dataset.documentAnnotations='';annotations.hidden=!canAnnotate;annotations.setAttribute('aria-expanded','false');
+  // Edit makes this page editable in place (document-editor.js); only the current local
+  // document can be edited, never a historical variant. While editing it reads Done.
+  const edit=document.createElement('button');edit.type='button';edit.textContent='Edit';edit.title='Edit this document in place (E)';edit.setAttribute('aria-label','Edit document');edit.dataset.documentEdit='';edit.hidden=!canAnnotate;
+  edit.onclick=()=>editing?editing.end():startEdit({});
   const status=document.createElement('p');status.className='document-status';status.setAttribute('role','status');
   const selectionTools=document.createElement('div');selectionTools.className='document-selection-tools';selectionTools.hidden=true;selectionTools.setAttribute('role','toolbar');selectionTools.setAttribute('aria-label','Selected passage');
   const highlight=document.createElement('button');highlight.type='button';highlight.textContent='Highlight';highlight.dataset.documentHighlight='';
@@ -35,13 +39,13 @@ export function mountMarkdownReader({asset,query,resourceRoot,path,boardId,conte
   selectionTools.append(highlight,comment);
   const list=document.createElement('section');list.className='document-annotations';list.hidden=true;list.setAttribute('aria-label','Document annotations');
   const paintLayer=document.createElement('div');paintLayer.className='document-paint-layer';paintLayer.setAttribute('aria-hidden','true');
-  if(reader){tools.append(source,outline,annotations,reload);content.before(tools);content.before(status);document.body.append(selectionTools,list,paintLayer);}
-  let article,model,revision,generation=0,annotationRequest=0,selectedAnchor,pendingSelection,painted=[],comments=[],highlights=[],composing=false;
+  if(reader){tools.append(source,outline,annotations,edit,reload);content.before(tools);content.before(status);document.body.append(selectionTools,list,paintLayer);}
+  let sourceText='',editing=null,pendingEdit=null,article,model,revision,generation=0,annotationRequest=0,selectedAnchor,pendingSelection,painted=[],comments=[],highlights=[],composing=false;
   const nativePaint=Boolean(globalThis.CSS?.highlights&&globalThis.Highlight);
   function post(type,detail={}){parent.postMessage({type,...detail},location.origin);}
   function clearPaint(){for(const name of ['tinka-document-comments','tinka-document-highlights','tinka-document-selection'])CSS.highlights?.delete(name);paintLayer.replaceChildren();}
   function paint(){
-    if(!article||!reader)return;
+    if(!article||!reader||editing)return;
     const commentRanges=painted.filter(entry=>entry.kind==='comment').map(entry=>entry.range),highlightRanges=painted.filter(entry=>entry.kind==='highlight').map(entry=>entry.range);
     const pending=pendingSelection?.generation===generation&&pendingSelection.range.startContainer.isConnected?[pendingSelection.range]:[];
     if(nativePaint){
@@ -68,6 +72,7 @@ export function mountMarkdownReader({asset,query,resourceRoot,path,boardId,conte
   selectionTools.addEventListener('pointerdown',event=>event.preventDefault());
   comment.onclick=()=>act('tinka-comment-selection');highlight.onclick=()=>act('tinka-highlight-selection');
   function updateSelection(){
+    if(editing){selectionTools.hidden=true;return;}
     const selection=getSelection();selectedAnchor=canAnnotate&&article?selectionTextAnchor(article,selection,revision):null;
     if(composing&&selectedAnchor&&pendingSelection&&(selectedAnchor.start!==pendingSelection.anchor.start||selectedAnchor.end!==pendingSelection.anchor.end))composing=false;
     if(composing){selectionTools.hidden=true;return;}
@@ -107,8 +112,10 @@ export function mountMarkdownReader({asset,query,resourceRoot,path,boardId,conte
   function derivePaint(){
     painted=[];const index=rangeIndex(article);
     for(const [kind,records] of [['comment',comments],['highlight',highlights]])for(const record of records){
-      if(record.anchor?.kind!=='text'||record.anchorStatus!=='matched'||record.anchor.sourceRevision!==revision)continue;
-      const located=locateTextAnchor(model.text,record.anchor,revision,model.textModel);if(located.status!=='matched')continue;
+      // currentAnchor: the server's computed position after an outside edit (exact quote and context, found once).
+      const anchor=record.currentAnchor||record.anchor;
+      if(anchor?.kind!=='text'||record.anchorStatus!=='matched'||anchor.sourceRevision!==revision)continue;
+      const located=locateTextAnchor(model.text,anchor,revision,model.textModel);if(located.status!=='matched')continue;
       const range=textRange(index,located.start,located.end);if(range)painted.push({kind,record,range});
     }
     paint();renderList();
@@ -129,6 +136,7 @@ export function mountMarkdownReader({asset,query,resourceRoot,path,boardId,conte
     }catch{if(current===annotationRequest)status.textContent='Annotations could not be refreshed. Try Annotations again.';}
   }
   content.addEventListener('click',event=>{
+    if(editing)return;
     if(!article?.contains(event.target)||!getSelection()?.isCollapsed)return;
     const entry=painted.find(mark=>[...mark.range.getClientRects()].some(rect=>event.clientX>=rect.left&&event.clientX<=rect.right&&event.clientY>=rect.top&&event.clientY<=rect.bottom));if(!entry)return;
     if(entry.kind==='comment'){pendingSelection={id:crypto.randomUUID(),anchor:entry.record.anchor,range:entry.range.cloneRange(),scrollTop:content.scrollTop,generation};composing=true;post('tinka-open-comment',{threadId:entry.record.id,selectionId:pendingSelection.id,selectionRect:selectionRect(entry.range)});paint();}
@@ -145,20 +153,43 @@ export function mountMarkdownReader({asset,query,resourceRoot,path,boardId,conte
     if(!article){const loading=document.createElement('p');loading.className='document-loading';loading.textContent='Loading document…';content.replaceChildren(loading);}
     try{
       const bytes=await readBytes(await fetch(asset,{cache:'no-store'})),digest=await crypto.subtle.digest('SHA-256',bytes);if(current!==generation)return;
-      revision='sha256:'+Array.from(new Uint8Array(digest),value=>value.toString(16).padStart(2,'0')).join('');model=parseMarkdown(new TextDecoder().decode(bytes));
+      revision='sha256:'+Array.from(new Uint8Array(digest),value=>value.toString(16).padStart(2,'0')).join('');sourceText=new TextDecoder().decode(bytes);model=parseMarkdown(sourceText);
       const prefix=resourceRoot?`/resources/${encodeURIComponent(resourceRoot)}/`:`/boards/${encodeURIComponent(boardId)}/files/`;
       article=renderMarkdownDocument(document,model,{baseUrl:new URL(asset,location.href),origin:location.origin,resourcePrefix:prefix});article.tabIndex=-1;content.replaceChildren(article);
       previousWidth=article.clientWidth;
       outline.replaceChildren(new Option('Contents…',''));for(const entry of model.headings)outline.append(new Option('  '.repeat(entry.level-1)+entry.label,entry.id));outline.hidden=!model.headings.length;
       if(heading&&model.headings.some(entry=>entry.id===heading)){outline.value=heading;article.querySelector(`[id="${CSS.escape(heading)}"]`)?.scrollIntoView({block:'start'});}
-      status.textContent=query.get('variant')?'Historical version. Open the current document to annotate.':'';await loadAnnotations();
+      status.textContent=query.get('variant')?'Historical version. Open the current document to annotate.':'';if(pendingEdit){startEdit(pendingEdit);return;}await loadAnnotations();
     }catch{if(current===generation){if(mode==='card'){const unavailable=document.createElement('p');unavailable.className='document-loading';unavailable.textContent='Document unavailable. Open to check its source.';content.replaceChildren(unavailable);}else showError('The Markdown source could not be read. It may be unavailable or larger than 2 MiB.');status.textContent='Source unavailable.';}}
     finally{if(current===generation)reload.disabled=false;}
   }
-  reload.onclick=load;
+  reload.onclick=()=>{if(!editing)load();};
+  // In-place editing. The board (cards) or the Edit button (reader) starts it; a request that
+  // arrives before the document has loaded waits for the load. Every request is acknowledged.
+  async function startEdit(request){
+    if(itemId||request.itemId)post('tinka-document-edit-started',{itemId:itemId||request.itemId,pending:!article});
+    if(editing)return;
+    if(!article){pendingEdit=request;return;}
+    pendingEdit=null;clearPaint();selectionTools.hidden=true;composing=false;
+    const {startDocumentEditor,readSource}=await import('./document-editor.js');
+    // Edit the bytes as they are now (an agent may have written since this page loaded).
+    // Escape before the page becomes editable cancels the start.
+    let cancelled=false;const cancel=event=>{if(event.key==='Escape'){event.preventDefault();cancelled=true;}};window.addEventListener('keydown',cancel,true);
+    let fresh;try{fresh=await readSource(asset);}catch(error){status.textContent=error.message;window.removeEventListener('keydown',cancel,true);post('tinka-document-edit-end',{itemId:itemId||request.itemId,saved:false});return;}
+    window.removeEventListener('keydown',cancel,true);
+    if(cancelled){post('tinka-document-edit-end',{itemId:itemId||request.itemId,saved:false});return;}
+    if(editing)return;
+    edit.textContent='Done';edit.title='Finish editing (Esc)';reload.disabled=true;
+    editing=startDocumentEditor({content,article,asset,text:fresh.text,revision:fresh.revision,itemId:itemId||request.itemId,point:request.point,source:!!request.source,selectTitle:!!request.selectTitle,
+      onStatus:({state,message,revision:saved})=>{post('tinka-document-status',{itemId:itemId||request.itemId,state,message,...(saved?{revision:saved}:{})});if(reader)status.textContent=state==='saving'?'Saving…':state==='saved'?'Saved':state==='conflict'?'Changed elsewhere. Reload to continue.':state==='error'?`Not saved. ${message}`:'';},
+      onEnd:result=>{editing=null;edit.textContent='Edit';edit.title='Edit this document in place (E)';post('tinka-document-edit-end',{itemId:itemId||request.itemId,saved:result.saved,unsaved:result.unsaved,title:result.title});load().then(()=>{if(reader&&result.unsaved)status.textContent='Some changes were not saved.';});}});
+  }
   window.addEventListener('message',event=>{
     if(event.origin!==location.origin||event.source!==parent)return;
     if(event.data?.type==='tinka-annotations-refresh'||event.data?.type==='tinka-feedback-refresh')loadAnnotations();
+    if(event.data?.type==='tinka-document-reload'&&!editing)load();
+    if(event.data?.type==='tinka-document-edit')startEdit(event.data);
+    if(event.data?.type==='tinka-document-edit-stop')editing?.end();
     if(event.data?.type==='tinka-annotation-result'){
       if(event.data.ok)status.textContent='Highlight updated.';
       else{status.textContent=event.data.message||'The highlight was not saved. Try again.';renderList();}

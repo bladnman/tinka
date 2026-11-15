@@ -12,6 +12,7 @@ import {MovementHistory} from "./movement-history.js";
 import {timeHTML} from "./relative-dates.js";
 import {navigationGraph} from "./navigator-graph.js";
 import {isMacPlatform,stepModifierLabel} from "./reader-keys.js";
+import {snapBox,boundsOf,snapDisabled,GuideLayer} from "./snap-guides.js";
 import {CLIPBOARD_MIME,CLIPBOARD_PREFIX,clipboardBytes,readClipboard,externalClipboard} from "./clipboard.js";
 import {
   WorkspaceClient,
@@ -27,6 +28,57 @@ import {
 } from "./workspace.js";
 // The opened-Tinka step modifier: ⌥ on a Mac, Ctrl elsewhere (see reader-keys.js).
 const MOD = stepModifierLabel(isMacPlatform());
+const svg16 = body => `<svg viewBox="0 0 16 16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round">${body}</svg>`;
+const ARRANGE = [
+  ["align-left","Align left",'<path d="M2.5 2v12"/><rect x="4.5" y="4" width="8" height="3" rx=".6"/><rect x="4.5" y="9" width="5" height="3" rx=".6"/>'],
+  ["align-center","Align centres",'<path d="M8 2v12"/><rect x="3" y="4" width="10" height="3" rx=".6"/><rect x="5" y="9" width="6" height="3" rx=".6"/>'],
+  ["align-right","Align right",'<path d="M13.5 2v12"/><rect x="3.5" y="4" width="8" height="3" rx=".6"/><rect x="6.5" y="9" width="5" height="3" rx=".6"/>'],
+  ["align-top","Align top",'<path d="M2 2.5h12"/><rect x="4" y="4.5" width="3" height="8" rx=".6"/><rect x="9" y="4.5" width="3" height="5" rx=".6"/>'],
+  ["align-middle","Align middles",'<path d="M2 8h12"/><rect x="4" y="3" width="3" height="10" rx=".6"/><rect x="9" y="5" width="3" height="6" rx=".6"/>'],
+  ["align-bottom","Align bottom",'<path d="M2 13.5h12"/><rect x="4" y="3.5" width="3" height="8" rx=".6"/><rect x="9" y="6.5" width="3" height="5" rx=".6"/>'],
+  ["distribute-h","Distribute horizontally",'<path d="M2 2v12M14 2v12"/><rect x="6.5" y="4.5" width="3" height="7" rx=".6"/>'],
+  ["distribute-v","Distribute vertically",'<path d="M2 2h12M2 14h12"/><rect x="4.5" y="6.5" width="7" height="3" rx=".6"/>'],
+  ["tidy","Tidy into a grid",'<rect x="2.5" y="2.5" width="4.5" height="4.5" rx=".6"/><rect x="9" y="2.5" width="4.5" height="4.5" rx=".6"/><rect x="2.5" y="9" width="4.5" height="4.5" rx=".6"/><rect x="9" y="9" width="4.5" height="4.5" rx=".6"/>'],
+];
+const ARRANGE_ICON = svg16('<path d="M2.5 2v12"/><rect x="4.5" y="3.5" width="9" height="3.5" rx=".6"/><rect x="4.5" y="9" width="6" height="3.5" rx=".6"/>');
+// Pure arrangement maths (board units). Each object is {box:{x,y,width,height}}; returns new top-left points.
+export function arrangePositions(kind, objects, gap = 40) {
+  const boxes = objects.map(o => o.box), left = Math.min(...boxes.map(b => b.x)), top = Math.min(...boxes.map(b => b.y));
+  const right = Math.max(...boxes.map(b => b.x + b.width)), bottom = Math.max(...boxes.map(b => b.y + b.height));
+  const same = b => ({x:b.x,y:b.y});
+  if (kind === "align-left") return boxes.map(b => ({x:left,y:b.y}));
+  if (kind === "align-center") return boxes.map(b => ({x:(left + right) / 2 - b.width / 2,y:b.y}));
+  if (kind === "align-right") return boxes.map(b => ({x:right - b.width,y:b.y}));
+  if (kind === "align-top") return boxes.map(b => ({x:b.x,y:top}));
+  if (kind === "align-middle") return boxes.map(b => ({x:b.x,y:(top + bottom) / 2 - b.height / 2}));
+  if (kind === "align-bottom") return boxes.map(b => ({x:b.x,y:bottom - b.height}));
+  if (kind === "distribute-h" || kind === "distribute-v") {
+    const [pos,size] = kind === "distribute-h" ? ["x","width"] : ["y","height"];
+    const order = boxes.map((b,i) => i).sort((a,b) => boxes[a][pos] + boxes[a][size] / 2 - (boxes[b][pos] + boxes[b][size] / 2));
+    const start = boxes[order[0]][pos], end = Math.max(...order.map(i => boxes[i][pos] + boxes[i][size]));
+    const space = (end - start - order.reduce((sum,i) => sum + boxes[i][size],0)) / (order.length - 1);
+    const out = boxes.map(same);
+    let at = start;
+    for (const i of order) { out[i][pos] = at; at += boxes[i][size] + space; }
+    return out;
+  }
+  // Tidy: reading order (rows top to bottom, then left to right), into ⌈√n⌉ columns.
+  const sorted = boxes.map((b,i) => i).sort((a,b) => boxes[a].y - boxes[b].y);
+  const reading = [];
+  for (let k = 0; k < sorted.length;) {
+    const first = boxes[sorted[k]], row = [];
+    while (k < sorted.length && boxes[sorted[k]].y < first.y + first.height / 2) row.push(sorted[k++]);
+    reading.push(...row.sort((a,b) => boxes[a].x - boxes[b].x));
+  }
+  const columns = Math.ceil(Math.sqrt(reading.length)), widths = [], heights = [];
+  reading.forEach((i,n) => { const c = n % columns, r = Math.floor(n / columns);
+    widths[c] = Math.max(widths[c] || 0,boxes[i].width); heights[r] = Math.max(heights[r] || 0,boxes[i].height); });
+  const out = boxes.map(same);
+  reading.forEach((i,n) => { const c = n % columns, r = Math.floor(n / columns);
+    out[i] = {x:left + widths.slice(0,c).reduce((a,b) => a + b + gap,0),y:top + heights.slice(0,r).reduce((a,b) => a + b + gap,0)}; });
+  return out;
+}
+const EDIT_TOOL_ICONS = {"text": '<svg viewBox="0 0 20 20" aria-hidden="true"><path d="M5 5h10M10 5v11M8 16h4"/></svg>', "sticky": '<svg viewBox="0 0 20 20" aria-hidden="true"><path d="M4 4h12v8l-4 4H4z"/><path d="M12 16v-4h4"/></svg>', "document": '<svg viewBox="0 0 20 20" aria-hidden="true"><path d="M5.5 3h6l3.5 3.5V17h-9.5z"/><path d="M7.5 9.5h5M7.5 12h5M7.5 14.5h3"/></svg>', "jot": '<svg viewBox="0 0 20 20" aria-hidden="true"><path d="M4 16l.8-3.2L13 4.6l2.4 2.4-8.2 8.2z"/><path d="M11 16h5"/></svg>', "more": '<svg viewBox="0 0 20 20" aria-hidden="true"><circle cx="5" cy="10" r="1.2"/><circle cx="10" cy="10" r="1.2"/><circle cx="15" cy="10" r="1.2"/></svg>'};
 const $ = (id) => document.getElementById(id);
 // Every placement is still active on the latest board with the geometry an
 // arrangement action started from.
@@ -70,6 +122,10 @@ export class WorkspaceBoard {
     this.history = new MovementHistory(this.client,config.workspaceId,() => this.updateHistoryControls());
     this.client.onState = () => { this.updateHistoryControls(); this.hooks.liveReady?.(); };
     this.selection = new Set();
+    // Drawn elements selected with cards (a mixed group) share Whiteboard's decorationSelection.
+    this.decorationSelection = new Set();
+    this.mixedGroup = false;
+    this.guides = new GuideLayer();
     this.cutIntent = new CutIntent(config.workspaceId,snapshot.workspaceId,()=>this.syncCutMarks());
     this.filters = {
       search: "",
@@ -227,22 +283,8 @@ export class WorkspaceBoard {
     quick.className = "chrome-history";
     quick.innerHTML = '<button type="button" id="chrome-undo" class="tk-btn tk-icon" aria-label="Undo" title="Undo (⌘Z)" disabled><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M7.5 5 4 8.5 7.5 12"/><path d="M4.5 8.5H12a4 4 0 0 1 0 8H9"/></svg></button><button type="button" id="chrome-redo" class="tk-btn tk-icon" aria-label="Redo" title="Redo (⇧⌘Z)" disabled><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M12.5 5 16 8.5 12.5 12"/><path d="M15.5 8.5H8a4 4 0 0 0 0 8h3"/></svg></button>';
     actions.insertBefore(quick, $("board-info-toggle"));
-    // Quick add: the everyday note tools stay one click away, with their keys.
-    const tools = document.createElement("span");
-    tools.className = "chrome-quick-add";
-    tools.setAttribute("role", "group");
-    tools.setAttribute("aria-label", "Quick add");
-    tools.innerHTML = [["text","T","Text","T"],["sticky",'<svg viewBox="0 0 16 16" width="14" height="14"><path d="M2.5 2.5h11v7l-4 4h-7z" fill="#f6e6a4" stroke="currentColor"/></svg>',"Sticky","S"],["document",'<svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor"><path d="M3.5 1.5h6l3 3v10h-9z"/><path d="M5.5 7.5h5M5.5 10h5M5.5 12.5h3"/></svg>',"Document","D"],["jot",'<svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor"><path d="M3 13.5 3.6 11 11 3.6l1.4 1.4L5 12.4z"/><path d="M9 13.5h4.5"/></svg>',"Jot","N"]].map(([type,icon,label,key]) =>
-      `<button type="button" class="tk-btn" data-quick-add="${type}" title="Add ${label.toLowerCase()} (${key})" aria-keyshortcuts="${key}"><span aria-hidden="true" class="quick-add-icon">${icon}</span><span class="quick-add-label">${label}</span><kbd aria-hidden="true">${key}</kbd></button>`).join("");
-    tools.onclick = e => {
-      const button = e.target.closest("[data-quick-add]");
-      if (!button || this.boardCommandBlocked()) return;
-      const type = button.dataset.quickAdd;
-      if (type === "document") this.createDocument();
-      else if (type === "jot") this.quickJot();
-      else this.createDecoration(type);
-    };
-    actions.append(tools, add);
+    actions.append(add);
+    this.installEditTools();
     const history = document.createElement("div");
     history.className = "workspace-history-actions";
     history.innerHTML = '<button type="button" id="workspace-undo" disabled>Undo</button><button type="button" id="workspace-redo" disabled>Redo</button>';
@@ -331,6 +373,8 @@ export class WorkspaceBoard {
           : this.selection.add(id);
         this.build(this.hooks.concepts());
       }
+      const editDocument = e.target.closest("[data-edit-document-item]");
+      if (editDocument) { e.preventDefault(); this.editDocument(editDocument.dataset.editDocumentItem); return; }
       const feedback = e.target.closest("[data-item-feedback]");
       if (feedback) this.feedback.open({itemId:feedback.dataset.itemFeedback,returnFocus:feedback});
       const vote = e.target.closest("[data-item-vote]");
@@ -564,12 +608,12 @@ export class WorkspaceBoard {
   }
   async refresh({ saveReview = true } = {}) {
     // A live refresh must not reset an in-progress pointer gesture.
-    if (this.pointerGesture || this.decorationGesture || this.moveCommitting || this.whiteboard?.editing) { this.pointerRefreshPending = true; return; }
+    if (this.pointerGesture || this.decorationGesture || this.moveCommitting || this.whiteboard?.editing || this.documentEditing) { this.pointerRefreshPending = true; return; }
     if (saveReview && this.pendingReview.size && !this.saving) await this.saveReview([], {});
     const snapshot = await this.client.get(
       `/api/boards/${encodeURIComponent(this.snapshot.id)}`,
     );
-    if (this.pointerGesture || this.decorationGesture || this.moveCommitting || this.whiteboard?.editing) { this.pointerRefreshPending = true; return; }
+    if (this.pointerGesture || this.decorationGesture || this.moveCommitting || this.whiteboard?.editing || this.documentEditing) { this.pointerRefreshPending = true; return; }
     // A read started before a completed operation must not roll its UI back.
     if (snapshot.revision < Math.max(this.snapshot.revision, this.client.revision)) return;
     this.pointerRefreshPending = false;
@@ -578,7 +622,7 @@ export class WorkspaceBoard {
     if (this.feedback) await this.feedback.reload();
   }
   liveBlocked() {
-    return !!(this.pointerGesture || this.decorationGesture || this.decorationCommitting || this.moveCommitting || this.movePending ||
+    return !!(this.documentEditing || this.pointerGesture || this.decorationGesture || this.decorationCommitting || this.moveCommitting || this.movePending ||
       this.whiteboard?.editing || this.whiteboard?.finishing || this.client.pendingWrites || this.historyBusy || this.history?.busy || this.pasteBusy || this.saving ||
       document.activeElement?.closest("input,textarea,select,[contenteditable]") || document.querySelector("dialog.workspace-dialog[open]"));
   }
@@ -646,6 +690,15 @@ export class WorkspaceBoard {
       const viewport = $("viewport");
       this.lastBoardPointer = {x:e.clientX,y:e.clientY,over:!!viewport?.contains(e.target)};
     }, true);
+    // Double-click on a document card's page edits it in place, caret where you clicked.
+    document.addEventListener("dblclick", e => {
+      const launch = e.target.closest?.("#world .workspace-preview-launch");
+      const card = launch?.closest(".workspace-card"), placement = card && this.snapshot?.placements.find(p => p.id === card.dataset.placement);
+      const item = placement && this.snapshot.items[placement.itemId];
+      if (!item || !this.editableDocument(item) || e.button !== 0 || this.hooks.viewOnly) return;
+      e.preventDefault(); e.stopImmediatePropagation();
+      this.editDocument(item.id, {point:{x:e.clientX, y:e.clientY}, placementId:placement.id});
+    }, true);
     // Double-click on empty Canvas space starts a Text block there.
     document.addEventListener("dblclick", e => {
       if (this.mode !== "canvas" || !this.snapshot?.id || e.button !== 0 || e.altKey || e.metaKey || e.ctrlKey || e.shiftKey) return;
@@ -666,9 +719,18 @@ export class WorkspaceBoard {
       const key = event.key.toLowerCase();
       if (command && !event.shiftKey && key === "d") {
         const editing = "input,textarea,select,[contenteditable],[role=textbox],[role=dialog]";
+        const drawnOnly = !this.clipboardCandidates().length && (this.keyboardDecorations?.().length || this.activeDecoration) && this.mode === "canvas";
         if (event.target.closest?.(editing) || document.activeElement?.closest(editing) ||
             document.activeElement?.tagName === "IFRAME" || document.querySelector("dialog[open]") ||
-            !this.clipboardCandidates().length) return;
+            !this.clipboardCandidates().length && !drawnOnly) return;
+        if (drawnOnly) {
+          event.preventDefault(); event.stopImmediatePropagation();
+          if (event.repeat || this.boardCommandBlocked(event) || this.movePending) return;
+          const drawn = this.keyboardDecorations().length ? this.keyboardDecorations()
+            : (this.snapshot.decorations || []).filter(d => d.id === this.activeDecoration);
+          this.duplicateDecorations(drawn).then(ids => this.whiteboard?.selectDecorations(ids)).catch(showFailure);
+          return;
+        }
         // Board-owned Duplicate never falls through to browser Bookmark while
         // a held key or an in-flight action suppresses another duplication.
         event.preventDefault(); event.stopImmediatePropagation();
@@ -695,6 +757,10 @@ export class WorkspaceBoard {
           this.whiteboard?.clearSelection({finishEdit:true,focus:false});
           this.selection = new Set(this.renderedPlacements().map(p => p.id));
           this.syncSelection();
+          // On Canvas, drawn elements join: a mixed group, or Whiteboard's own multi-selection.
+          const drawn = this.mode === "canvas" ? (this.snapshot.decorations || []).map(d => d.id) : [];
+          if (drawn.length && this.selection.size) { this.setMixedGroup(drawn); this.syncSelection(); }
+          else if (drawn.length) this.whiteboard?.selectDecorations(drawn);
           this.selectionMenu();
         };
       else if (!command && !event.shiftKey && key === "enter" &&
@@ -713,6 +779,9 @@ export class WorkspaceBoard {
       // M shows or hides the board map.
       else if (!command && !event.shiftKey && key === "m" && this.mode === "canvas")
         action = () => this.hooks.toggleMap?.();
+      // A shows or hides the edit tools palette.
+      else if (!command && !event.shiftKey && key === "a" && this.mode === "canvas" && $("edit-tools"))
+        action = () => this.toggleEditTools();
       else if (!command && key === "?") action = () => this.keyboardShortcuts();
       // E edits the one selected Markdown document.
       else if (!command && !event.shiftKey && key === "e" && this.selectedDocument()) {
@@ -751,6 +820,7 @@ export class WorkspaceBoard {
       <dt>Hold F · Z while drawing a selection box</dt><dd>When you let go: fit what the box selected · zoom to the box itself</dd>
       <dt>Shift-1 · Shift-2 · Shift-0</dt><dd>Fit the canvas · Fit the selection · Zoom to 100%</dd>
       <dt>M</dt><dd>Show or hide the board map (click or drag in it to move there)</dd>
+      <dt>A</dt><dd>Show or hide the edit tools</dd>
       <dt>T · S · D</dt><dd>Add Text · a Sticky note · a Markdown Document at the pointer</dd>
       <dt>E</dt><dd>Edit the selected Markdown document</dd>
       <dt>N</dt><dd>Quick jot: type a line, Enter adds it as a sticky; Escape closes</dd>
@@ -1068,7 +1138,17 @@ export class WorkspaceBoard {
       // contents untouched. A successful duplicate cancels its captured Cut.
       const targetPosition = {x:Math.min(...clipboard.placements.map(p => p.x)) + 32,
         y:Math.min(...clipboard.placements.map(p => p.y)) + 32};
-      return this.pasteClipboard({kind:"duplicate",clipboard,targetPosition});
+      // (Optional calls keep this usable on the bare boards unit tests build.)
+      const drawn = this.groupDecorations?.() || [], before = new Set(this.snapshot?.placements.map(p => p.id));
+      const pasted = this.pasteClipboard({kind:"duplicate",clipboard,targetPosition});
+      if (!drawn.length) return pasted;
+      // A mixed group's drawn elements are copied too, 32 units down and right.
+      return Promise.resolve(pasted).then(async () => {
+        if (![...this.selection].some(id => !before.has(id))) return;
+        const ids = await this.duplicateDecorations(drawn);
+        this.setMixedGroup(ids);
+        this.syncSelection(); this.selectionMenu();
+      }).catch(showFailure);
     } catch (error) { toast(error.message); }
   }
   async pasteClipboard(source) {
@@ -1189,6 +1269,7 @@ export class WorkspaceBoard {
       .querySelectorAll("[data-mode]")
       .forEach((b) => b.setAttribute("aria-pressed", b.dataset.mode === mode));
     this.hooks.mode(mode);
+    this.syncEditTools?.();
     if (rebuild) this.rebuild();
   }
   build(concepts) {
@@ -1230,11 +1311,11 @@ export class WorkspaceBoard {
         unavailable = ["reserved", "building"].includes(item.build?.state),
         live = !icon && !unavailable && !img && (documentContent ||
           item.content?.kind === "html" && item.content?.resource && !item.content?.url);
-      const excerpt = !!documentContent && !panel;
+      const excerpt = !!documentContent;
       const review = { ...item.review, ...this.pendingReview.get(item.id) };
       const previewSource = JSON.stringify([item.id, item.content || null, documentContent ? (panel ? "document-panel" : "document-card") : null]), previous = previews.get(p.id);
       let documentPreview = documentContent
-        ? `/app/media.html?${new URLSearchParams({kind:"markdown",root:item.content.resource.rootId,path:item.content.resource.path,name:item.title,chrome:"none",mode:panel?"panel":"card"})}` : null;
+        ? `/app/media.html?${new URLSearchParams({kind:"markdown",root:item.content.resource.rootId,path:item.content.resource.path,name:item.title,item:item.id,chrome:"none",mode:panel?"panel":"card"})}` : null;
       if (documentPreview) { const stamp=new URL(this.hooks.preview(c),location.href).searchParams.get("v"); if(stamp) documentPreview += `&v=${encodeURIComponent(stamp)}`; }
       const preview = previous?.frame?.dataset.previewSource === previewSource
         ? previous.frame.getAttribute("src") : documentPreview || this.hooks.preview(c);
@@ -1259,7 +1340,7 @@ export class WorkspaceBoard {
       const select = `<button type="button" class="workspace-select-dot" data-placement-select="${esc(p.id)}" aria-pressed="${selected}" aria-label="${selected ? "Deselect" : "Select"} ${esc(item.title)}" title="${selected ? "Deselect" : "Select"} (or Shift-click the item)"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="m5.5 10.2 3 3 6-6.4"/></svg></button>`;
       const footer = `<footer class="workspace-item-footer workspace-panel-caption">${p.presentation?.featuredFrom ? `<div class="workspace-feature-caption">${panel ? titleButton : ''}${sourceLine}</div>` : panel ? titleButton : placeMeta || '<span class="workspace-item-spacer" aria-hidden="true"></span>'}${badges}${this.mode === "canvas" ? `<button type="button" class="workspace-resize" data-resize="${esc(p.id)}" aria-label="Resize ${esc(item.title)}" title="Resize">◢</button>` : ""}</footer>`;
       const more = `<button type="button" class="workspace-tile-more" data-item-controls="${esc(p.id)}" data-controls-focus="menu" aria-label="Actions for ${esc(item.title)}" aria-haspopup="menu" aria-expanded="${this.tileMenuPlacement === p.id}" title="Item actions"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="6" cy="12" r="1.3"/><circle cx="12" cy="12" r="1.3"/><circle cx="18" cy="12" r="1.3"/></svg>${review.note ? '<span class="workspace-note-dot" aria-hidden="true"></span>' : ""}</button>`;
-      const toolbar = `<div class="workspace-tile-toolbar" role="toolbar" aria-label="Actions for ${esc(item.title)}"><button type="button" class="workspace-tool-open" ${unavailable ? "disabled" : ""} data-open="${esc(c.key)}" aria-label="${placeOnly ? "Open board" : "Open"} ${esc(item.title)}">${placeOnly ? "Open board" : "Open"}</button><button type="button" data-item-feedback="${esc(item.id)}" aria-label="Comments on ${esc(item.title)}" title="Comments"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 4h14a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H9l-5 3v-3a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2Z"/><path d="M7 9h10M7 13h7"/></svg></button><button type="button" class="workspace-vote-trigger" data-item-vote="${esc(item.id)}"${this.feedback?.showsVote?.(item.id) === false ? " hidden" : ""} data-vote-value="${esc(voteState.mine || "")}" aria-haspopup="dialog" aria-pressed="${!!voteState.mine}" aria-label="Vote on ${esc(item.title)}${voteState.mine ? `. Your vote: ${esc(choice)}` : ""}" title="${voteState.mine ? `Your vote: ${esc(choice)}` : "Vote"}"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 10H3v10h18V10h-2M3 14h18M8 3h8v9H8z"/><path d="m10 7 2 2 3-3"/></svg><span data-vote-summary>${esc(choice)}</span></button><button type="button" class="shortlist" data-star="${esc(c.key)}" aria-label="Favorite ${esc(item.title)}" aria-pressed="${!!review.star}" title="Favorite"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m12 3 2.8 5.7 6.3.9-4.6 4.4 1.1 6.3-5.6-3-5.6 3 1.1-6.3L3 9.6l6.2-.9Z"/></svg></button></div>`;
+      const toolbar = `<div class="workspace-tile-toolbar" role="toolbar" aria-label="Actions for ${esc(item.title)}"><button type="button" class="workspace-tool-open" ${unavailable ? "disabled" : ""} data-open="${esc(c.key)}" aria-label="${placeOnly ? "Open board" : "Open"} ${esc(item.title)}">${placeOnly ? "Open board" : "Open"}</button>${this.editableDocument(item) ? `<button type="button" class="workspace-tool-open workspace-tool-edit" data-edit-document-item="${esc(item.id)}" aria-label="Edit ${esc(item.title)}" title="Edit document (E)">Edit</button>` : ""}<button type="button" data-item-feedback="${esc(item.id)}" aria-label="Comments on ${esc(item.title)}" title="Comments"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 4h14a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H9l-5 3v-3a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2Z"/><path d="M7 9h10M7 13h7"/></svg></button><button type="button" class="workspace-vote-trigger" data-item-vote="${esc(item.id)}"${this.feedback?.showsVote?.(item.id) === false ? " hidden" : ""} data-vote-value="${esc(voteState.mine || "")}" aria-haspopup="dialog" aria-pressed="${!!voteState.mine}" aria-label="Vote on ${esc(item.title)}${voteState.mine ? `. Your vote: ${esc(choice)}` : ""}" title="${voteState.mine ? `Your vote: ${esc(choice)}` : "Vote"}"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 10H3v10h18V10h-2M3 14h18M8 3h8v9H8z"/><path d="m10 7 2 2 3-3"/></svg><span data-vote-summary>${esc(choice)}</span></button><button type="button" class="shortlist" data-star="${esc(c.key)}" aria-label="Favorite ${esc(item.title)}" aria-pressed="${!!review.star}" title="Favorite"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m12 3 2.8 5.7 6.3.9-4.6 4.4 1.1 6.3-5.6-3-5.6 3 1.1-6.3L3 9.6l6.2-.9Z"/></svg></button></div>`;
       const visual = unavailable
         ? `<div class="workspace-build-placeholder"><strong>${item.build.state === "building" ? "In progress" : "Reserved"}</strong><span>${esc(item.build.message || "The preview will appear when this work is ready for review.")}</span></div>`
         : live ? `<iframe ${excerpt ? 'class="workspace-document-excerpt"' : ""} src="${esc(preview)}" data-preview-source="${esc(previewSource)}" title="${esc(item.title)} ${panel ? "design" : "live"} preview" tabindex="-1" loading="lazy" inert></iframe>`
@@ -1291,6 +1372,8 @@ export class WorkspaceBoard {
     // On Canvas, stickies, shapes, text, regions and arrows also make a board non-empty.
     const canvasEmpty = !cards && !(this.snapshot.decorations || []).length;
     this.reconcile(world, `${this.mode === "canvas" ? this.decorations() : ""}${this.mode === "grid" ? grid || '<p class="workspace-empty">Nothing here yet. Add an idea or clear a filter.</p>' : `<div class="workspace-cards">${canvasEmpty ? '<p class="workspace-empty">Nothing here yet. Add an idea or clear a filter.</p>' : cards}</div>`}`);
+    // A card being edited in place keeps its editing state across re-renders.
+    if (this.documentEditing) import("./board-document.js").then(m => m.reapplyEditing(this)).catch(() => {});
     if (this.mode === "canvas") {
       const p = concepts.map((c) => c.placement),
         d = (this.snapshot.decorations || []).map(d => decorationBounds(d,this.snapshot));
@@ -1366,7 +1449,15 @@ export class WorkspaceBoard {
     const el = $("workspace-selection");
     el.hidden = !this.selection.size;
     el.setAttribute("role", "toolbar");
-    el.innerHTML = `<strong role="status">${this.selection.size} selected</strong><button class="tk-btn tk-sm" data-bulk="feature">Show on parent…</button><button class="tk-btn tk-sm" data-bulk="move">Move…</button><button class="tk-btn tk-sm selection-wide" data-bulk="reference">Add reference…</button><button class="tk-btn tk-sm" data-bulk="group">New board around selection…</button><button class="tk-btn tk-sm selection-wide" data-bulk="archive">${this.filters.archive ? "Restore here" : "Archive here"}</button><button class="tk-btn tk-sm tk-danger" data-bulk="remove">Remove from board…</button><span class="tk-divider" aria-hidden="true"></span><button class="tk-btn tk-sm tk-icon" data-bulk="clear" aria-label="Clear selection" title="Clear selection (Esc)"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="m5.5 5.5 9 9m0-9-9 9"/></svg></button>`;
+    el.innerHTML = `<strong role="status">${this.selectedCount()} selected</strong><button class="tk-btn tk-sm" data-bulk="feature">Show on parent…</button><button class="tk-btn tk-sm" data-bulk="move">Move…</button><button class="tk-btn tk-sm selection-wide" data-bulk="reference">Add reference…</button><button class="tk-btn tk-sm" data-bulk="group">New board around selection…</button><button class="tk-btn tk-sm selection-wide" data-bulk="archive">${this.filters.archive ? "Restore here" : "Archive here"}</button><button class="tk-btn tk-sm tk-danger" data-bulk="remove">Remove from board…</button><span class="tk-divider" aria-hidden="true"></span><button class="tk-btn tk-sm tk-icon" data-bulk="clear" aria-label="Clear selection" title="Clear selection (Esc)"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="m5.5 5.5 9 9m0-9-9 9"/></svg></button>`;
+    if (this.mode === "canvas" && this.selectedCount() >= 2) {
+      const arrange = document.createElement("button");
+      arrange.type = "button"; arrange.className = "tk-btn tk-sm tk-icon"; arrange.dataset.arrangeOpen = "";
+      arrange.setAttribute("aria-label", "Arrange"); arrange.setAttribute("aria-haspopup", "menu");
+      arrange.title = "Arrange: align, distribute, tidy into a grid"; arrange.innerHTML = ARRANGE_ICON;
+      arrange.onclick = () => this.arrangeMenu(arrange);
+      el.querySelector("strong")?.after(arrange);
+    }
     el.querySelectorAll("[data-bulk]").forEach(
       (b) => (b.onclick = () => this.bulk(b.dataset.bulk)),
     );
@@ -1404,6 +1495,7 @@ export class WorkspaceBoard {
     }).sort((a, b) => a.y - b.y || a.x - b.x).map(({x, y, ...entry}) => entry);
   }
   syncSelection() {
+    this.checkMixedGroup();
     for (const card of $("world").querySelectorAll(".workspace-card[data-placement]")) {
       const selected = this.selection.has(card.dataset.placement);
       card.classList.toggle("selected", selected);
@@ -1417,7 +1509,7 @@ export class WorkspaceBoard {
       button.title = `${selected ? "Deselect" : "Select"} (or Shift-click the item)`;
     }
     const count = $("workspace-selection").querySelector("strong");
-    if (count) count.textContent = `${this.selection.size} selected`;
+    if (count) count.textContent = `${this.selectedCount()} selected`;
     this.updateHistoryControls();
     this.emitSelection();
   }
@@ -1462,7 +1554,7 @@ export class WorkspaceBoard {
         if (!ids.length) return;
         makeDialog(
           "Remove these placements?",
-          `<p>Remove ${ids.length} placement${ids.length === 1 ? "" : "s"} from this board. Other references, canonical items, notes and all resource files remain intact.</p><button type="submit" class="workspace-primary">Remove from this board</button>`,
+          `<p>Remove ${ids.length} placement${ids.length === 1 ? "" : "s"} from this board${this.groupDecorations().length ? ` and delete ${this.groupDecorations().length} drawn element${this.groupDecorations().length === 1 ? "" : "s"}` : ""}. Other references, canonical items, notes and all resource files remain intact.</p><button type="submit" class="workspace-primary">Remove from this board</button>`,
           () => this.removePlacements(ids),
         );
         return;
@@ -1492,16 +1584,21 @@ export class WorkspaceBoard {
     this.movePending = true;
     this.updateHistoryControls();
     const cut = this.cutIntent.active();
+    const drawn = this.groupDecorations().map(d => d.id);
     let confirmedRemoved = false;
     try {
       await this.client.write("remove", {boardId:this.snapshot.id,placementIds:ids});
       confirmedRemoved = true;
+      // A mixed group's drawn elements are deleted with it (not part of Undo, as for one).
+      for (const decorationId of drawn) await this.client.write("removeDecoration", {boardId:this.snapshot.id,decorationId});
+      if (drawn.length) { this.mixedGroup = false; this.decorationSelection = new Set(); }
       // Clear only the intent captured before this request, never a newer tab's cut.
       this.cutIntent.clear(cut);
       ids.forEach(id => this.selection.delete(id));
       if (ids.includes(this.contextPlacement)) this.closeContext();
       await this.refresh({saveReview:false});
-      toast(`Removed ${ids.length} Tinka${ids.length === 1 ? "" : "s"} from this board. Undo to restore.`);
+      toast(drawn.length ? `Removed ${ids.length} Tinka${ids.length === 1 ? "" : "s"} and deleted ${drawn.length} drawn element${drawn.length === 1 ? "" : "s"}. Undo restores the Tinkas only.`
+        : `Removed ${ids.length} Tinka${ids.length === 1 ? "" : "s"} from this board. Undo to restore.`);
     } catch (error) {
       try { await this.refresh({saveReview:false}); } catch {}
       if (confirmedRemoved) toast("Removed from this board. Reload to see the latest board; Undo remains available.");
@@ -1693,7 +1790,7 @@ export class WorkspaceBoard {
     const unavailable=["reserved","building"].includes(item.build?.state) && !placeOnly;
     const menu = document.createElement("div");
     menu.className = "tk-menu workspace-tile-menu"; menu.setAttribute("role", "menu"); menu.setAttribute("aria-label", `Actions for ${item.title}`);
-    menu.innerHTML = `<button type="button" class="tk-mi" role="menuitem" data-tile-menu="open" ${unavailable?"disabled":""}>${placeOnly ? "Open board" : "Open experiment"}<kbd class="tk-kbd" aria-hidden="true">↵</kbd></button>${handoff?`<a class="tk-mi" role="menuitem" href="${esc(handoff)}" target="_blank" rel="noopener noreferrer">Handoff</a>`:""}${this.editableDocument(item)?'<button type="button" class="tk-mi" role="menuitem" data-tile-menu="edit-document">Edit document<kbd class="tk-kbd" aria-hidden="true">E</kbd></button>':""}<button type="button" class="tk-mi" role="menuitem" data-tile-menu="notes">Notes</button><button type="button" class="tk-mi" role="menuitem" data-tile-menu="details">Details…<kbd class="tk-kbd" aria-hidden="true">⌘I</kbd></button><div class="tk-msep" role="separator"></div><button type="button" class="tk-mi" role="menuitem" data-tile-menu="star">${star ? "Unfavorite" : "Favorite"}</button><button type="button" class="tk-mi" role="menuitem" data-tile-menu="move">Move to board…</button><button type="button" class="tk-mi" role="menuitem" data-tile-menu="duplicate">Duplicate<kbd class="tk-kbd" aria-hidden="true">⌘D</kbd></button><div class="tk-msep" role="separator"></div><button type="button" class="tk-mi tk-danger" role="menuitem" data-tile-menu="remove">Remove from board…</button>`;
+    menu.innerHTML = `<button type="button" class="tk-mi" role="menuitem" data-tile-menu="open" ${unavailable?"disabled":""}>${placeOnly ? "Open board" : "Open experiment"}<kbd class="tk-kbd" aria-hidden="true">↵</kbd></button>${handoff?`<a class="tk-mi" role="menuitem" href="${esc(handoff)}" target="_blank" rel="noopener noreferrer">Handoff</a>`:""}${this.editableDocument(item)?'<button type="button" class="tk-mi" role="menuitem" data-tile-menu="edit-document">Edit document<kbd class="tk-kbd" aria-hidden="true">E</kbd></button><button type="button" class="tk-mi" role="menuitem" data-tile-menu="edit-document-source">Edit Markdown source</button>':""}<button type="button" class="tk-mi" role="menuitem" data-tile-menu="notes">Notes</button><button type="button" class="tk-mi" role="menuitem" data-tile-menu="details">Details…<kbd class="tk-kbd" aria-hidden="true">⌘I</kbd></button><div class="tk-msep" role="separator"></div><button type="button" class="tk-mi" role="menuitem" data-tile-menu="star">${star ? "Unfavorite" : "Favorite"}</button><button type="button" class="tk-mi" role="menuitem" data-tile-menu="move">Move to board…</button><button type="button" class="tk-mi" role="menuitem" data-tile-menu="duplicate">Duplicate<kbd class="tk-kbd" aria-hidden="true">⌘D</kbd></button><div class="tk-msep" role="separator"></div><button type="button" class="tk-mi tk-danger" role="menuitem" data-tile-menu="remove">Remove from board…</button>`;
     this.closeContext();
     document.body.append(menu); this.tilePopup = menu;this.tileMenuPlacement=id;
     anchor?.setAttribute("aria-expanded","true");
@@ -1703,7 +1800,8 @@ export class WorkspaceBoard {
       const action = e.target.closest("[data-tile-menu]")?.dataset.tileMenu; if (!action) {if(e.target.closest("a"))this.closeTileMenu();return;}
       this.closeTileMenu();
       if (action === "open") card()?.querySelector("[data-open]:not(:disabled)")?.click();
-      else if (action === "edit-document") this.editDocument(item.id);
+      else if (action === "edit-document") this.editDocument(item.id, {placementId:id});
+      else if (action === "edit-document-source") this.editDocument(item.id, {placementId:id, source:true});
       else if (action === "notes") this.hooks.editNote?.(`items/${id}`,card()?.querySelector("[data-item-controls]"));
       else if (action === "details") this.itemControls(id, "notes");
       else if (action === "star") card()?.querySelector("[data-star]")?.click();
@@ -1892,8 +1990,23 @@ export class WorkspaceBoard {
           const card = element.getBoundingClientRect();
           if (card.right > box.left && card.left < box.right && card.bottom > box.top && card.top < box.bottom) selected.add(id);
         }
+      // Drawn elements join by positive intersection; a plain colored region (where a
+      // box may start) only when the box encloses it.
+      const drawn = new Set(marquee.additive ? marquee.originalDecorations : []);
+      if (box.right > box.left && box.bottom > box.top)
+        for (const {id,element,region} of marquee.decorations) {
+          if (!element.isConnected) continue;
+          const r = element.getBoundingClientRect();
+          if (region ? r.left >= box.left && r.right <= box.right && r.top >= box.top && r.bottom <= box.bottom
+            : r.right > box.left && r.left < box.right && r.bottom > box.top && r.top < box.bottom) drawn.add(id);
+        }
       setSelection(selected);
-      const text = this.boxKey?.key === "z" ? "Zoom here" : this.boxKey?.key === "f" ? (selected.size ? `Fit ${selected.size} selected` : "Nothing to fit") : `${selected.size} selected`;
+      if (drawn.size !== this.decorationSelection.size || [...drawn].some(id => !this.decorationSelection.has(id))) {
+        this.decorationSelection = drawn;
+        this.whiteboard?.sync(this.whiteboard.overrides);
+      }
+      const total = selected.size + drawn.size;
+      const text = this.boxKey?.key === "z" ? "Zoom here" : this.boxKey?.key === "f" ? (selected.size ? `Fit ${selected.size} selected` : "Nothing to fit") : `${total} selected`;
       if (marquee.count.textContent !== text) marquee.count.textContent = text;
     };
     const beginMarquee = e => {
@@ -1904,9 +2017,13 @@ export class WorkspaceBoard {
         const p = placements.get(element.dataset.placement), item = this.snapshot.items[p?.itemId];
         return p && !p.removedAt && !p.deletedAt && item && !item.deletedAt;
       }).map(element => ({id:element.dataset.placement,element}));
+      const decorations = this.mode === "canvas" ? [...$("world").querySelectorAll("[data-decoration]")].map(element => ({id:element.dataset.decoration,element,
+        region:element.classList.contains("decoration-region") && !element.classList.contains("whiteboard-shape")})) : [];
+      const originalDecorations = new Set([...this.decorationSelection, ...(this.activeDecoration ? [this.activeDecoration] : [])]);
       marquee = {pointerId:e.pointerId,x:e.clientX,y:e.clientY,last:{x:e.clientX,y:e.clientY},
         anchor:{x:(e.clientX - world.left) / zoom,y:(e.clientY - world.top) / zoom},
-        original:new Set(this.selection),additive:e.shiftKey,cards,active:false};
+        original:new Set(this.selection),additive:e.shiftKey,cards,active:false,
+        decorations,originalDecorations,originalActive:this.activeDecoration,originalMixed:this.mixedGroup};
       this.pointerGesture = true;
       this.updateHistoryControls();
       // The toolbar keeps its existing visibility until this gesture finishes.
@@ -1945,6 +2062,16 @@ export class WorkspaceBoard {
         this.activeDecoration = null;
         if (old) this.updateDecorationElement(old);
       }
+      // Drawn elements: cards with them make a mixed group; on their own they become
+      // Whiteboard's multi-selection (one is an ordinary selection).
+      if (cancelled) {
+        if (done.originalMixed) this.setMixedGroup(done.originalDecorations);
+        else if (done.originalActive) this.whiteboard?.select(done.originalActive);
+        else this.whiteboard?.selectDecorations([...done.originalDecorations]);
+      } else if (!done.active) {
+        if (!done.additive) { this.mixedGroup = false; if (this.decorationSelection.size) { this.decorationSelection = new Set(); this.whiteboard?.sync(this.whiteboard.overrides); } }
+      } else if (this.decorationSelection.size && this.selection.size) this.setMixedGroup(this.decorationSelection);
+      else if (this.decorationSelection.size) { this.mixedGroup = false; this.whiteboard?.selectDecorations([...this.decorationSelection]); }
       const before = viewport.getBoundingClientRect();
       this.selectionMenu();
       const after = viewport.getBoundingClientRect();
@@ -1975,7 +2102,7 @@ export class WorkspaceBoard {
     };
     const parentReady = gesture => {
       const parent = $("workspace-parent");
-      parent?.classList.toggle("workspace-parent-drop-ready", !!gesture && !gesture.resize &&
+      parent?.classList.toggle("workspace-parent-drop-ready", !!gesture && !gesture.resize && !gesture.decorations &&
         !!this.resolvedParent && !this.dropDestination(gesture, this.resolvedParent.id, parent, "parent").invalid);
     };
     const showTarget = target => {
@@ -2012,6 +2139,7 @@ export class WorkspaceBoard {
       this.syncGeometry();
     };
     const finishVisuals = gesture => {
+      this.showGuides([]);
       gesture.entries.forEach(entry => entry.element.classList.remove("workspace-dragging"));
       stopHold(gesture);
       gesture.lifted?.tile.classList.remove("workspace-cover-lifted");
@@ -2073,6 +2201,41 @@ export class WorkspaceBoard {
       }, 450);
     };
     const drainRefresh = () => this.drainGeometryRefresh();
+    // Drawn elements belong to this board, so a group holding them never drops into another.
+    const dropTarget = (gesture, x, y) => gesture.decorations ? null : this.boardDropTarget(gesture, x, y);
+    // A press on a drawn element in a mixed group drags the whole group. Window capture
+    // runs before Whiteboard's own handler, which would otherwise select just that element.
+    // Whiteboard clears drawn elements on any other press, so a press on a grouped
+    // card keeps them aside for the card drag below.
+    // One Escape clears a whole mixed group (window capture runs before Whiteboard's,
+    // which would clear only the drawn elements).
+    window.addEventListener("keydown", e => {
+      if (e.key !== "Escape" || !this.mixedGroup || this.whiteboard?.editor || this.context || this.addPopup ||
+          document.querySelector("dialog[open]") || e.target.closest?.("input,textarea,select,[contenteditable]")) return;
+      e.preventDefault(); e.stopImmediatePropagation();
+      this.whiteboard?.clearSelection({finishEdit:true,focus:false});
+      this.mixedGroup = false;
+      this.selection.clear(); this.build(this.hooks.concepts());
+    }, true);
+    window.addEventListener("pointerdown", e => {
+      this.heldGroup = this.mixedGroup && e.target.closest?.("#world .workspace-card.selected") ? this.decorationSelection : null;
+    }, true);
+    window.addEventListener("pointerdown", e => {
+      if (!this.keyboardDecorations().length || this.mode !== "canvas" || e.button !== 0 || e.isPrimary === false || e.pointerType === "touch" ||
+          e.shiftKey || e.metaKey || e.ctrlKey || e.altKey || this.movePending || drag || marquee || pointers.size) return;
+      const element = e.target.closest?.("#world [data-decoration]");
+      if (!element || !this.decorationSelection.has(element.dataset.decoration) ||
+          e.target.closest("button,input,textarea,select,[contenteditable],[data-endpoint],[data-decoration-resize],[data-port]")) return;
+      const visible = new Map([...$("world").querySelectorAll(".workspace-card[data-placement]")].map(card => [card.dataset.placement,card]));
+      const entries = this.snapshot.placements.filter(p => this.selection.has(p.id) && visible.has(p.id) && !p.removedAt && !p.deletedAt && !p.archivedAt)
+        .map(p => ({p:{...p},element:visible.get(p.id)}));
+      drag = {id:null,p:{x:0,y:0,width:0,height:0},x:e.clientX,y:e.clientY,pointerId:e.pointerId,resize:false,element,
+        zoom:this.hooks.zoom(),active:false,threshold:6,entries,decorations:this.keyboardDecorations().map(d => ({...d})),
+        fromDecoration:element.dataset.decoration};
+      this.pointerGesture = true;
+      this.updateHistoryControls();
+      e.preventDefault(); e.stopImmediatePropagation();
+    }, true);
     // Every dragged placement is still active with its gesture-start geometry.
     const unmoved = (latest, gesture) => placementsUnchanged(latest, gesture.entries.map(entry => entry.p));
     const cancel = () => {
@@ -2162,13 +2325,17 @@ export class WorkspaceBoard {
             }) : [];
         drag.entries = (selected.some(p => p.id === id) ? selected : [p])
           .map(p => ({p:{...p},element:visible.get(p.id)}));
+        // A mixed group's drawn elements travel with its cards.
+        if (this.heldGroup?.size && this.selection.has(id)) { this.setMixedGroup(this.heldGroup); this.heldGroup = null; }
+        if (!drag.resize && this.mixedGroup && this.selection.has(id) && this.groupDecorations().length)
+          drag.decorations = this.groupDecorations().map(d => ({...d}));
         this.pointerGesture = true;
         this.updateHistoryControls();
         if (!this.workspaceGraph || this.workspaceGraph.revision !== this.snapshot.revision)
           this.client.get("/api/workspace?view=graph&covers=0").then(ws => {
             if (!this.workspaceGraph || ws.revision >= this.workspaceGraph.revision) this.workspaceGraph = ws;
           }).catch(() => {});
-        beginHold(drag);
+        if (!drag.decorations) beginHold(drag);
         if (drag.resize) {
           e.preventDefault();
           e.stopImmediatePropagation();
@@ -2214,11 +2381,23 @@ export class WorkspaceBoard {
         if (drag.lifted) {
           drag.moved ||= moved;
           positionProxy(drag.lifted.proxy, e.clientX, e.clientY);
-          showTarget(this.boardDropTarget(drag, e.clientX, e.clientY));
+          showTarget(dropTarget(drag, e.clientX, e.clientY));
           return;
         }
-        const dx = screenX / drag.zoom,
+        let dx = screenX / drag.zoom,
           dy = screenY / drag.zoom;
+        // Smart guides: the moving group's (or resized card's) edges and centres snap to
+        // other objects within six screen pixels; ⌘ (Ctrl off macOS) held turns it off.
+        if (!snapDisabled(e, isMacPlatform())) {
+          drag.snapTargets ||= this.snapTargets(new Set(drag.entries.map(entry => entry.p.id)), new Set((drag.decorations || []).map(d => d.id)));
+          const moving = [...drag.entries.map(entry => entry.p), ...(drag.decorations || []).map(d => decorationBounds(d,this.snapshot))];
+          const box = drag.resize ? {x:drag.p.x,y:drag.p.y,width:drag.p.width + dx,height:drag.p.height + dy} : moving.length ? boundsOf(moving) : null;
+          if (box) {
+            const snap = snapBox(drag.resize ? box : {...box,x:box.x + dx,y:box.y + dy}, drag.snapTargets, 6 / drag.zoom, {resize:drag.resize});
+            dx += snap.dx; dy += snap.dy;
+            this.showGuides(snap.guides);
+          }
+        } else this.showGuides([]);
         drag.translation = {dx:Math.round(dx),dy:Math.round(dy)};
         drag.patch = drag.resize
           ? {
@@ -2236,8 +2415,9 @@ export class WorkspaceBoard {
               (key === "x" ? value + this.origin.x : key === "y" ? value + this.origin.y : value) + "px";
         }
         this.syncGeometry({placements:new Map(drag.entries.map(entry => [entry.p.id,
-          drag.resize || drag.entries.length === 1 ? drag.patch : {x:entry.p.x + drag.translation.dx,y:entry.p.y + drag.translation.dy}]))});
-        showTarget(this.boardDropTarget(drag, e.clientX, e.clientY));
+          drag.resize || drag.entries.length === 1 ? drag.patch : {x:entry.p.x + drag.translation.dx,y:entry.p.y + drag.translation.dy}])),
+          ...(drag.decorations ? {decorations:new Map(drag.decorations.map(d => [d.id,this.shiftedDecoration(d,drag.translation.dx,drag.translation.dy)]))} : {})});
+        showTarget(dropTarget(drag, e.clientX, e.clientY));
       },
       true,
     );
@@ -2253,7 +2433,7 @@ export class WorkspaceBoard {
         }
         if (!drag || drag.pointerId !== e.pointerId) return;
         const done = drag;
-        const target = done.active ? this.boardDropTarget(done, e.clientX, e.clientY) : null;
+        const target = done.active ? dropTarget(done, e.clientX, e.clientY) : null;
         drag = null;
         this.pointerGesture = false;
         this.updateHistoryControls();
@@ -2261,6 +2441,8 @@ export class WorkspaceBoard {
         finishVisuals(done);
         if (!done.active || (done.lifted ? !done.moved : !done.patch)) {
           if (done.active) suppressedClick = true;
+          // A press on a grouped drawn element that never moved selects just that element.
+          else if (done.fromDecoration) this.whiteboard?.select(done.fromDecoration);
           drainRefresh(); return;
         }
         e.preventDefault();
@@ -2313,7 +2495,7 @@ export class WorkspaceBoard {
           }
           return;
         }
-        if (!done.resize && done.entries.length > 1) {
+        if (!done.resize && (done.entries.length > 1 || done.decorations?.length)) {
           this.movePending = true;
           this.moveCommitting = true;
           let saved = false;
@@ -2321,6 +2503,7 @@ export class WorkspaceBoard {
             await this.writeArrangement("translatePlacements", {
               boardId:this.snapshot.id,
               placementIds:done.entries.map(entry => entry.p.id),
+              ...(done.decorations?.length ? {decorationIds:done.decorations.map(d => d.id)} : {}),
               ...done.translation,
             }, latest => unmoved(latest, done));
             saved = true;
@@ -2480,6 +2663,178 @@ export class WorkspaceBoard {
   // Document creation and editing live in board-document.js (loaded on first use).
   // point is the same screen (client) point createDecoration takes, or undefined
   // for the viewport centre; this.canvasPoint(point) converts it to board units.
+  // Edit tools: a floating palette, hidden until asked for (A or the bottom-bar
+  // pencil). Its keys (T S D N) work whether or not it is shown.
+  editToolsKey() { return `tinka/${this.config.workspaceId}/edit-tools`; }
+  installEditTools() {
+    if (this.hooks.viewOnly || $("edit-tools")) return;
+    try { this.editToolsOpen = localStorage.getItem(this.editToolsKey()) === "on"; } catch { this.editToolsOpen = false; }
+    const palette = document.createElement("div");
+    palette.id = "edit-tools";
+    palette.className = "edit-tools";
+    palette.setAttribute("role", "toolbar");
+    palette.setAttribute("aria-label", "Edit tools");
+    palette.setAttribute("aria-orientation", "vertical");
+    palette.innerHTML = [["text","Text · T","T"],["sticky","Sticky note · S","S"],["document","Document · D","D"],["jot","Quick jot · N","N"]]
+      .map(([tool,label,key]) => `<button type="button" class="tk-btn tk-icon" data-edit-tool="${tool}" aria-label="${label}" title="${label}" aria-keyshortcuts="${key}">${EDIT_TOOL_ICONS[tool]}</button>`).join("") +
+      `<span class="edit-tools-divider" aria-hidden="true"></span><button type="button" class="tk-btn tk-icon" data-edit-tool="more" aria-label="More to add" title="More to add…" aria-haspopup="menu">${EDIT_TOOL_ICONS.more}</button>`;
+    palette.onclick = e => {
+      const button = e.target.closest("[data-edit-tool]");
+      if (!button || this.boardCommandBlocked()) return;
+      const tool = button.dataset.editTool;
+      if (tool === "more") {
+        if (this.addPopup) { this.closeAddMenu(); return; }
+        this.addMenu(button);
+        const menu = this.addPopup, rect = button.getBoundingClientRect();
+        if (menu) Object.assign(menu.style, {left:`${Math.min(innerWidth - menu.offsetWidth - 8, rect.right + 8)}px`,
+          top:`${Math.max(8, Math.min(innerHeight - menu.offsetHeight - 8, rect.top))}px`});
+      } else if (tool === "document") this.createDocument();
+      else if (tool === "jot") this.quickJot();
+      else this.createDecoration(tool);
+    };
+    document.body.append(palette);
+    const toggle = document.createElement("button");
+    toggle.id = "edit-tools-toggle";
+    toggle.type = "button";
+    toggle.className = "tk-btn tk-icon edit-tools-toggle";
+    toggle.setAttribute("aria-controls", "edit-tools");
+    toggle.setAttribute("aria-label", "Edit tools");
+    toggle.setAttribute("aria-keyshortcuts", "A");
+    toggle.title = "Edit tools (A)";
+    toggle.innerHTML = '<svg viewBox="0 0 20 20" aria-hidden="true"><rect x="3" y="3" width="6" height="6" rx="1"/><circle cx="14" cy="6" r="3"/><path d="M6 11.5 9 16.5H3z"/><path d="M14 11.5v5M11.5 14h5"/></svg>';
+    toggle.onclick = () => this.toggleEditTools();
+    const map = $("board-map-toggle");
+    map?.parentElement?.insertBefore(toggle, map);
+    this.syncEditTools();
+  }
+  toggleEditTools(open = !this.editToolsOpen) {
+    this.editToolsOpen = open;
+    try { localStorage.setItem(this.editToolsKey(), open ? "on" : "off"); } catch {}
+    this.syncEditTools();
+  }
+  syncEditTools() {
+    const palette = $("edit-tools"), toggle = $("edit-tools-toggle");
+    if (!palette) return;
+    const canvas = this.mode === "canvas";
+    palette.hidden = !(canvas && this.editToolsOpen);
+    if (toggle) { toggle.hidden = !canvas; toggle.setAttribute("aria-pressed", String(!!this.editToolsOpen)); }
+  }
+  // A mixed group: cards (this.selection) with drawn elements (this.decorationSelection),
+  // made by the selection box or ⌘A. It moves, deletes and duplicates together.
+  groupKey() { return JSON.stringify([...this.selection].sort()); }
+  selectedCount() { return this.selection.size + (this.mixedGroup ? this.decorationSelection.size : 0); }
+  setMixedGroup(ids) {
+    this.decorationSelection = new Set(ids);
+    this.mixedGroup = !!(this.decorationSelection.size && this.selection.size);
+    this.groupSignature = this.groupKey();
+    this.whiteboard?.sync(this.whiteboard.overrides);
+  }
+  // Copies drawn elements 32 units down and right (non-arrows first, so arrows attached to a
+  // copied element attach to its copy); other attached ends become free points. Not undoable.
+  async duplicateDecorations(drawn) {
+    const ids = new Map(drawn.map(d => [d.id,crypto.randomUUID()]));
+    const end = (point,end) => end?.decorationId && ids.has(end.decorationId)
+      ? Object.fromEntries(Object.entries({...end,decorationId:ids.get(end.decorationId)}).filter(([key]) => key !== "fallback"))
+      : {x:point.x + 32,y:point.y + 32};
+    for (const d of [...drawn.filter(d => d.type !== "line"), ...drawn.filter(d => d.type === "line")]) {
+      const copy = {...d,id:ids.get(d.id),x:d.x + 32,y:d.y + 32};
+      if (d.type === "line" && d.from && d.to) { const r = resolveLine(d,this.snapshot); copy.from = end(r.from,d.from); copy.to = end(r.to,d.to); }
+      await this.client.write("createDecoration",{boardId:this.snapshot.id,decoration:copy});
+    }
+    await this.refresh({saveReview:false});
+    return [...ids.values()];
+  }
+  // Drawn elements the keyboard acts on as a group: a mixed group's, or Whiteboard's
+  // decoration-only multi-selection.
+  keyboardDecorations() {
+    if (this.mixedGroup) return this.groupDecorations();
+    return !this.selection.size && this.decorationSelection.size > 1
+      ? (this.snapshot.decorations || []).filter(d => this.decorationSelection.has(d.id)) : [];
+  }
+  groupDecorations() {
+    return this.mixedGroup ? (this.snapshot.decorations || []).filter(d => this.decorationSelection.has(d.id)) : [];
+  }
+  // Any other selection change (a click, Escape, a single decoration) ends the group.
+  checkMixedGroup() {
+    if (!this.mixedGroup || this.pointerGesture) return;
+    const same = this.groupKey() === this.groupSignature;
+    if (!this.activeDecoration && this.decorationSelection.size && this.selection.size && same) return;
+    this.mixedGroup = false;
+    // Cards picked some other way drop the drawn elements; an emptied card selection means
+    // Whiteboard took over (its own single or multi-selection), so its set stays.
+    if (this.selection.size && !same && this.decorationSelection.size) {
+      this.decorationSelection = new Set();
+      this.whiteboard?.sync(this.whiteboard.overrides);
+    }
+  }
+  // Align, distribute and tidy act on the selected cards and drawn elements (arrows
+  // with an attached end follow their targets, so they are left out).
+  arrangeObjects() {
+    const cards = this.clipboardCandidates().map(p => ({kind:"placement",id:p.id,box:{x:p.x,y:p.y,width:p.width,height:p.height}}));
+    const drawn = this.keyboardDecorations().filter(d => !(d.from?.placementId || d.from?.decorationId || d.to?.placementId || d.to?.decorationId))
+      .map(d => ({kind:"decoration",id:d.id,d,box:decorationBounds(d,this.snapshot)}));
+    return [...cards, ...drawn];
+  }
+  closeArrangeMenu() { this.arrangePopup?.remove(); this.arrangePopup = null; }
+  arrangeMenu(anchor) {
+    if (this.arrangePopup) { this.closeArrangeMenu(); return; }
+    const count = this.arrangeObjects().length;
+    const menu = document.createElement("div");
+    menu.className = "tk-menu arrange-menu"; menu.setAttribute("role", "menu"); menu.setAttribute("aria-label", "Arrange");
+    const item = ([kind,label,icon]) => `<button type="button" role="menuitem" class="arrange-item" data-arrange="${kind}" aria-label="${label}" title="${label}" ${kind.startsWith("distribute") && count < 3 || count < 2 ? "disabled" : ""}>${svg16(icon)}</button>`;
+    menu.innerHTML = `<span class="arrange-label">Align</span>${ARRANGE.slice(0,6).map(item).join("")}<span class="arrange-label">Distribute</span>${ARRANGE.slice(6,8).map(item).join("")}<button type="button" role="menuitem" class="arrange-tidy" data-arrange="tidy" title="Tidy the selection into a grid, keeping reading order" ${count < 2 ? "disabled" : ""}>${svg16(ARRANGE[8][2])}<span>Tidy into grid</span></button>`;
+    document.body.append(menu); this.arrangePopup = menu;
+    positionTilePopover(menu, anchor);
+    menu.onclick = e => { const button = e.target.closest("[data-arrange]:not(:disabled)"); if (!button) return; this.closeArrangeMenu(); this.arrange(button.dataset.arrange); };
+    menu.onkeydown = e => {
+      if (e.key === "Escape") { e.preventDefault(); e.stopPropagation(); this.closeArrangeMenu(); anchor?.focus?.({preventScroll:true}); return; }
+      const buttons = [...menu.querySelectorAll("button:not(:disabled)")], index = buttons.indexOf(document.activeElement);
+      if (["ArrowRight","ArrowDown","ArrowLeft","ArrowUp"].includes(e.key)) { e.preventDefault(); buttons[(index + (["ArrowRight","ArrowDown"].includes(e.key) ? 1 : -1) + buttons.length) % buttons.length]?.focus(); }
+    };
+    const away = e => { if (!menu.contains(e.target) && e.target !== anchor && !anchor?.contains?.(e.target)) { this.closeArrangeMenu(); document.removeEventListener("pointerdown", away, true); } };
+    document.addEventListener("pointerdown", away, true);
+    menu.querySelector("button:not(:disabled)")?.focus({preventScroll:true});
+  }
+  // One arrangePlacements write: one revision and one Undo step.
+  async arrange(kind) {
+    const objects = this.arrangeObjects();
+    if (objects.length < (kind.startsWith("distribute") ? 3 : 2) || this.commandBusy?.() || this.movePending) return;
+    const next = arrangePositions(kind, objects);
+    const placements = [], decorations = [];
+    objects.forEach((o,i) => {
+      const dx = Math.round(next[i].x - o.box.x), dy = Math.round(next[i].y - o.box.y);
+      if (!dx && !dy) return;
+      if (o.kind === "placement") placements.push({id:o.id,x:o.box.x + dx,y:o.box.y + dy});
+      else decorations.push({id:o.id,x:o.d.x + dx,y:o.d.y + dy});
+    });
+    if (!placements.length && !decorations.length) { toast("Already arranged."); return; }
+    const before = this.snapshot.placements.filter(p => placements.some(e => e.id === p.id));
+    this.movePending = true; this.updateHistoryControls();
+    try {
+      await this.writeArrangement("arrangePlacements", {boardId:this.snapshot.id,
+        ...(placements.length ? {placements} : {}), ...(decorations.length ? {decorations} : {})}, latest => placementsUnchanged(latest, before));
+      this.hooks.holdView?.();
+      await this.refresh({saveReview:false});
+    } catch (error) { showFailure(error); try { await this.refresh({saveReview:false}); } catch {} }
+    finally { this.movePending = false; this.updateHistoryControls(); }
+  }
+  // Smart-guide targets: every rendered card and drawn element (arrows aside) not moving.
+  snapTargets(placementIds = new Set(), decorationIds = new Set()) {
+    const cards = this.renderedPlacements().filter(p => !placementIds.has(p.id) && !p.archivedAt).map(p => ({x:p.x,y:p.y,width:p.width,height:p.height}));
+    const drawn = (this.snapshot.decorations || []).filter(d => d.type !== "line" && !decorationIds.has(d.id))
+      .map(d => decorationBounds(d,this.snapshot));
+    return [...cards, ...drawn];
+  }
+  boardToScreen(point) {
+    const world = $("world").getBoundingClientRect(), zoom = this.hooks.zoom();
+    return {x:world.left + (point.x + (this.origin?.x || 0)) * zoom, y:world.top + (point.y + (this.origin?.y || 0)) * zoom};
+  }
+  showGuides(guides) { if (guides?.length) this.guides.show(guides, point => this.boardToScreen(point)); else this.guides.hide(); }
+  // A decoration's position after a group move: free arrow ends move, attached ends follow.
+  shiftedDecoration(d, dx, dy) {
+    const shift = end => end && !end.placementId && !end.decorationId ? {...end, x:end.x + dx, y:end.y + dy} : end;
+    return {x:d.x + dx, y:d.y + dy, ...(d.from ? {from:shift(d.from)} : {}), ...(d.to ? {to:shift(d.to)} : {})};
+  }
   // A local Markdown document item (the same test as the card's documentContent).
   editableDocument(item) { return item?.content?.kind === "markdown" && !!item.content.resource && !item.content.url; }
   selectedDocument() {
@@ -2487,8 +2842,10 @@ export class WorkspaceBoard {
     const p = this.snapshot.placements.find(p => p.id === [...this.selection][0]), item = this.snapshot.items[p?.itemId];
     return this.editableDocument(item) ? item : null;
   }
-  editDocument(itemId) {
-    return import("./board-document.js").then(m => m.editBoardDocument(this, itemId)).catch(showFailure);
+  // Documents are edited in place on their card (board-document.js); options: point (client
+  // point for the caret), placementId, source (Markdown source), selectTitle.
+  editDocument(itemId, options = {}) {
+    return import("./board-document.js").then(m => m.editBoardDocument(this, itemId, options)).catch(showFailure);
   }
   quickJot() {
     if (this.mode !== "canvas") this.setMode("canvas");
@@ -2507,7 +2864,7 @@ export class WorkspaceBoard {
     document.addEventListener("pointerdown", e => {
       if (this.tilePopup && !e.target.closest(".workspace-tile-menu,[data-item-controls]")) this.closeTileMenu();
       if (this.context && !e.target.closest("#workspace-item-controls,[data-item-controls],.workspace-dialog,dialog[open],.feedback-panel,.workspace-popover,.workspace-tile-menu")) this.closeContext();
-      if (this.addPopup && !e.target.closest(".workspace-add-menu,#workspace-add")) this.closeAddMenu();
+      if (this.addPopup && !e.target.closest(".workspace-add-menu,#workspace-add,[data-edit-tool=more]")) this.closeAddMenu();
     }, true);
     viewport.addEventListener("contextmenu", e => {
       if (e.target.closest(".workspace-card,.workspace-decoration,button,input,textarea")) return;
@@ -2534,7 +2891,7 @@ export class WorkspaceBoard {
       if (e.target.closest("input,textarea,select,[contenteditable],[role=textbox],[role=dialog]")) return;
       if (e.metaKey || e.ctrlKey || e.altKey) return;
       const delta = { ArrowLeft: [-1,0], ArrowRight: [1,0], ArrowUp: [0,-1], ArrowDown: [0,1] }[e.key];
-      if (this.activeDecoration && ["Delete", "Backspace"].includes(e.key)) { e.preventDefault(); this.deleteDecoration(); return; }
+      if ((this.activeDecoration || !this.selection.size && this.decorationSelection.size > 1) && ["Delete", "Backspace"].includes(e.key)) { e.preventDefault(); this.deleteDecoration(); return; }
       if (["Delete", "Backspace"].includes(e.key)) {
         if (e.repeat || e.shiftKey || this.clipboardBlocked() || this.history?.busy) return;
         const ids = this.clipboardCandidates().map(p => p.id);
@@ -2543,12 +2900,18 @@ export class WorkspaceBoard {
         this.removePlacements(ids);
         return;
       }
-      if (!delta || (!this.activeDecoration && !this.selection.size)) return;
+      if (!delta || (!this.activeDecoration && !this.selection.size && !this.keyboardDecorations().length)) return;
       e.preventDefault(); e.stopImmediatePropagation();
       if (this.pointerGesture || this.movePending || this.historyBusy) return;
       const [dx,dy] = delta.map(v => v * (e.shiftKey ? 10 : 1));
       try {
-        if (this.activeDecoration) {
+        if (this.keyboardDecorations().length) {
+          const placements = this.snapshot.placements.filter(p => this.selection.has(p.id) && !p.removedAt && !p.deletedAt);
+          await this.writeArrangement("translatePlacements", {boardId:this.snapshot.id,placementIds:placements.map(p => p.id),
+            decorationIds:this.keyboardDecorations().map(d => d.id),dx,dy},latest=>placementsUnchanged(latest,placements));
+          await this.refresh({saveReview:false});
+        }
+        else if (this.activeDecoration) {
           const d=this.snapshot.decorations.find(d=>d.id===this.activeDecoration);
           let patch={x:d.x+dx,y:d.y+dy};
           if(d.type === "line"){const r=resolveLine(d,this.snapshot),from={x:r.from.x+dx,y:r.from.y+dy},to={x:r.to.x+dx,y:r.to.y+dy};patch={...lineBox(from,to),from,to};}

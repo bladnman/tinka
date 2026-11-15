@@ -47,3 +47,38 @@ export function resolveBoardGeometry(board) {
   return {boardId:board.id,placements:(board.placements||[]).filter(p=>!p.removedAt&&!p.deletedAt).map(p=>({id:p.id,itemId:p.itemId,x:p.x,y:p.y,width:p.width,height:p.height})),
     decorations:(board.decorations||[]).map(d=>({id:d.id,type:d.type,...(d.shape?{shape:d.shape}:{}),bounds:decorationBounds(d,board),...(d.type==='line'?resolveLine(d,board):{})}))};
 }
+// The saved box of an endpoint target (card placement or non-line decoration), or null.
+export function targetBox(ref,board,overrides){const box=ref&&target(ref,board,overrides);return box?{x:box.x,y:box.y,width:box.width,height:box.height,shape:box.shape}:null;}
+// The visible path of a resolved line for its route (straight, elbow or curved).
+// Attached ends leave along their side's outward normal; free ends face each other.
+// Returns SVG path data in board units and the label point on the drawn path.
+const normals={top:[0,-1],right:[1,0],bottom:[0,1],left:[-1,0]};
+// The point halfway along a polyline's length, where a label sits on its path.
+function halfway(points){
+  const lengths=points.slice(1).map((pt,i)=>Math.hypot(pt[0]-points[i][0],pt[1]-points[i][1]));
+  let rest=lengths.reduce((sum,n)=>sum+n,0)/2;
+  for(let i=0;i<lengths.length;i++){if(rest<=lengths[i]&&lengths[i]>0){const t=rest/lengths[i];return {x:points[i][0]+(points[i+1][0]-points[i][0])*t,y:points[i][1]+(points[i+1][1]-points[i][1])*t};}rest-=lengths[i];}
+  const last=points[points.length-1];return {x:last[0],y:last[1]};
+}
+export function linePath(resolved,route='straight'){
+  const a=resolved.from,b=resolved.to,dx=b.x-a.x,dy=b.y-a.y,f=n=>Math.round(n*100)/100;
+  // Free ends leave along the dominant axis toward the other end.
+  const toward=Math.abs(dx)>=Math.abs(dy)?[Math.sign(dx)||1,0]:[0,Math.sign(dy)||1];
+  const n1=a.attached&&normals[a.side]||toward,n2=b.attached&&normals[b.side]||[-toward[0],-toward[1]];
+  if(route==='curved'){
+    const k=Math.max(24,Math.min(160,Math.hypot(dx,dy)*.4));
+    const c1={x:a.x+n1[0]*k,y:a.y+n1[1]*k},c2={x:b.x+n2[0]*k,y:b.y+n2[1]*k};
+    const at=t=>{const u=1-t;return [u*u*u*a.x+3*u*u*t*c1.x+3*u*t*t*c2.x+t*t*t*b.x,u*u*u*a.y+3*u*u*t*c1.y+3*u*t*t*c2.y+t*t*t*b.y];};
+    return {d:`M${f(a.x)} ${f(a.y)}C${f(c1.x)} ${f(c1.y)} ${f(c2.x)} ${f(c2.y)} ${f(b.x)} ${f(b.y)}`,mid:halfway(Array.from({length:49},(_,i)=>at(i/48)))};
+  }
+  if(route==='elbow'){
+    const stub=16,horizontal=side=>side==='left'||side==='right';
+    const p={x:a.x+(a.attached?n1[0]*stub:0),y:a.y+(a.attached?n1[1]*stub:0)},q={x:b.x+(b.attached?n2[0]*stub:0),y:b.y+(b.attached?n2[1]*stub:0)};
+    const fallback=Math.abs(q.x-p.x)>=Math.abs(q.y-p.y)?'h':'v';
+    const o1=a.attached?horizontal(a.side)?'h':'v':b.attached?horizontal(b.side)?'h':'v':fallback,o2=b.attached?horizontal(b.side)?'h':'v':o1;
+    const points=o1==='h'&&o2==='h'?[[(p.x+q.x)/2,p.y],[(p.x+q.x)/2,q.y]]:o1==='v'&&o2==='v'?[[p.x,(p.y+q.y)/2],[q.x,(p.y+q.y)/2]]:o1==='h'?[[q.x,p.y]]:[[p.x,q.y]];
+    const all=[[a.x,a.y],[p.x,p.y],...points,[q.x,q.y],[b.x,b.y]].filter((pt,i,list)=>!i||pt[0]!==list[i-1][0]||pt[1]!==list[i-1][1]);
+    return {d:all.map(([x,y],i)=>`${i?'L':'M'}${f(x)} ${f(y)}`).join(''),mid:halfway(all)};
+  }
+  return {d:`M${f(a.x)} ${f(a.y)}L${f(b.x)} ${f(b.y)}`,mid:{x:(a.x+b.x)/2,y:(a.y+b.y)/2}};
+}

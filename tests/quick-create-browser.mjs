@@ -1,4 +1,4 @@
-// Fast creation on the canvas: T/S/D hotkeys, the quick-add strip, Escape keeping typed
+// Fast creation on the canvas: T/S/D hotkeys, the edit tools palette, Escape keeping typed
 // text, and pasting plain text as a note. Each case runs on its own fresh board and page.
 // Isolated fixture, headless, port 0; ClipboardEvent exercises the paste handler without
 // the OS clipboard.
@@ -54,30 +54,58 @@ try{
     await page.locator(`[data-decoration="${d.id}"]`).waitFor();
   });
 
-  await run('D opens the document editor and saves a markdown card',async(page,id)=>{
+  await run('D creates a document and edits it in place on its card; E and the pill Edit reopen it',async(page,id)=>{
     await page.mouse.move(500,400);await page.keyboard.press('d');
-    const dialog=page.locator('dialog.tinka-doc-editor[open]');await dialog.waitFor({timeout:5000});
-    await dialog.locator('textarea').fill('# Hi');
-    await dialog.locator('[data-act=done]').click();await dialog.waitFor({state:'detached'});
-    const item=await until(async()=>(await items(id)).find(i=>i.content?.kind==='markdown'));
-    assert.ok(item?.content,'a markdown item is placed on the board');
+    const editingCard=page.locator('.workspace-card.doc-editing');await editingCard.waitFor({timeout:6000});
+    const frame=page.frameLocator('.workspace-card.doc-editing iframe');
+    // No modal and no toolbar: the card's own page is editable, with "Untitled" selected.
+    assert.equal(await page.locator('dialog[open]').count(),0,'no dialog opens');
+    await frame.locator('article.doc-editing h1').waitFor();
+    assert.ok(await until(()=>frame.locator('body').evaluate(()=>getSelection().toString()==='Untitled')),'the title is selected');
+    await page.keyboard.type('Hi');await page.keyboard.press('Escape');
+    await page.locator('.workspace-card.doc-editing').waitFor({state:'detached'});
+    const item=await until(async()=>(await items(id)).find(i=>i.content?.kind==='markdown'&&i.title==='Hi'));
+    assert.ok(item?.content,'a markdown item titled from its heading is placed on the board');
     const shown=await until(async()=>{for(const f of page.frames()){const t=await f.evaluate(()=>document.querySelector('article.markdown')?.textContent||'').catch(()=>'');if(/\bHi\b/.test(t))return true;}return false;},12000);
     assert.equal(shown,true,'markdown card shows "Hi"');
+    const placement=(await getBoardSnapshot(config,id)).placements.find(p=>p.itemId===item.id);
+    const card=page.locator(`[data-placement="${placement.id}"]`);
+    // E on the selected card edits it in place again.
+    await page.mouse.click(1100,820);await card.locator('[data-placement-select]').click();assert.equal(await page.locator('.workspace-card.selected').count(),1);await page.keyboard.press('e');
+    await page.locator('.workspace-card.doc-editing').waitFor({timeout:5000});await page.keyboard.press('Escape');
+    await page.locator('.workspace-card.doc-editing').waitFor({state:'detached'});
+    // The card's hover pill offers Edit beside Open.
+    await card.hover();
+    const edit=card.locator('[data-edit-document-item]');await edit.waitFor({state:'visible'});
+    assert.equal(await edit.textContent(),'Edit');
+    await edit.click();await page.locator('.workspace-card.doc-editing').waitFor({timeout:5000});
+    await page.keyboard.press('Escape');await page.locator('.workspace-card.doc-editing').waitFor({state:'detached'});
   });
 
-  await run('Quick-add strip buttons work',async(page,id)=>{
-    const strip=page.locator('[class*=quick],[id*=quick],[data-quick-add]').filter({has:page.locator('button')}).first();
-    await strip.waitFor({timeout:3000});
-    for(const [label,check] of [['Text',d=>d.type==='text'],['Sticky',d=>d.color==='#f6e6a4']]){
+  await run('Edit tools palette: hidden by default, toggles, buttons work, remembered',async(page,id)=>{
+    assert.equal(await page.locator('[class*=quick-add],[data-quick-add]').count(),0,'no quick-add strip in the top bar');
+    const palette=page.locator('#edit-tools'),toggle=page.locator('#edit-tools-toggle');
+    assert.equal(await palette.isVisible(),false,'palette hidden by default');
+    await page.mouse.click(1100,820);await page.keyboard.press('a');await palette.waitFor({state:'visible'});
+    assert.equal(await toggle.getAttribute('aria-pressed'),'true');
+    await page.keyboard.press('a');await palette.waitFor({state:'hidden'});
+    await toggle.click();await palette.waitFor({state:'visible'});
+    for(const [tool,check] of [['text',d=>d.type==='text'],['sticky',d=>d.color==='#f6e6a4']]){
       const before=(await decos(id)).length;
-      await strip.getByRole('button',{name:new RegExp(label,'i')}).first().click();
+      await palette.locator(`[data-edit-tool=${tool}]`).click();
       const d=await until(async()=>{const all=await decos(id);return all.length>before&&all.at(-1);});
-      assert.ok(d&&check(d),`${label} button adds a ${label.toLowerCase()}`);
+      assert.ok(d&&check(d),`${tool} button adds a ${tool}`);
       await page.keyboard.press('Escape');await page.mouse.click(1100,820);await page.waitForTimeout(200);
     }
-    await strip.getByRole('button',{name:/document/i}).first().click();
-    const dialog=page.locator('dialog.tinka-doc-editor[open]');await dialog.waitFor({timeout:5000});
-    await dialog.locator('[data-act=cancel]').click();await dialog.waitFor({state:'detached'});
+    assert.equal(await palette.isVisible(),true,'Escape leaves the palette open');
+    await palette.locator('[data-edit-tool=document]').click();
+    await page.locator('.workspace-card.doc-editing').waitFor({timeout:6000});
+    await page.keyboard.press('Escape');await page.locator('.workspace-card.doc-editing').waitFor({state:'detached'});
+    await palette.locator('[data-edit-tool=jot]').click();await page.locator('.quick-jot input').waitFor();await page.keyboard.press('Escape');
+    await palette.locator('[data-edit-tool=more]').click();await page.locator('.workspace-add-menu').waitFor();await page.keyboard.press('Escape');
+    await page.reload();await page.locator('#edit-tools').waitFor({state:'visible',timeout:8000});
+    await page.locator('#edit-tools-toggle').click();await page.reload();await page.waitForSelector('#edit-tools-toggle');await page.waitForTimeout(500);
+    assert.equal(await page.locator('#edit-tools').isVisible(),false,'off state survives reload');
   });
 
   await run('Paste plain text creates a note',async(page,id)=>{

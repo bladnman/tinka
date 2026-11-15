@@ -45,8 +45,11 @@ window.addEventListener("message", (e) => {
   if (e.origin !== location.origin) return;
   if (e.source === parent && e.data?.type === "reader-preferences")
     theme(e.data.theme, e.data.scale);
-  if(e.source===parent&&['tinka-feedback-refresh','tinka-annotations-refresh','tinka-reader-focus','tinka-annotation-result'].includes(e.data?.type)&&markdownFrame)
+  if(e.source===parent&&['tinka-feedback-refresh','tinka-annotations-refresh','tinka-reader-focus','tinka-annotation-result','tinka-document-reload','tinka-document-edit','tinka-document-edit-stop'].includes(e.data?.type)&&markdownFrame)
     markdownFrame.contentWindow?.postMessage(e.data,location.origin);
+  // In-place editing in the reader reports its state and end to the board.
+  if(e.source===markdownFrame?.contentWindow&&parent!==window&&item&&['tinka-document-status','tinka-document-edit-end','tinka-document-edit-started'].includes(e.data?.type))
+    parent.postMessage({...e.data,itemId:item.id},location.origin);
   let currentMarkdown=false;
   try{currentMarkdown=markdownFrame&&markdownFrame.contentWindow.location.href===markdownFrame.src;}catch{}
   if(e.source===markdownFrame?.contentWindow&&currentMarkdown&&parent!==window&&!q.get('variant')&&item?.content?.kind==='markdown'&&item.content.resource&&!item.content.url){

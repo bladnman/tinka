@@ -47,7 +47,9 @@ test('linked Markdown uses normalized rendered text and raw SHA while remaining 
  const source=await readDocumentSource(f.config,resource,roots);const start=source.text.indexOf('selected');
  await callTool(f.config,'highlight.add',{itemId:f.item.itemId,id:'linked',author,anchor:{kind:'text',quote:'selected words',start,end:start+14,sourceRevision:source.revision}});
  assert.equal(await readFile(file,'utf8'),raw);assert.equal((await listHighlights(f.config,{itemId:f.item.itemId})).highlights[0].anchorStatus,'matched');
- await writeFile(file,raw.replace('**selected words**','selected words'));assert.equal((await listHighlights(f.config,{itemId:f.item.itemId})).highlights[0].anchorStatus,'uncertain');
+ // Formatting-only edit: the rendered quote and context are unchanged, so the mark relocates (read-only currentAnchor).
+ await writeFile(file,raw.replace('**selected words**','selected words'));{const [mark]=(await listHighlights(f.config,{itemId:f.item.itemId})).highlights;assert.equal(mark.anchorStatus,'matched');assert.equal(mark.anchor.sourceRevision,source.revision,'listing never rewrites the stored anchor');assert.deepEqual([mark.currentAnchor.start,mark.currentAnchor.end],[start,start+14]);assert.notEqual(mark.currentAnchor.sourceRevision,source.revision);}
+ await writeFile(file,raw.replace('**selected words**','chosen words'));{const [mark]=(await listHighlights(f.config,{itemId:f.item.itemId})).highlights;assert.equal(mark.anchorStatus,'stale');assert.equal(mark.currentAnchor,undefined);}
  await rm(file);await symlink(path.join(f.root,'unavailable.md'),file);assert.equal((await listHighlights(f.config,{itemId:f.item.itemId})).highlights[0].anchorStatus,'unverified');
  await assert.rejects(f.op({type:'addHighlight',itemId:f.item.itemId,author,anchor:{kind:'text',quote:'Incidental ignored text'}}),{status:400});
 });

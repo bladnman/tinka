@@ -39,7 +39,9 @@ try{
  const centre=async locator=>{const b=await locator.boundingBox();return {x:b.x+b.width/2,y:b.y+b.height/2};};
  // The board accepts a new gesture once the previous write and refresh finish (Paste re-enables).
  const idle=()=>page.waitForFunction(()=>document.getElementById('workspace-paste')?.disabled===false);
- const drag=async(locator,dx,dy,{cancel=false}={})=>{await idle();const p=await centre(locator);await page.mouse.move(p.x,p.y);await page.mouse.down();await page.mouse.move(p.x+dx,p.y+dy,{steps:5});if(cancel)await page.keyboard.press('Escape');await page.mouse.up();};
+ // Exact-geometry drags hold ⌘/Ctrl, which turns smart-guide snapping off.
+ const snapOff=process.platform==='darwin'?'Meta':'Control';
+ const drag=async(locator,dx,dy,{cancel=false}={})=>{await idle();const p=await centre(locator);await page.mouse.move(p.x,p.y);await page.mouse.down();await page.keyboard.down(snapOff);await page.mouse.move(p.x+dx,p.y+dy,{steps:5});if(cancel)await page.keyboard.press('Escape');await page.mouse.up();await page.keyboard.up(snapOff);};
  const inspect=async id=>{await page.locator(`[data-decoration="${id}"] [data-decoration-label]`).click();await page.locator('[data-whiteboard-action=more]').click();await page.locator('[data-whiteboard-action=inspect]').click();};
  await page.evaluate(()=>window.keptFrame=document.querySelector('.workspace-live-preview iframe'));
  // Real repeated double-click editing keeps stable DOM and exact multiline text.

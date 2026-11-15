@@ -1,13 +1,11 @@
-// Board-authored Markdown documents: create a .md-backed item on the board and
-// edit it in a split source/preview dialog. Server routes: POST /api/documents,
-// PUT /api/documents/:itemId (lib/documents.mjs).
-import {parseMarkdown,renderMarkdownDocument} from "./markdown-document.js";
+// Board-authored Markdown documents: create a .md-backed item on the board, and edit any local
+// Markdown document in place on its card. The card's own page (media.html) does the editing
+// (document-editor.js) and saves through PUT /api/documents/:itemId; this side starts and ends
+// it, shows a small Saving/Saved hint, and applies the auto title. No modal, no toolbar.
 import {toast} from "./workspace.js";
 
 const DEFAULT_TITLE = "Untitled";
 const STARTER = `# ${DEFAULT_TITLE}\n\n`;
-// First non-empty line with leading #s stripped; used only while the title is still the default.
-const titleFrom = text => (text.split("\n").find(line => line.trim()) || "").replace(/^\s*#+\s*/, "").trim().slice(0, 200);
 const SIZE = {width:360, height:460};
 
 function headers(board) { return {"Content-Type":"application/json","x-tinka-workspace":board.config.workspaceId}; }
@@ -54,7 +52,7 @@ export async function createBoardDocument(board, point) {
   try { await board.refresh({saveReview:false}); } catch {}
   board.hooks?.revealPlacements?.(board.snapshot.placements.filter(p => board.selection.has(p.id)));
   const itemId = data.result.itemIds[0];
-  await editBoardDocument(board, itemId, {text:STARTER, resource:data.result.resources?.[0], fresh:true});
+  await editBoardDocument(board, itemId, {selectTitle:true, placementId:data.result.placementIds?.[0]});
   return itemId;
 }
 
@@ -64,107 +62,157 @@ function documentItem(board, itemId) {
 }
 const resourcePath = resource => `/resources/${encodeURIComponent(resource.rootId)}/${resource.path.split("/").map(encodeURIComponent).join("/")}`;
 
-/** Edit an existing local Markdown document item. Resolves true when saved, false when cancelled. */
-export async function editBoardDocument(board, itemId, {text, resource, fresh = false} = {}) {
-  const item = documentItem(board, itemId);
-  resource ||= item?.content?.resource;
-  if (!resource || (item && item.content?.kind !== "markdown")) { toast("Only local Markdown documents can be edited here."); return false; }
-  if (text === undefined) {
-    try {
-      const response = await fetch(resourcePath(resource), {cache:"no-store"});
-      if (!response.ok) throw new Error(`Could not read the document (${response.status}).`);
-      text = await response.text();
-    } catch (error) { toast(error.message); return false; }
-  }
-  injectStyle();
-  const dialog = document.createElement("dialog");
-  dialog.className = "tinka-doc-editor";
-  dialog.setAttribute("aria-label", "Edit document");
-  dialog.innerHTML = `<form method="dialog" class="tinka-doc-shell">
-    <header><strong>${fresh ? "New document" : "Edit document"}</strong><span class="tinka-doc-hint">⌘/Ctrl-Enter to save · Esc to cancel</span>
-      <button type="button" data-act="cancel">Cancel</button><button type="submit" data-act="done" class="primary">Done</button></header>
-    <div class="tinka-doc-panes"><textarea spellcheck="true" aria-label="Markdown source"></textarea><div class="tinka-doc-preview" aria-label="Preview"></div></div>
-  </form>`;
-  const area = dialog.querySelector("textarea"), preview = dialog.querySelector(".tinka-doc-preview"), done = dialog.querySelector("[data-act=done]");
-  area.value = text;
-  const assets = {baseUrl:new URL(resourcePath(resource), location.href), origin:location.origin, resourcePrefix:`/resources/${encodeURIComponent(resource.rootId)}/`};
-  let frame = 0;
-  const render = () => { frame = 0; preview.replaceChildren(renderMarkdownDocument(document, parseMarkdown(area.value), assets)); };
-  area.addEventListener("input", () => { if (!frame) frame = requestAnimationFrame(render); });
-  render();
-  document.body.append(dialog);
-  // Keep board shortcuts (Delete, D, arrows) from firing while typing.
-  dialog.addEventListener("keydown", e => {
-    e.stopPropagation();
-    if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) { e.preventDefault(); save(); }
-    else if (e.key === "Escape") { e.preventDefault(); if (!saving) close(false); }
-  });
-  let settle;
-  const finished = new Promise(resolve => { settle = resolve; });
-  let saving = false;
-  async function save() {
-    if (saving) return;
-    if (area.value === text && !fresh) { close(false); return; }
-    saving = true; done.disabled = true; done.textContent = "Saving…";
-    try {
-      await json(await fetch(`/api/documents/${encodeURIComponent(itemId)}`, {method:"PUT", headers:headers(board), body:JSON.stringify({text:area.value})}));
-      close(true);
-      const title = titleFrom(area.value), current = documentItem(board, itemId)?.title ?? (fresh ? DEFAULT_TITLE : null);
-      if (title && current === DEFAULT_TITLE && title !== current) {
-        try { await board.client.write("updateItem", {itemId, patch:{title}}); } catch (error) { toast(`Saved, but the title was not updated. ${error.message}`); }
-      }
-      try { await board.refresh({saveReview:false}); } catch {}
-      reloadCards(resource);
-    } catch (error) {
-      saving = false; done.disabled = false; done.textContent = "Done";
-      toast(`Document not saved. ${error.message}`);
-    }
-  }
-  function close(saved) { if (!dialog.isConnected) return; dialog.remove(); settle(saved); }
-  dialog.querySelector("form").addEventListener("submit", e => { e.preventDefault(); save(); });
-  dialog.querySelector("[data-act=cancel]").addEventListener("click", () => close(false));
-  dialog.addEventListener("cancel", e => { e.preventDefault(); if (!saving) close(false); });
-  dialog.addEventListener("close", () => close(false));
-  dialog.showModal();
-  area.focus();
-  if (fresh) area.setSelectionRange(2, 10); // select "Untitled" so typing replaces it
-  else area.setSelectionRange(area.value.length, area.value.length);
-  return finished;
+// ---------- in-place editing on a card ----------
+const editing = new WeakMap(); // board -> session
+const frameOf = card => card?.querySelector(".workspace-live-preview iframe");
+function cardFor(board, itemId, placementId) {
+  const world = document.getElementById("world"); if (!world) return null;
+  const cards = [...world.querySelectorAll(".workspace-card[data-placement]")];
+  const shows = card => board.snapshot.placements.find(p => p.id === card.dataset.placement)?.itemId === itemId && frameOf(card);
+  return cards.find(card => card.dataset.placement === placementId && shows(card)) ||
+    cards.find(card => board.selection?.has(card.dataset.placement) && shows(card)) || cards.find(shows) || null;
+}
+// A client point on the card becomes a point in the frame's own coordinates (canvas zoom included).
+function framePoint(frame, point) {
+  if (!point) return null;
+  const rect = frame.getBoundingClientRect(), scale = frame.offsetWidth ? rect.width / frame.offsetWidth : 1;
+  return {x:(point.x - rect.left) / scale, y:(point.y - rect.top) / scale};
 }
 
-// Live updates may already hold the saved revision (they wait while the editor has focus),
-// so reload this document's card frames directly.
-function reloadCards(resource) {
+/** Start editing a document in place on its card. `options.point` is a client point (caret goes
+ *  there), `source` opens the Markdown source, `selectTitle` selects the first heading. Resolves
+ *  when editing has started (true) or could not start (false). */
+export async function editBoardDocument(board, itemId, options = {}) {
+  const item = documentItem(board, itemId);
+  if (!item || item.content?.kind !== "markdown" || !item.content.resource || item.content.url) { toast("Only local Markdown documents can be edited here."); return false; }
+  const active = editing.get(board);
+  if (active && active.itemId === itemId && !options.source) { active.frame.focus(); return true; }
+  if (active) await stopEditing(board);
+  if (board.mode !== "canvas" && board.mode !== "grid") board.setMode?.("canvas");
+  let card = cardFor(board, itemId, options.placementId);
+  if (!card) { await new Promise(r => setTimeout(r, 150)); card = cardFor(board, itemId, options.placementId); }
+  if (!card) { toast("Show this document as a card or full preview to edit it on the board, or open it and choose Edit."); return false; }
+  injectStyle(); install(board);
+  const frame = frameOf(card);
+  const session = {board, itemId, item, placementId:card.dataset.placement, frame, started:false, state:"idle"};
+  editing.set(board, session);
+  board.documentEditing = session;
+  apply(session);
+  frame.focus();
+  // The frame may still be loading (a new card): repeat the request until it is acknowledged.
+  const request = {type:"tinka-document-edit", itemId, point:framePoint(frame, options.point), source:!!options.source, selectTitle:!!options.selectTitle};
+  for (let tries = 0; tries < 50 && !session.started && editing.get(board) === session; tries++) {
+    try { frame.contentWindow?.postMessage(request, location.origin); } catch {}
+    await new Promise(r => setTimeout(r, tries < 5 ? 60 : 200));
+  }
+  if (!session.started && editing.get(board) === session) { finish(board, session, {}); toast("The document could not be opened for editing."); return false; }
+  return true;
+}
+/** End in-place editing on this board (saves first). */
+export function stopEditing(board) {
+  const session = editing.get(board); if (!session) return Promise.resolve();
+  return new Promise(resolve => {
+    session.done = resolve;
+    try { session.frame.contentWindow?.postMessage({type:"tinka-document-edit-stop"}, location.origin); } catch {}
+    setTimeout(() => { if (editing.get(board) === session) finish(board, session, {}); }, 4000);
+  });
+}
+// Board re-renders reset card attributes; re-apply the editing state after each one.
+export function reapplyEditing(board) { const session = editing.get(board); if (session) { const card = currentCard(session); if (card) { session.frame = frameOf(card) || session.frame; apply(session); } } }
+const currentCard = session => document.querySelector(`#world .workspace-card[data-placement="${CSS.escape(session.placementId)}"]`);
+function apply(session) {
+  const card = currentCard(session); if (!card) return;
+  card.classList.add("doc-editing");
+  session.frame.removeAttribute("inert"); session.frame.tabIndex = 0;
+  let hint = card.querySelector(".doc-edit-state");
+  if (!hint) { hint = document.createElement("span"); hint.className = "doc-edit-state"; hint.setAttribute("role", "status"); hint.setAttribute("aria-live", "polite"); card.querySelector(".workspace-card-preview")?.append(hint); }
+  const labels = {editing:"Editing", saving:"Saving…", saved:"Saved", error:"Not saved", conflict:"Changed elsewhere", idle:"Editing"};
+  hint.textContent = labels[session.state] || "Editing"; hint.dataset.state = session.state;
+  if (session.message) hint.title = session.message; else hint.removeAttribute("title");
+}
+function finish(board, session, result) {
+  if (editing.get(board) !== session) return;
+  editing.delete(board); board.documentEditing = null;
+  const card = currentCard(session);
+  card?.classList.remove("doc-editing"); card?.querySelector(".doc-edit-state")?.remove();
+  session.frame.setAttribute("inert", ""); session.frame.tabIndex = -1;
+  session.done?.();
+  afterEdit(board, session.itemId, result, session.frame);
+}
+// After a save: title from the first heading while it is still the default, then the board and
+// any other card or open reader of the same document catch up.
+export async function afterEdit(board, itemId, result, sourceFrame) {
+  if (!result?.saved) { try { await board.refresh({saveReview:false}); } catch {} return; }
+  const item = documentItem(board, itemId);
+  if (result.title && item?.title === DEFAULT_TITLE && result.title !== DEFAULT_TITLE) {
+    try { await board.client.write("updateItem", {itemId, patch:{title:result.title}}); } catch (error) { toast(`Saved, but the title was not updated. ${error.message}`); }
+  }
+  try { await board.refresh({saveReview:false}); } catch {}
+  if (item?.content?.resource) reloadCards(item.content.resource, sourceFrame);
+}
+function install(board) {
+  if (board.__documentEditingInstalled) return;
+  board.__documentEditingInstalled = true;
+  window.addEventListener("message", event => {
+    const session = editing.get(board);
+    if (!session || event.origin !== location.origin || event.source !== session.frame.contentWindow) return;
+    const data = event.data || {};
+    if (data.itemId && data.itemId !== session.itemId) return;
+    if (data.type === "tinka-document-edit-started") { if (!data.pending) session.started = true; return; }
+    if (data.type === "tinka-document-status") {
+      session.started = true; session.state = data.state; session.message = data.message || ""; apply(session);
+      if (data.state === "saved") documentSaved(board, session.itemId, session.frame);
+      return;
+    }
+    if (data.type === "tinka-document-edit-end") finish(board, session, data);
+  });
+  // Escape that reaches the board (focus outside the page) also ends editing.
+  document.addEventListener("keydown", event => {
+    if (event.key !== "Escape" || !editing.get(board) || event.isComposing) return;
+    event.preventDefault(); event.stopImmediatePropagation(); stopEditing(board);
+  }, true);
+  // A press anywhere outside the card being edited ends editing (saved).
+  document.addEventListener("pointerdown", event => {
+    const session = editing.get(board); if (!session) return;
+    const card = currentCard(session);
+    if (card && card.contains(event.target) && !event.target.closest("[data-open],.workspace-tile-toolbar,.workspace-card-menu,[data-placement-select]")) return;
+    stopEditing(board);
+  }, true);
+}
+
+/** After each autosave, other cards of the same document (and an open reader) show the new text
+ *  and repaint their marks; the frame doing the editing is left alone. */
+export function documentSaved(board, itemId, except) {
+  const resource = documentItem(board, itemId)?.content?.resource;
+  if (resource) reloadCards(resource, except);
+}
+// Live updates may already hold the saved revision (they wait while editing), so reload the
+// document's other card frames directly. The frame that edited reloads itself.
+function reloadCards(resource, except) {
   for (const frame of document.querySelectorAll("iframe")) {
+    if (frame === except) continue;
     let source;
     try { source = new URL(frame.getAttribute("src") || "", location.href); } catch { continue; }
     if (source.pathname !== "/app/media.html" || source.searchParams.get("kind") !== "markdown" ||
         source.searchParams.get("root") !== resource.rootId || source.searchParams.get("path") !== resource.path) continue;
+    if (source.searchParams.get("mode") === "reader") { frame.contentWindow?.postMessage({type:"tinka-document-reload"}, location.origin); continue; }
     source.searchParams.set("v", `edit-${Date.now()}`);
     frame.src = source.href;
   }
 }
 
 function injectStyle() {
-  if (document.getElementById("tinka-doc-editor-style")) return;
+  if (document.getElementById("tinka-doc-editing-style")) return;
   const style = document.createElement("style");
-  style.id = "tinka-doc-editor-style";
+  style.id = "tinka-doc-editing-style";
+  // The card stays put; its page takes the pointer and keyboard, scrolls, and shows a quiet hint.
   style.textContent = `
-.tinka-doc-editor{width:min(1200px,calc(100vw - 48px));height:min(800px,calc(100vh - 48px));max-width:none;max-height:none;padding:0;border:1px solid var(--line-strong,#ccc);border-radius:var(--r-lg,12px);background:var(--card,#fff);color:var(--ink,#222);box-shadow:0 24px 80px rgba(0,0,0,.25)}
-.tinka-doc-editor::backdrop{background:rgba(0,0,0,.3)}
-.tinka-doc-shell{display:flex;flex-direction:column;height:100%;margin:0}
-.tinka-doc-shell header{display:flex;align-items:center;gap:10px;padding:10px 14px;border-bottom:1px solid var(--line,#ddd);font:14px var(--font-ui,system-ui)}
-.tinka-doc-hint{flex:1;color:var(--muted,#777);font-size:12px}
-.tinka-doc-shell button{height:var(--control-h-sm,30px);padding:0 14px;border:1px solid var(--control-line,#ccc);border-radius:var(--r-pill,99px);background:var(--field,#fff);color:inherit;font:inherit;cursor:pointer}
-.tinka-doc-shell button.primary{background:var(--accent,#2b6);border-color:var(--accent,#2b6);color:var(--on-accent,#fff)}
-.tinka-doc-panes{flex:1;display:grid;grid-template-columns:1fr 1fr;min-height:0}
-.tinka-doc-panes textarea{resize:none;border:0;border-right:1px solid var(--line,#ddd);padding:18px;background:var(--field,#fff);color:inherit;font:14px/1.6 var(--font-mono,ui-monospace,monospace);outline:none}
-.tinka-doc-preview{overflow:auto;padding:18px 28px;font:16px/1.65 Georgia,"Times New Roman",serif}
-.tinka-doc-preview .markdown h1,.tinka-doc-preview .markdown h2,.tinka-doc-preview .markdown h3{font-weight:400;line-height:1.2}
-.tinka-doc-preview .markdown h1{font-size:2em;margin:0 0 .6em}
-.tinka-doc-preview .markdown pre{overflow:auto;padding:10px;background:var(--hover,#f3f3f3);border-radius:6px}
-.tinka-doc-preview .markdown img{max-width:100%}
-.tinka-doc-preview .markdown table{border-collapse:collapse}.tinka-doc-preview .markdown td,.tinka-doc-preview .markdown th{border:1px solid var(--line,#ddd);padding:4px 8px}
-@media (max-width:700px){.tinka-doc-panes{grid-template-columns:1fr;grid-template-rows:1fr 1fr}.tinka-doc-panes textarea{border-right:0;border-bottom:1px solid var(--line,#ddd)}}`;
+#world .workspace-card.doc-editing .workspace-live-preview iframe { pointer-events:auto!important; }
+#world .workspace-card.doc-editing .workspace-preview-launch { display:none!important; }
+#world .workspace-card.doc-editing .workspace-tile-toolbar { display:none!important; }
+#world .workspace-card.doc-editing { outline:2px solid var(--accent-ring, var(--accent)); outline-offset:1px; }
+#world .workspace-card.doc-editing .workspace-card-preview { position:relative; }
+#world .doc-edit-state { position:absolute; z-index:3; top:6px; right:8px; padding:2px 7px; border-radius:999px; background:color-mix(in srgb,var(--paper,#fff) 88%,transparent); color:var(--muted,#777); font:500 11px/1.5 var(--font-ui,-apple-system,BlinkMacSystemFont,sans-serif); pointer-events:none; box-shadow:0 0 0 1px var(--line,#ddd); }
+#world .doc-edit-state[data-state=error],#world .doc-edit-state[data-state=conflict] { color:var(--danger,#b3261e); }`;
   document.head.append(style);
 }

@@ -28,13 +28,20 @@ const publicRoot=path.join(appRoot,'public');
 const types={'.html':'text/html; charset=utf-8','.js':'text/javascript; charset=utf-8','.mjs':'text/javascript; charset=utf-8','.wasm':'application/wasm','.css':'text/css; charset=utf-8','.svg':'image/svg+xml','.png':'image/png','.jpg':'image/jpeg','.jpeg':'image/jpeg','.webp':'image/webp','.gif':'image/gif','.ico':'image/x-icon','.json':'application/json; charset=utf-8','.md':'text/markdown; charset=utf-8','.txt':'text/plain; charset=utf-8','.pdf':'application/pdf','.mp4':'video/mp4','.webm':'video/webm','.woff2':'font/woff2'};
 const noStore={'Cache-Control':'no-store','X-Content-Type-Options':'nosniff'};
 const closing=new WeakMap();
+async function settleRequests(server,timeout=10000){
+  const deadline=Date.now()+timeout;
+  while(server.activeRequests?.size&&Date.now()<deadline)await Promise.race([Promise.allSettled([...server.activeRequests]),new Promise(resolve=>setTimeout(resolve,Math.max(0,deadline-Date.now())).unref())]);
+}
 export function closeAppServer(server){
-  if(!closing.has(server)){server.pushHub?.close();closing.set(server,new Promise(resolve=>server.close(resolve)));}
+  // Resolve only after the sockets close and every accepted request handler has settled: a
+  // client that disconnects mid-request (a closing browser, say) frees its socket while the
+  // handler may still be taking the metadata lock or writing derived indexes.
+  if(!closing.has(server)){server.pushHub?.close();closing.set(server,new Promise(resolve=>server.close(resolve)).then(()=>settleRequests(server)));}
   return closing.get(server);
 }
 function sendJson(res,status,value){res.writeHead(status,{'Content-Type':'application/json; charset=utf-8',...noStore});res.end(JSON.stringify(value));}
 function decodeSegment(value){try{return decodeURIComponent(value);}catch{throw new HttpError(400,'Invalid URL encoding.');}}
-function sendError(res,error){if(res.headersSent){res.destroy();return;}const status=Number.isInteger(error.status)&&error.status>=400&&error.status<=599?error.status:500;sendJson(res,status,{error:status===500?'Request failed.':error.message,...(error.revision!==undefined?{revision:error.revision}:{}),...(error.code==='WORKSPACE_REVISION_CHANGED'?{code:error.code}:{})});}
+function sendError(res,error){if(res.headersSent){res.destroy();return;}const status=Number.isInteger(error.status)&&error.status>=400&&error.status<=599?error.status:500;sendJson(res,status,{error:status===500?'Request failed.':error.message,...(error.revision!==undefined?{revision:error.revision}:{}),...(typeof error.currentRevision==='string'?{currentRevision:error.currentRevision}:{}),...(error.code==='WORKSPACE_REVISION_CHANGED'?{code:error.code}:{})});}
 async function requestJson(req){
   if(!/^application\/json(?:\s*;|$)/i.test(req.headers['content-type']||''))throw new HttpError(415,'Content-Type must be application/json.');
   let total=0;const chunks=[];
@@ -120,6 +127,7 @@ export function createAppServer(config,{updates=createUpdateService(config)}={})
     return (graph?createWorkspaceLiveState(config,id,{cacheMs:0}):createLiveState(config,id,{cacheMs:0}))();
   }});
   const server=http.createServer(async(req,res)=>{
+    let settled;const task=new Promise(resolve=>settled=resolve);server.activeRequests.add(task);
     // close() removes currently idle sockets. An accepted request can become
     // idle later, after its complete response (and any metadata write) drains.
     res.once('finish',()=>{if(closing.has(server))setImmediate(()=>server.closeIdleConnections());});
@@ -252,7 +260,9 @@ export function createAppServer(config,{updates=createUpdateService(config)}={})
       if(boardFile){const boardRoot=await boardDirectory(config.boardsRoot,decodeSegment(boardFile[1]));await sendFile(req,res,boardRoot,safeRelative(boardFile[2]),{url});return;}
       throw new HttpError(404,'Not found.');
     }catch(error){sendError(res,error);}
+    finally{server.activeRequests.delete(task);settled();}
   });
+  server.activeRequests=new Set();
   server.pushHub=push;server.once('close',()=>push.close());
   return server;
 }

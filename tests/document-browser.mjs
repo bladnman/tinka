@@ -94,10 +94,16 @@ try{
   await composer.press('Escape');assert.equal(await page.locator('.feedback-panel').isVisible(),false);assert.equal(await page.locator('#reader-dialog').evaluate(node=>node.open),true);
   await media.locator('[data-document-comment]').click();assert.equal(await composer.inputValue(),'A draft remains beside its source.');await page.locator('[data-feedback-close]').click();
   await page.setViewportSize({width:1440,height:960});
-  // Changing raw bytes alone changes revision even when visible quote/offset/context survive.
-  await writeFile(sourceFile,original+'\n');await media.locator('[data-document-reload]').click();await media.locator('.document-status').filter({hasText:'source review'}).waitFor();assert.equal(await media.locator('.markdown').evaluate(()=>CSS.highlights.get('tinka-document-comments')?.size||0),0);
-  feedback=await listFeedback(config,{itemId:item.itemId});assert.equal(feedback.threads[0].anchorStatus,'uncertain');
-  await writeFile(sourceFile,original.replace('selected passage','replacement paragraph'));await media.locator('[data-document-reload]').click();await media.locator('.markdown p').first().filter({hasText:'replacement paragraph'}).waitFor();feedback=await listFeedback(config,{itemId:item.itemId});assert.equal(feedback.threads[0].anchorStatus,'stale');
+  // Changing raw bytes alone changes revision; the unchanged quote and context relocate once, so
+  // the listing reports matched with a computed currentAnchor and never rewrites the stored anchor.
+  const savedAnchor=(await listFeedback(config,{itemId:item.itemId})).threads[0].anchor;
+  await writeFile(sourceFile,original+'\n');await media.locator('[data-document-reload]').click();await media.locator('[data-document-reload]:not([disabled])').waitFor();await page.waitForTimeout(300);
+  assert.equal(/source review/.test(await media.locator('.document-status').textContent()),false,'a relocatable quote needs no review');
+  assert.equal(await media.locator('.markdown').evaluate(async()=>{for(let i=0;i<40&&!(CSS.highlights.get('tinka-document-comments')?.size);i++)await new Promise(r=>setTimeout(r,100));return CSS.highlights.get('tinka-document-comments')?.size||0;}),1,'the unique, unchanged quote stays painted');
+  feedback=await listFeedback(config,{itemId:item.itemId});assert.equal(feedback.threads[0].anchorStatus,'matched');assert.deepEqual(feedback.threads[0].anchor,savedAnchor);assert.notEqual(feedback.threads[0].currentAnchor.sourceRevision,savedAnchor.sourceRevision);
+  // Editing the quoted words themselves breaks the quote: it goes to review and is not painted.
+  await writeFile(sourceFile,original.replace('selected passage','replacement paragraph'));await media.locator('[data-document-reload]').click();await media.locator('.markdown p').first().filter({hasText:'replacement paragraph'}).waitFor();feedback=await listFeedback(config,{itemId:item.itemId});assert.equal(feedback.threads[0].anchorStatus,'stale');assert.equal(feedback.threads[0].currentAnchor,undefined);
+  await media.locator('.document-status').filter({hasText:'source review'}).waitFor();assert.equal(await media.locator('.markdown').evaluate(()=>CSS.highlights.get('tinka-document-comments')?.size||0),0);
   await page.setViewportSize({width:390,height:844});await page.screenshot({path:path.join(evidence,'document-narrow.png')});
   const toolBounds=await media.locator('.document-tools').boundingBox();assert.ok(toolBounds.width<=390);assert.equal(await media.locator('body').evaluate(node=>node.scrollWidth<=innerWidth),true);
   // Historical variants have visible read-only explanation and ignore relay messages.

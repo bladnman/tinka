@@ -627,3 +627,9 @@ body .canvas-footer.status-yields .status-line { visibility: hidden; }
 
 /* Holding F (fit what it selects) or Z (zoom to the box) while drawing a selection box. */
 body:is(.workspace-box-fit, .workspace-box-zoom) #workspace-marquee { border-style: dashed; background: color-mix(in srgb, var(--accent) 12%, transparent); }
+/* The hover pill sits in the preview's bottom lane and already offers Open, so the
+   preview's own "Open ‹title› ↗" label stays hidden whenever the pill can show.
+   Narrow cards, whose pill drops Open, and board tiles keep the label. */
+@container tinka-card (min-width: 180px) {
+  #world .workspace-card:not(.workspace-place-only):not(.workspace-icon):has(> .workspace-tile-toolbar) .workspace-preview-launch span { display: none; }
+}

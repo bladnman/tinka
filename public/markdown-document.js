@@ -13,19 +13,41 @@ export function documentTextMap(raw){
   }
   return {text:parts.join(''),starts,ends};
 }
-export function inlineRuns(text) {
-  const runs = [], token = /(!?\[([^\]]+)\]\(([^)]+)\)|`([^`]+)`|\*\*([^*]+)\*\*|\*([^*]+)\*)/g;
+// Inline Markdown nests: a link inside strikethrough inside italic keeps every layer. Each run
+// keeps a flat `text` (its readable text, images excluded) and, for formatting that can hold
+// other formatting, `children`. Unclosed markers stay literal text.
+const INLINE = new RegExp([
+  String.raw`!\[([^\]]*)\]\(([^)]+)\)`,                       // 1,2 image
+  String.raw`\[([^\]]+)\]\(([^)]+)\)`,                         // 3,4 link
+  String.raw`\x60([^\x60]+)\x60`,                                // 5 code
+  String.raw`\*\*\*(?!\s)(.+?)(?<!\s)\*\*\*`,                     // 6 bold italic
+  String.raw`\*\*(?!\s)((?:[^*]|\*(?!\*))+?)(?<!\s)\*\*`,         // 7 strong
+  String.raw`~~(?!\s)(.+?)(?<!\s)~~`,                             // 8 strikethrough
+  String.raw`\*(?![\s*])((?:\*\*.+?\*\*|[^*])+?)(?<!\s)\*`,           // 9 em
+  String.raw`(?<![\p{L}\p{N}_])_(?![\s_])(.+?)(?<!\s)_(?![\p{L}\p{N}_])`, // 10 em
+].join('|'), 'gu');
+const runText = runs => runs.filter(run=>run.type!=='image').map(run=>run.text).join('');
+// Inside link text a code span stays literal (`x`), as in the markdown-v2 text model, so existing
+// anchors keep their offsets.
+const nested = (type, inner, extra = {}, inLink = false) => { const children = parseInline(inner, inLink || type === 'link'); return {type, text: runText(children), ...extra, children}; };
+export function inlineRuns(text) { return parseInline(text, false); }
+function parseInline(text, inLink) {
+  const runs = [], source = String(text);
   let cursor = 0;
-  for (const match of text.matchAll(token)) {
-    if (match.index > cursor) runs.push({type:'text',text:text.slice(cursor,match.index)});
-    if (match[2] !== undefined) runs.push({type:match[1].startsWith('!')?'image':'link',text:match[2],url:match[3]});
-    else runs.push({type:match[4]!==undefined?'code':match[5]!==undefined?'strong':'em',text:match[4]??match[5]??match[6]});
+  for (const match of source.matchAll(INLINE)) {
+    if (match.index > cursor) runs.push({type:'text',text:source.slice(cursor,match.index)});
+    if (match[1] !== undefined) runs.push({type:'image',text:match[1],url:match[2]});
+    else if (match[3] !== undefined) runs.push(nested('link',match[3],{url:match[4]}));
+    else if (match[5] !== undefined) runs.push(inLink ? {type:'text',text:match[0]} : {type:'code',text:match[5]});
+    else if (match[6] !== undefined) { const inner = nested('em',match[6],{},inLink); runs.push({type:'strong',text:inner.text,children:[inner]}); }
+    else if (match[7] !== undefined) runs.push(nested('strong',match[7],{},inLink));
+    else if (match[8] !== undefined) runs.push(nested('del',match[8],{},inLink));
+    else runs.push(nested('em',match[9] ?? match[10],{},inLink));
     cursor = match.index + match[0].length;
   }
-  if (cursor < text.length) runs.push({type:'text',text:text.slice(cursor)});
+  if (cursor < source.length) runs.push({type:'text',text:source.slice(cursor)});
   return runs;
 }
-const runText = runs => runs.filter(run=>run.type!=='image').map(run=>run.text).join('');
 function pipeCells(line){
   const value=line.trim(),cells=[];let cell='',separators=0;
   for(let i=0;i<value.length;i++){
@@ -70,8 +92,10 @@ export function parseMarkdown(source,{tables=true}={}) {
     if(/^\s*>\s?/.test(line)){const parts=[];while(index<lines.length&&/^\s*>\s?/.test(lines[index]))parts.push(lines[index++].replace(/^\s*>\s?/,''));blocks.push({type:'blockquote',runs:inlineRuns(parts.join(' '))});continue;}
     const list=line.match(/^\s*(?:([-*+])|(\d+)\.)\s+(.+)$/);
     if(list){
-      const ordered=Boolean(list[2]),items=[];while(index<lines.length){const item=lines[index].match(/^\s*(?:([-*+])|(\d+)\.)\s+(.+)$/);if(!item||Boolean(item[2])!==ordered)break;items.push(inlineRuns(item[3]));index++;}
-      blocks.push({type:ordered?'ol':'ul',items});continue;
+      const ordered=Boolean(list[2]),items=[],tasks=[];while(index<lines.length){const item=lines[index].match(/^\s*(?:([-*+])|(\d+)\.)\s+(.+)$/);if(!item||Boolean(item[2])!==ordered)break;
+        // Checklist items (`- [ ] todo`, `- [x] done`) keep their state beside the item's runs.
+        const task=ordered?null:item[3].match(/^\[([ xX])\](?:\s+(.*))?$/);tasks.push(task?task[1]!==' ':null);items.push(inlineRuns(task?(task[2]||'').trim():item[3]));index++;}
+      const block={type:ordered?'ol':'ul',items};if(tasks.some(state=>state!==null))block.tasks=tasks;blocks.push(block);continue;
     }
     const paragraph=[];while(index<lines.length&&lines[index].trim()&&!/^(#{1,4}\s|\s*```|\s*>|\s*[-*+]\s|\s*\d+\.\s)/.test(lines[index])&&!(tables&&tableHeader(lines,index)))paragraph.push(lines[index++].trim());
     if(!paragraph.length)paragraph.push(lines[index++].trim());blocks.push({type:'p',runs:inlineRuns(paragraph.join(' '))});
@@ -102,7 +126,8 @@ export function renderMarkdownDocument(document,model,assetOptions){
       const img=document.createElement('img'),url=markdownAssetUrl(run.url,assetOptions);img.alt=run.text;img.loading='lazy';img.referrerPolicy='no-referrer';if(url)img.src=url;parent.append(img);continue;
     }
     const url=run.type==='link'?markdownAssetUrl(run.url,assetOptions):null;
-    const element=document.createElement(run.type==='link'?(url?'a':'span'):run.type);element.textContent=run.text;
+    const tag=run.type==='link'?(url?'a':'span'):['code','strong','em','del'].includes(run.type)?run.type:'span';
+    const element=document.createElement(tag);if(run.children&&run.type!=='code')appendRuns(element,run.children);else element.textContent=run.text;
     if(url){element.href=url;element.target='_blank';element.rel='noopener noreferrer';element.referrerPolicy='no-referrer';}
     parent.append(element);
   }}
@@ -115,7 +140,11 @@ export function renderMarkdownDocument(document,model,assetOptions){
       head.append(row(block.header,true));table.append(head);if(block.rows.length){table.append(document.createTextNode('\n'));block.rows.forEach((cells,i)=>{if(i)body.append(document.createTextNode('\n'));body.append(row(cells,false));});table.append(body);}region.append(table);article.append(region);return;
     }
     const element=document.createElement(block.type);if(block.id)element.id=block.id;
-    if(block.items)block.items.forEach((runs,i)=>{if(i)element.append(document.createTextNode('\n'));const li=document.createElement('li');appendRuns(li,runs);element.append(li);});
+    if(block.tasks)element.className='task-list';
+    if(block.items)block.items.forEach((runs,i)=>{if(i)element.append(document.createTextNode('\n'));const li=document.createElement('li'),state=block.tasks?.[i];
+      // Read-only checkbox: it adds no text, so the rendered text still matches the parser's.
+      if(typeof state==='boolean'){li.className='task';li.dataset.checked=String(state);const box=document.createElement('input');box.type='checkbox';box.checked=state;box.disabled=true;box.tabIndex=-1;box.setAttribute('aria-label',state?'Done':'Not done');li.append(box);}
+      appendRuns(li,runs);element.append(li);});
     else if(block.runs)appendRuns(element,block.runs);
     else if(block.type==='pre'){const code=document.createElement('code');code.textContent=block.text;element.append(code);}
     article.append(element);

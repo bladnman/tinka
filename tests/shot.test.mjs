@@ -152,6 +152,9 @@ test('changing tool calls return the direct Tinka link to what they changed',asy
   assert.equal(reviewed.links.length,2);assert(reviewed.links.includes(itemURL));assert.equal(reviewed.link,reviewed.links[0]);
   const both=await callTool(f.config,'placement.translate',{boardId:'looks',placementIds:[placement,f.picture.result.placementIds[0]],dx:10,dy:0});
   assert.equal(both.link,`${base}boards/looks/`);assert.equal(both.links.length,2);
+  const arranged=await callTool(f.config,'placement.arrange',{boardId:'looks',placements:[{id:placement,x:0,y:0},{id:f.picture.result.placementIds[0],x:400,y:0}]});
+  assert.ok(arranged.history,'arrange returns movement history');assert.equal(arranged.links.length,2);
+  await assert.rejects(callTool(f.config,'placement.arrange',{boardId:'looks',placements:[{id:placement,x:0}]}),e=>e.status===400);
   assert.equal((await callTool(f.config,'decoration.create',{boardId:'looks',decoration:{type:'text',x:0,y:0,width:100,height:40,color:'#222222',text:'Hi'}})).link,`${base}boards/looks/`);
   assert.equal((await callTool(f.config,'placement.remove',{boardId:'looks',placementIds:[placement]})).link,`${base}boards/looks/`);
   assert.equal((await callTool(f.config,'item.delete',{itemIds:[f.missing.result.itemId]})).link,undefined);

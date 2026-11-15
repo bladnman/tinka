@@ -189,7 +189,7 @@ File digests, names, geometry and target are part of retry identity; byte buffer
 are never stored in metadata or history. `importFiles` is internal to this route
 and cannot be submitted through the ordinary operation endpoint or CLI.
 
-POST `/api/documents` takes the same JSON fields as import metadata without `placements`, plus optional `title`, `text` (Markdown, at most 900,000 bytes), `width` and `height`, and creates one Markdown document item in the same transaction and receipt. PUT `/api/documents/ITEM_ID` with `{"text":"…"}` replaces the bytes of that item's local Markdown resource file and changes no metadata. Both use the ordinary write guards and `x-tinka-workspace` header.
+POST `/api/documents` takes the same JSON fields as import metadata without `placements`, plus optional `title`, `text` (Markdown, at most 900,000 bytes), `width` and `height`, and creates one Markdown document item in the same transaction and receipt. PUT `/api/documents/ITEM_ID` with `{"text":"…","baseRevision":"sha256:…"}` replaces the bytes of that item's local Markdown resource file. `baseRevision` is optional: `sha256:` plus the lowercase hex SHA-256 of the exact file bytes the editor loaded (the same form as an anchor's `sourceRevision`); if it differs from the current file the response is 409 `{error,currentRevision}` and nothing is written. Success returns `{itemId,resource,bytes,revision,reanchored}` with the new file hash, after re-anchoring that item's highlights and text-anchored threads (rule below) in one metadata transaction that is skipped when nothing moves. Both use the ordinary write guards and `x-tinka-workspace` header.
 
 Imports accept 1–20 nonempty files, at most **20 MiB per file** and **50 MiB total**.
 The multipart request allows 128 KiB additional envelope overhead and metadata
@@ -253,11 +253,22 @@ Canvas cover-child pull-outs use the logical release point as that top-left corn
 
 `translatePlacements` takes `boardId,placementIds,dx,dy`. It validates all unique
 active source placements, finite dx/dy within ±10000000 and supported resulting
-coordinates, then moves the entire selection by that delta in one revision. Sizes,
+coordinates, then moves the entire selection by that delta in one revision. Optional
+`decorationIds` (unique drawn elements on that board) move in the same revision, with
+free arrow ends shifted and attached ends left to follow their targets; with them,
+`placementIds` may be empty, and the history receipt restores both. Without
+`decorationIds` the operation and its result are unchanged.
+
+`arrangePlacements` takes `boardId` and `placements` and/or `decorations`, each a list
+of `{id,x,y}` with unique ids on that board and finite x/y within ±10000000 (at least
+one entry in all). It sets those positions in one revision, leaving sizes, z order and
+canonical items unchanged; a drawn element's free arrow ends move by its own delta while
+attached ends follow their targets. It returns `{boardId,placementIds,decorationIds}` and
+one history receipt. Browser Align, Distribute and Tidy into grid each submit one. Sizes,
 presentation, z order and canonical items stay unchanged. An invalid/missing ID,
 coordinate overflow or revision conflict rejects the entire operation.
 
-Successful `remove`, `pastePlacements`, geometry `updatePlacement`, `translatePlacements`, geometry `updateDecoration` (a patch with `x`, `y`, `width`, `height`, `from` or `to`) and `move` operations
+Successful `remove`, `pastePlacements`, geometry `updatePlacement`, `translatePlacements`, `arrangePlacements`, geometry `updateDecoration` (a patch with `x`, `y`, `width`, `height`, `from` or `to`) and `move` operations
 from source placements into an existing board also return an opaque, signed
 top-level `history` receipt beside `revision` and `result`. A geometry patch can
 include presentation changes; presentation-only patches and unchanged arrangements
@@ -305,11 +316,18 @@ item’s descendants. Any invalid destination rejects the whole drop. Unselected
 card drags, resizing and deliberate cover-child holds remain single-placement
 gestures. Cancellation or a rejected write restores all dragged cards and retains
 selection and local review drafts. Success clears only the placements moved away.
+While a card, drawn element or group is dragged, or a card or shape resized, its edges
+and centres snap to other rendered objects within six screen pixels (or midway between
+two neighbours in its row or column) and thin guide lines show the match; holding ⌘
+(Ctrl off macOS) turns snapping off. Snapping changes only the submitted geometry.
 
 In Canvas, primary mouse/pen dragging on empty space starts a selection rectangle
 after six screen pixels. A positive intersection with a currently rendered card
 selects that outer placement, including archived placements shown by the Archive
-filter; cover children are not separate targets. Plain gestures replace selection,
+filter; cover children are not separate targets. Drawn elements (text, stickies, shapes,
+arrows) are selected by positive intersection too, and a plain colored region only
+when the box encloses it; cards and drawn elements then move, copy and delete as one
+group. Plain gestures replace selection,
 and Shift at pointerdown unions with the original selection. Empty plain click
 clears selection; Shift empty click preserves it. Escape, pointer cancellation,
 loss of capture/focus or a second pointer restores the original selection. The box
@@ -337,7 +355,7 @@ For detailed visual comparisons, supply the actual viewport and readable placeme
 size rather than squeezing a design into a 320-wide card. Leave 40–60 board units
 between adjacent previews and check the saved layout at natural zoom.
 
-`updatePlacement` patches `x,y,width,height,z,presentation`. Presentation is local to a placement: omit it or use `{"mode":"card"}` for the original card; use `{"mode":"icon"}` for a compact icon, or `{"mode":"panel","viewport":{"width":360,"height":650}}` to show a full HTML/image design viewport, fitted without cropping. Viewport dimensions are integers from 40 to 10000; the default is 1000×720. Placement width/height include the compact caption. For a 360×650 design at natural size, use width 388 and height 704 (14-unit host insets plus the 40-unit title row). Existing saved geometry is never enlarged; its complete viewport continues to fit without cropping. Canvas starts at 100% and scrolls naturally; Grid retains panel dimensions for comparison. The tile's ⋯ menu groups Open experiment, Handoff when available, Notes and Remove from board; Details…, right-click Details… or Cmd/Ctrl-I opens the nonmodal right-side Inspector with canonical notes, feedback, Full preview / Compact card / Icon appearance choices, paper swatches and readable created/edited dates. Appearance is placement-local. The optional `presentation.paper` is a hexadecimal color (`#rgb`, `#rgba`, `#rrggbb` or `#rrggbbaa`); omission retains the default paper. When changing appearance, preserve existing `viewport` and `paper` values as appropriate: `updatePlacement` replaces the supplied presentation object. The Inspector's Move / resize… action opens the exact board-unit geometry form. Full preview uses a supplied preview image when available, with the same uncropped sizing as an HTML fallback; the primary content and canonical identity stay unchanged. The same canonical item may have a card reference elsewhere; notes, stars, revisions and reader behavior stay shared. `createItem.placement` accepts the same presentation field. `updateBoard` patches `title,description,reviewOrder,decorations,background`; `background.resource` is a named-root reference. Decorations are board-local presentation metadata. Text, region and line decorations retain `id,type,x,y,width,height,color,text`. A line may additionally set boolean `endArrow`, `flipX` and `flipY`: `endArrow:true` adds the arrowhead at its end, while the flips reverse the horizontal and vertical start/end orientation within its positive-size bounding box. Absent flags preserve ordinary lines. The Add menu offers Text, Colored region and Arrow, with direct on-board editing controls. Ordinary lines remain supported decoration metadata. `updateItem` changes title, description, content, preview, revisions or build metadata. An item may carry an optional short display `number` (for example `"07"`, at most 8 characters shown); migrated items keep their legacy concept number. When present it appears on the tile and continues inside: the reader title, the browser title and, for a board-owning item, the child board's top bar ("07 · Columns give way"). Tinka never invents numbers. Review is `{"type":"review","itemId":"opening-idea","patch":{"note":"Try a shorter introduction.","star":true}}`. `status --board BOARD ITEM_ID reserved|building|review|ready [MESSAGE]` also updates canonical build state; migrated `ROUND/CONCEPT` keys remain accepted.
+`updatePlacement` patches `x,y,width,height,z,presentation`. Presentation is local to a placement: omit it or use `{"mode":"card"}` for the original card; use `{"mode":"icon"}` for a compact icon, or `{"mode":"panel","viewport":{"width":360,"height":650}}` to show a full HTML/image design viewport, fitted without cropping. Viewport dimensions are integers from 40 to 10000; the default is 1000×720. Placement width/height include the compact caption. For a 360×650 design at natural size, use width 388 and height 704 (14-unit host insets plus the 40-unit title row). Existing saved geometry is never enlarged; its complete viewport continues to fit without cropping. Canvas starts at 100% and scrolls naturally; Grid retains panel dimensions for comparison. The tile's ⋯ menu groups Open experiment, Handoff when available, Notes and Remove from board; Details…, right-click Details… or Cmd/Ctrl-I opens the nonmodal right-side Inspector with canonical notes, feedback, Full preview / Compact card / Icon appearance choices, paper swatches and readable created/edited dates. Appearance is placement-local. The optional `presentation.paper` is a hexadecimal color (`#rgb`, `#rgba`, `#rrggbb` or `#rrggbbaa`); omission retains the default paper. When changing appearance, preserve existing `viewport` and `paper` values as appropriate: `updatePlacement` replaces the supplied presentation object. The Inspector's Move / resize… action opens the exact board-unit geometry form. Full preview uses a supplied preview image when available, with the same uncropped sizing as an HTML fallback; the primary content and canonical identity stay unchanged. The same canonical item may have a card reference elsewhere; notes, stars, revisions and reader behavior stay shared. `createItem.placement` accepts the same presentation field. `updateBoard` patches `title,description,reviewOrder,decorations,background`; `background.resource` is a named-root reference. Decorations are board-local presentation metadata. Text, region and line decorations retain `id,type,x,y,width,height,color,text`. A line may additionally set boolean `endArrow`, `flipX` and `flipY`: `endArrow:true` adds the arrowhead at its end, while the flips reverse the horizontal and vertical start/end orientation within its positive-size bounding box. A line may also set boolean `startArrow` (arrowhead at its start) and `dashed`, `route` (`straight`, `elbow` or `curved`) and `thickness` (`thin`, `medium` or `thick`); absence keeps a straight, medium, solid line. Text and region decorations may set `textSize` (`small`, `medium` or `large`) and `textAlign` (`left`, `center` or `right`); absence keeps their default size and alignment. Absent flags preserve ordinary lines. The Add menu offers Text, Colored region and Arrow, with direct on-board editing controls. Ordinary lines remain supported decoration metadata. `updateItem` changes title, description, content, preview, revisions or build metadata. An item may carry an optional short display `number` (for example `"07"`, at most 8 characters shown); migrated items keep their legacy concept number. When present it appears on the tile and continues inside: the reader title, the browser title and, for a board-owning item, the child board's top bar ("07 · Columns give way"). Tinka never invents numbers. Review is `{"type":"review","itemId":"opening-idea","patch":{"note":"Try a shorter introduction.","star":true}}`. `status --board BOARD ITEM_ID reserved|building|review|ready [MESSAGE]` also updates canonical build state; migrated `ROUND/CONCEPT` keys remain accepted.
 
 A board-only item’s primary cover/title action opens its child board directly. An item with both content and children keeps the content action and an explicit Open board choice. Comparison-reader stepping remains available.
 
@@ -439,6 +457,8 @@ resolve; feedback.list reads compact filtered summaries or a complete thread.
 General notes omit anchor. Point anchors use board-space x/y with optional
 placementId or decorationId. Text anchors preserve quote/context/offsets/source
 revision and report matched/uncertain/stale/unverified state after source edits.
+Document re-anchoring: a saved text anchor follows its exact quote in the new rendered text when it can be placed without guessing. A quote that occurs exactly once moves there whatever its context; among several occurrences, the only one whose saved prefix and suffix both match exactly wins, else the one with the most matching context characters (prefix matched backwards plus suffix matched forwards, at least one) wins if strictly ahead of every other. The anchor takes the new start/end/sourceRevision and the 96-character context around its new place (the quote is unchanged), and the record's `reanchored` history gains `{from,to,start,end,at}` (at most 20). An edited or missing quote, a tie, or a legacy text model is never retargeted and reports uncertain/stale for review. Reads never write: a relocatable anchor lists as matched with a
+computed `currentAnchor`; saves and `document.reanchor` persist it.
 GET `/api/feedback` accepts boardId,itemId,threadId,resolved,limit,cursor and
 includeBodies. Scoped feedback/vote writes share the same lock/journal/revision/
 retry cache without loading the complete graph. No message bodies/thread array
