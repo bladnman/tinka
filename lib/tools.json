@@ -3172,6 +3172,47 @@
                 "additionalProperties": false,
                 "required": [
                   "kind",
+                  "decorationId",
+                  "along",
+                  "x",
+                  "y"
+                ],
+                "properties": {
+                  "kind": {
+                    "const": "decoration"
+                  },
+                  "decorationId": {
+                    "type": "string",
+                    "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_-]{0,127}$",
+                    "maxLength": 128
+                  },
+                  "along": {
+                    "type": "number",
+                    "minimum": 0,
+                    "maximum": 1
+                  },
+                  "offset": {
+                    "type": "number",
+                    "minimum": -10000,
+                    "maximum": 10000
+                  },
+                  "x": {
+                    "type": "number",
+                    "minimum": -10000000,
+                    "maximum": 10000000
+                  },
+                  "y": {
+                    "type": "number",
+                    "minimum": -10000000,
+                    "maximum": 10000000
+                  }
+                }
+              },
+              {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "kind",
                   "x",
                   "y"
                 ],
@@ -3821,6 +3862,241 @@
           "threadId",
           "actor",
           "body"
+        ]
+      }
+    },
+    {
+      "name": "feedback.repin",
+      "mutating": true,
+      "description": "Move a comment pin onto a new target on its board: a point anchor (optional placementId or decorationId, with relative) or an arrow anchor {kind:\"decoration\",decorationId,along,offset?,x,y} on a line. Text comments are not re-pinned. The previous anchor and target label go to anchorHistory. A person may re-pin any comment; an agent only comments it wrote.",
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "expectedRevision": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "operationId": {
+            "type": "string",
+            "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_-]{0,127}$",
+            "maxLength": 128
+          },
+          "threadId": {
+            "type": "string",
+            "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_-]{0,127}$",
+            "maxLength": 128
+          },
+          "actor": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "id",
+              "label",
+              "kind"
+            ],
+            "properties": {
+              "id": {
+                "type": "string",
+                "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_-]{0,127}$",
+                "maxLength": 128
+              },
+              "label": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 120
+              },
+              "kind": {
+                "enum": [
+                  "human",
+                  "agent"
+                ]
+              }
+            }
+          },
+          "anchor": {
+            "oneOf": [
+              {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "kind",
+                  "decorationId",
+                  "along",
+                  "x",
+                  "y"
+                ],
+                "properties": {
+                  "kind": {
+                    "const": "decoration"
+                  },
+                  "decorationId": {
+                    "type": "string",
+                    "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_-]{0,127}$",
+                    "maxLength": 128
+                  },
+                  "along": {
+                    "type": "number",
+                    "minimum": 0,
+                    "maximum": 1
+                  },
+                  "offset": {
+                    "type": "number",
+                    "minimum": -10000,
+                    "maximum": 10000
+                  },
+                  "x": {
+                    "type": "number",
+                    "minimum": -10000000,
+                    "maximum": 10000000
+                  },
+                  "y": {
+                    "type": "number",
+                    "minimum": -10000000,
+                    "maximum": 10000000
+                  }
+                }
+              },
+              {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "kind",
+                  "x",
+                  "y"
+                ],
+                "properties": {
+                  "kind": {
+                    "const": "point"
+                  },
+                  "x": {
+                    "type": "number",
+                    "minimum": -10000000,
+                    "maximum": 10000000
+                  },
+                  "y": {
+                    "type": "number",
+                    "minimum": -10000000,
+                    "maximum": 10000000
+                  },
+                  "placementId": {
+                    "type": "string",
+                    "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_-]{0,127}$",
+                    "maxLength": 128
+                  },
+                  "decorationId": {
+                    "type": "string",
+                    "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_-]{0,127}$",
+                    "maxLength": 128
+                  },
+                  "relative": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": [
+                      "x",
+                      "y"
+                    ],
+                    "properties": {
+                      "x": {
+                        "type": "number",
+                        "minimum": 0,
+                        "maximum": 1
+                      },
+                      "y": {
+                        "type": "number",
+                        "minimum": 0,
+                        "maximum": 1
+                      }
+                    }
+                  }
+                },
+                "allOf": [
+                  {
+                    "not": {
+                      "required": [
+                        "placementId",
+                        "decorationId"
+                      ]
+                    }
+                  },
+                  {
+                    "if": {
+                      "required": [
+                        "relative"
+                      ]
+                    },
+                    "then": {
+                      "oneOf": [
+                        {
+                          "required": [
+                            "placementId"
+                          ]
+                        },
+                        {
+                          "required": [
+                            "decorationId"
+                          ]
+                        }
+                      ]
+                    }
+                  }
+                ]
+              },
+              {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "kind",
+                  "quote"
+                ],
+                "properties": {
+                  "kind": {
+                    "const": "text"
+                  },
+                  "quote": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 20000
+                  },
+                  "prefix": {
+                    "type": "string",
+                    "maxLength": 2000
+                  },
+                  "suffix": {
+                    "type": "string",
+                    "maxLength": 2000
+                  },
+                  "start": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 2000000
+                  },
+                  "end": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 2000000
+                  },
+                  "sourceRevision": {
+                    "type": "string",
+                    "maxLength": 256
+                  },
+                  "textModel": {
+                    "const": "markdown-v2"
+                  }
+                }
+              }
+            ]
+          },
+          "targetLabel": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 120
+          }
+        },
+        "required": [
+          "threadId",
+          "actor",
+          "anchor"
         ]
       }
     },

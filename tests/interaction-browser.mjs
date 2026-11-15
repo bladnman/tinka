@@ -4,11 +4,15 @@ import {createServer} from 'node:http';
 import {readFile} from 'node:fs/promises';
 import {pathToFileURL} from 'node:url';
 const {chromium}=await import(process.env.PLAYWRIGHT_MODULE?pathToFileURL(process.env.PLAYWRIGHT_MODULE).href:'playwright');
+const publicDir=new URL('../public/',import.meta.url);
 const server=createServer(async(req,res)=>{
  try{
   if(req.url==='/'){res.setHeader('Content-Type','text/html');res.end('<button id="next">Next action</button><form id="editor"><textarea name="note"></textarea><button type="submit">Save</button><p data-form-status></p></form>');return;}
-  if(!['/interaction.js','/workspace.js'].includes(req.url)){res.writeHead(404);res.end();return;}
-  res.setHeader('Content-Type','text/javascript');res.end(await readFile(new URL('../public'+req.url,import.meta.url)));
+  // Serve the public/ modules the imported graph needs (workspace.js imports update-hold.js and more).
+  const file=new URL('.'+req.url.split('?')[0],publicDir);
+  if(!file.href.startsWith(publicDir.href)||!/\.js$/.test(file.pathname)){res.writeHead(404);res.end();return;}
+  const body=await readFile(file).catch(()=>null);if(!body){res.writeHead(404);res.end();return;}
+  res.setHeader('Content-Type','text/javascript');res.end(body);
  }catch{res.writeHead(500);res.end();}
 });
 let browser;

@@ -8,6 +8,8 @@ export function watchChanges(config,{boardId,onSnapshot,onChange,onConnection=()
     const receive=handler=>event=>{try{const value=JSON.parse(event.data);if(value.runtimeId!==config.workspaceId){stream.close();onConnection(false);onIdentity();return;}onConnection(true);Promise.resolve(handler?.(value)).catch(()=>{onConnection(false);stream.close();clearTimeout(retry);retry=setTimeout(connect,1500);});}catch{onConnection(false);}};
     stream.addEventListener('snapshot',receive(onSnapshot));
     stream.addEventListener('change',receive(onChange));
+    // Agent presence (inbox --watch) goes to whoever shows it, such as Send to agent.
+    stream.addEventListener('presence',event=>{try{window.dispatchEvent(new CustomEvent('tinka:presence',{detail:JSON.parse(event.data)}));}catch{}});
     stream.addEventListener('unavailable',()=>onConnection(false));
     stream.addEventListener('identity',()=>{stream.close();onConnection(false);onIdentity();});
     stream.onerror=()=>onConnection(false);

@@ -63,6 +63,23 @@ try{
     assert.ok(await until(async()=>!!(await deco(id,made.id))),'Redo brings it back');
   });
 
+  // Keys pressed while an undo is still in flight wait and then apply, in order.
+  await run('S and ⇧⌘Z pressed 30 ms after ⌘Z are not dropped',async(page,id)=>{
+    for(const second of ['s',`Shift+${MOD}+z`]){
+      await page.mouse.move(700,600);await page.keyboard.press('s');await page.locator('.whiteboard-editor textarea').waitFor();
+      await page.keyboard.press('Escape');await page.mouse.click(1100,820);
+      // Undo removes the new sticky; S adds another, or redo brings it back: the count returns.
+      const before=(await decos(id)).length,expect=before;
+      await until(async()=>await page.locator('#chrome-undo').isEnabled());await page.waitForTimeout(300);
+      await page.keyboard.press(`${MOD}+z`);await page.waitForTimeout(30);
+      await page.mouse.move(400,650);await page.keyboard.press(second);
+      if(second==='s'){await page.locator('.whiteboard-editor textarea').waitFor();await page.keyboard.press('Escape');await page.mouse.click(1100,820);}
+      const n=await until(async()=>{const n=(await decos(id)).length;return n===expect&&n;},6000);
+      assert.equal(n,expect,`${second} after ⌘Z: ${before} drawn before, ${(await decos(id)).length} after`);
+      await page.waitForTimeout(400);
+    }
+  });
+
   await run('A colour change and a delete each undo and redo',async(page,id)=>{
     await select(page,'s1');
     const swatch=page.locator('.whiteboard-toolbar [data-whiteboard-action="color"]:not([aria-pressed="true"])').first();

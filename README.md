@@ -516,6 +516,15 @@ person's thread: only its author does. New `TINKA.md` files and the agent guide 
 agents to check the inbox when you mention comments or feedback, and before they
 finish a Tinka task.
 
+An agent can also wait for comments live: `inbox --watch`, run in the background,
+returns as soon as a comment arrives for it. While one is waiting, **Send to agent**
+shows a dot and "Agent is watching", so what you send is picked up right away. A pin
+can sit on an arrow and follows it as the arrow moves; drag a pin onto another card,
+drawn element or arrow to move it there. Pins that crowd together become one cluster
+showing the most urgent status; click it to choose a thread. Keys pressed while the
+board is busy saving, for example just after ⌘Z, wait and then run in order instead
+of being dropped; Escape clears them.
+
 Open Comments for a board-wide note or use an item's comment button for
 its discussion. Add point can attach a note within a card or shape so it follows
 that target; old fixed points keep their original position. A missing target

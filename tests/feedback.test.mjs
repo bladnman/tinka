@@ -107,6 +107,10 @@ test('fresh process uses persisted summaries and rebuilds a corrupt summary shar
  const directory=path.join(root,'feedback-index'),files=(await readdir(directory)).filter(name=>name.endsWith('.json'));
  for(const name of files){const saved=JSON.parse(await readFile(path.join(directory,name)));if(saved.records.length){await writeFile(path.join(directory,name),'{broken');break;}}
  const repaired=run();assert.equal(repaired.result.threads.length,4);assert.ok(repaired.metrics.documentReads>0);assert.ok(repaired.metrics.documentReads<4);
+ // Reads never write: the damaged shard stays until a commit touching it or an explicit rebuild.
+ const broken=[];for(const name of files)if((await readFile(path.join(directory,name),'utf8'))==='{broken')broken.push(name);assert.equal(broken.length,1);
+ await (await import('../lib/discovery.mjs')).rebuildDiscovery(config);
+ for(const name of files)JSON.parse(await readFile(path.join(directory,name),'utf8'));
  for(const name of files){const saved=JSON.parse(await readFile(path.join(directory,name)));if(saved.records.length){saved.records[0].summary.excerpt='Silently damaged cache';await writeFile(path.join(directory,name),JSON.stringify(saved));break;}}
  const checksumRepaired=run();assert.equal(checksumRepaired.result.threads.some(t=>t.excerpt==='Silently damaged cache'),false);assert.ok(checksumRepaired.metrics.documentReads>0);
 });

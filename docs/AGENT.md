@@ -251,6 +251,16 @@ survives unrelated writes. `feedback.edit` and `feedback.delete` change only you
 messages and keep their history. `targetLabel` names what a comment was on, even
 after that target is deleted.
 
+Live pickup: run `node cli.mjs inbox --config PATH --watch [--timeout SECONDS]` as a
+background command. It waits quietly (a long-poll on the running Tinka server, or a
+filesystem watch when Tinka isn't running), then prints the brief line and one line per
+thread with its link and ID, marks them seen and exits 0; on timeout it exits 0 with no
+output. Start it again after working the threads. While it waits, the board shows the
+agent as watching (`GET /api/agents`). Pins can sit on arrows
+(`anchor:{kind:"decoration",decorationId,along,offset?,x,y}`), and `feedback.repin`
+moves a pin to a new target (people any pin, agents only their own), keeping
+`anchorHistory`. Comment and highlight reads take no lock and write nothing.
+
 Point comments can follow a target with normalized fractions while retaining a
 creation fallback. For example, after inspecting a board and its placement IDs:
 

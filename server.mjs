@@ -22,6 +22,7 @@ import {readImportRequest} from './lib/file-import.mjs';
 import {createDocument,saveDocument} from './lib/documents.mjs';
 import {wantsReturnMark,injectReturnMark,resourcePlaces} from './lib/return-mark.mjs';
 import {createUpdateService} from './lib/update-browser.mjs';
+import {createInboxWaiter} from './lib/inbox-wait.mjs';
 
 const appRoot=path.dirname(fileURLToPath(import.meta.url));
 const publicRoot=path.join(appRoot,'public');
@@ -36,7 +37,7 @@ export function closeAppServer(server){
   // Resolve only after the sockets close and every accepted request handler has settled: a
   // client that disconnects mid-request (a closing browser, say) frees its socket while the
   // handler may still be taking the metadata lock or writing derived indexes.
-  if(!closing.has(server)){server.pushHub?.close();closing.set(server,new Promise(resolve=>server.close(resolve)).then(()=>settleRequests(server)));}
+  if(!closing.has(server)){server.pushHub?.close();server.inboxWaiter?.stop();closing.set(server,new Promise(resolve=>server.close(resolve)).then(()=>settleRequests(server)));}
   return closing.get(server);
 }
 function sendJson(res,status,value){res.writeHead(status,{'Content-Type':'application/json; charset=utf-8',...noStore});res.end(JSON.stringify(value));}
@@ -126,6 +127,7 @@ export function createAppServer(config,{updates=createUpdateService(config)}={})
     const graph=await loadGraphBoard(config,id);
     return (graph?createWorkspaceLiveState(config,id,{cacheMs:0}):createLiveState(config,id,{cacheMs:0}))();
   }});
+  const inbox=createInboxWaiter(config,{onPresence:value=>push.presence(value)});
   const server=http.createServer(async(req,res)=>{
     let settled;const task=new Promise(resolve=>settled=resolve);server.activeRequests.add(task);
     // close() removes currently idle sockets. An accepted request can become
@@ -169,6 +171,15 @@ export function createAppServer(config,{updates=createUpdateService(config)}={})
       // Which board placements show the file at a standalone address (read-only).
       if(pathname==='/api/resource-places'&&method==='GET'){sendJson(res,200,await resourcePlaces(config,url.searchParams.get('url')||''));return;}
       if(pathname==='/api/highlights'&&method==='GET'){const input=Object.fromEntries(url.searchParams);if(input.limit!==undefined)input.limit=Number(input.limit);sendJson(res,200,await listHighlights(config,input));return;}
+      // Live agent pickup (inbox --watch): long-polls up to 300 s; the actor counts as watching.
+      if(pathname==='/api/inbox'&&method==='GET'){
+        const actorId=url.searchParams.get('actor')||'agent',label=(url.searchParams.get('label')||'').replace(/\s+/g,' ').trim().slice(0,120),wait=Number(url.searchParams.get('wait')||0);
+        if(!/^[a-zA-Z0-9][a-zA-Z0-9_-]{0,127}$/.test(actorId)||!Number.isFinite(wait)||wait<0||wait>300)throw new HttpError(400,'Provide actor and a wait of 0–300 seconds.');
+        const abort=new AbortController();res.once('close',()=>abort.abort());
+        const result=await inbox.wait({actor:{id:actorId,...(label?{label}:{})},since:url.searchParams.get('since')||undefined,wait,signal:abort.signal});
+        if(!res.destroyed)sendJson(res,200,result);return;
+      }
+      if(pathname==='/api/agents'&&method==='GET'){sendJson(res,200,inbox.presence());return;}
       if(pathname==='/api/feedback'&&method==='GET'){
         const input=Object.fromEntries(url.searchParams);
         for(const key of ['resolved','includeBodies','includeHistory','includeDeleted'])if(input[key]!==undefined){if(!['true','false'].includes(input[key]))throw new HttpError(400,`${key} must be true or false.`);input[key]=input[key]==='true';}
@@ -263,7 +274,7 @@ export function createAppServer(config,{updates=createUpdateService(config)}={})
     finally{server.activeRequests.delete(task);settled();}
   });
   server.activeRequests=new Set();
-  server.pushHub=push;server.once('close',()=>push.close());
+  server.pushHub=push;server.inboxWaiter=inbox;server.once('close',()=>push.close());
   return server;
 }
 export async function listen(config,{port=config.port,persist=false,updates}={}){

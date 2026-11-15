@@ -480,7 +480,17 @@ updatedAfter, since (an inbox position: `""` to start, then `nextSince`; unrelat
 never invalidate it; not combined with cursor), includeHistory and includeDeleted.
 `inbox --config PATH [--brief] [--since TOKEN] [--actor ID] [--json]` and the
 `feedback.inbox` tool read thread files without a lock and write no metadata; a full
-CLI run stores the actor's position in `.inbox-state.json` beside the config. Scoped feedback/vote writes share the same lock/journal/revision/
+CLI run stores the actor's position in `.inbox-state.json` beside the config.
+Comment and highlight reads take no lock and write nothing; a pending journal is read
+as committed, and the feedback index is written only by commits and rebuilds.
+`GET /api/inbox?actor=ID&since=TOKEN&wait=SECONDS(0–300)&label=TEXT` returns the
+`feedback.inbox` shape, holding the request until something arrives or the wait ends;
+`GET /api/agents` returns `{watching:[{actor:{id,label?},since}]}` and `/api/events`
+sends `event: presence` with it. `inbox --watch [--timeout S]` waits through that
+long-poll (or a file watch without a server). Arrow anchors are
+`{kind:"decoration",decorationId,along,offset?,x,y}` on line decorations;
+`repinComment {threadId,actor,anchor,targetLabel?}` (feedback.repin) moves a point
+or arrow pin with `anchorHistory`; agents may re-pin only their own threads. Scoped feedback/vote writes share the same lock/journal/revision/
 retry cache without loading the complete graph. No message bodies/thread array
 are added to the workspace header. Actors are self-reported, not authentication.
 vote/item.vote takes itemId, actor and yes/no/abstain/null, where null clears that

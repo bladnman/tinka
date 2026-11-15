@@ -298,6 +298,7 @@ export class WorkspaceBoard {
     $("chrome-undo").onclick = () => this.replayMovement("undo", {explicit:true});
     $("chrome-redo").onclick = () => this.replayMovement("redo", {explicit:true});
     this.updateHistoryControls();
+    this.installKeyQueue();
     this.installBoardCommands(bar);
     document.addEventListener("keydown", e => {
       if (!(e.metaKey || e.ctrlKey) || e.altKey || e.key.toLowerCase() !== "z" ||
@@ -2641,6 +2642,58 @@ export class WorkspaceBoard {
     const point = screen || { x: viewport.left + viewport.width / 2, y: viewport.top + viewport.height / 2 };
     return { x: Math.round((point.x - world.left) / this.hooks.zoom() - (this.origin?.x || 0)), y: Math.round((point.y - world.top) / this.hooks.zoom() - (this.origin?.y || 0)) };
   }
+  // Board keys pressed while an undo, redo or save is in flight would otherwise be dropped:
+  // they wait here and replay in order once the board is idle. Escape clears the queue.
+  installKeyQueue() {
+    this.keyQueue = [];
+    window.addEventListener("keydown", e => {
+      if (e.key === "Escape") { this.keyQueue.length = 0; return; }
+      if (this.replayingKey || !this.keysBusy() || !this.queueableKey(e)) return;
+      e.preventDefault(); e.stopImmediatePropagation();
+      this.keyQueue.push({at:Date.now(), init:{key:e.key, code:e.code, keyCode:e.keyCode, shiftKey:e.shiftKey, metaKey:e.metaKey, ctrlKey:e.ctrlKey, altKey:false}});
+      this.watchKeyQueue();
+    }, true);
+  }
+  // Idle is reached through several paths (history, writes, gestures), so a short check runs
+  // only while keys are waiting.
+  watchKeyQueue() {
+    if (this.keyQueueTimer) return;
+    const tick = () => {
+      this.keyQueueTimer = null;
+      if (!this.keyQueue.length) return;
+      this.flushKeys();
+      if (this.keyQueue.length) this.keyQueueTimer = setTimeout(tick, 16);
+    };
+    this.keyQueueTimer = setTimeout(tick, 16);
+  }
+  keysBusy() {
+    return !!(this.movePending || this.historyBusy || this.history?.busy || this.pasteBusy || this.client.pendingWrites || this.saving || this.decorationCommitting);
+  }
+  // Board commands only: plain keys, arrows, Delete/Backspace/Enter, and ⌘/Ctrl-Z, -D, -A. Native
+  // clipboard and browser shortcuts, fields, editors, dialogs and IME composition pass through.
+  queueableKey(e) {
+    if (e.isComposing || e.keyCode === 229 || e.repeat || e.altKey || this.editorHold || this.whiteboard?.editing || this.documentEditing) return false;
+    if (document.querySelector("dialog[open]") || document.activeElement?.tagName === "IFRAME" ||
+        e.target.closest?.("input,textarea,select,[contenteditable],[role=dialog],[role=textbox]")) return false;
+    const key = e.key.toLowerCase();
+    if (e.metaKey || e.ctrlKey) return ["z","d","a"].includes(key);
+    return key.length === 1 || ["arrowleft","arrowright","arrowup","arrowdown","delete","backspace","enter"].includes(key);
+  }
+  // Replays queued keys while the board is idle (or while a new text or sticky is holding keys
+  // for its editor, which then receives them); stops again as soon as one makes it busy.
+  flushKeys() {
+    if (this.flushingKeys) return;
+    this.flushingKeys = true;
+    try {
+      while (this.keyQueue?.length && (this.editorHold || !this.keysBusy())) {
+        const {at, init} = this.keyQueue.shift();
+        if (Date.now() - at > 5000) continue;
+        this.replayingKey = true;
+        try { (document.activeElement || document.body).dispatchEvent(new KeyboardEvent("keydown", {...init, bubbles:true, cancelable:true})); }
+        finally { this.replayingKey = false; }
+      }
+    } finally { this.flushingKeys = false; }
+  }
   // Keys typed between T/S (or a double-click, or the palette) and the editor taking focus
   // are held here and replayed into it in order; Escape among them finishes the edit.
   holdEditorKeys() {
@@ -2650,7 +2703,8 @@ export class WorkspaceBoard {
       if (e.key === "Escape" || e.key === "Enter" || e.key === "Backspace" || e.key.length === 1) { e.preventDefault(); e.stopImmediatePropagation(); early.keys.push(e.key); }
     };
     window.addEventListener("keydown", early.listener, true);
-    early.release = () => { clearTimeout(early.timer); window.removeEventListener("keydown", early.listener, true); };
+    this.editorHold = early;
+    early.release = () => { clearTimeout(early.timer); window.removeEventListener("keydown", early.listener, true); if (this.editorHold === early) this.editorHold = null; };
     early.timer = setTimeout(early.release, 15000);
     return early;
   }

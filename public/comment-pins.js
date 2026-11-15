@@ -3,7 +3,7 @@
 // it stands. The bottom bar holds the layer menu (show/hide, resolved, "Waiting on
 // you") and "Send to agent", which marks open threads sent and copies a prompt.
 // Thread cards (reading, replying, new threads) live in comment-thread.js.
-import {pointAnchorAt, resolveCommentPoint} from './feedback-geometry.js';
+import {pointAnchorAt, resolveCommentPoint, alongAnchorAt} from './feedback-geometry.js';
 import {toast, escape as esc} from './workspace.js';
 import {decorationBounds} from './whiteboard-geometry.js';
 
@@ -26,7 +26,20 @@ export const commentApi = {
   },
   // "Send to agent" sets status sent and addresses the thread to the agent.
   send: (client, threadId, actor) => client.write('setCommentStatus', {threadId, actor, status:'sent', to:{kind:'agent'}}),
+  // Arrow pins ride along the line: `along` is a fraction (0–1) of its drawn length;
+  // x/y keep the last place for when the arrow is gone.
+  arrowAnchor: ({decorationId, along, offset, x, y}) => ({kind:'decoration', decorationId, along, ...(offset ? {offset} : {}), x, y}),
+  isAlong: a => a?.kind === 'decoration' && typeof a.along === 'number',
+  pinned: t => t.anchor?.kind === 'point' || commentApi.isAlong(t.anchor),
+  // Re-pin a thread onto something else (drag a pin onto a card, drawn element or arrow).
+  repin: (client, threadId, anchor, targetLabel, actor) => client.write('repinComment', {threadId, anchor, ...(targetLabel ? {targetLabel} : {}), actor}),
+  // Agents watching the inbox (inbox --watch): GET /api/agents, then `presence` stream events.
+  async presence(client) { try { return await client.get('/api/agents'); } catch { return null; } },
+  watching: presence => Array.isArray(presence?.watching) && presence.watching.length > 0,
 };
+// The most urgent status wins a crowded cluster's colour.
+const URGENCY = {question:5, addressed:4, open:3, sent:2, working:1, resolved:0};
+const CLUSTER_PX = 26;
 
 export const STATUS_LABEL = {open:'Open', sent:'Sent to agent', working:'Agent working', addressed:'Addressed · check it', question:'Agent asks you', resolved:'Resolved'};
 const ICON = {
@@ -63,9 +76,30 @@ export class CommentPins {
       group.querySelector('#comment-send').onclick = () => this.sendToAgent();
     }
     this.layer.addEventListener('click', e => {
+      const cluster = e.target.closest('[data-comment-cluster]');
+      if (cluster) { e.preventDefault();e.stopPropagation();this.openCluster(cluster);return; }
       const pin = e.target.closest('[data-comment-pin]');if (!pin) return;
-      e.preventDefault();e.stopPropagation();this.open(pin.dataset.commentPin, pin);
+      e.preventDefault();e.stopPropagation();
+      if (this.draggedAt && Date.now() - this.draggedAt < 400) return;
+      this.open(pin.dataset.commentPin, pin);
     });
+    // Drag a pin onto a card, drawn element or arrow to re-pin it (a dashed one especially).
+    this.layer.addEventListener('pointerdown', e => {
+      const pin = e.target.closest('[data-comment-pin]');
+      if (!pin || e.button !== 0 || this.armed || this.board.mode !== 'canvas') return;
+      e.stopPropagation();
+      this.pinDrag = {id:pin.dataset.commentPin, pin, pointerId:e.pointerId, x:e.clientX, y:e.clientY, moved:false};
+    });
+    window.addEventListener('pointermove', e => this.movePin(e), true);
+    window.addEventListener('pointerup', e => this.dropPin(e), true);
+    window.addEventListener('pointercancel', () => this.endPinDrag(), true);
+    // Zoom changes the screen distance between pins, so clusters regroup.
+    new MutationObserver(() => { cancelAnimationFrame(this.zoomFrame);this.zoomFrame = requestAnimationFrame(() => this.sync()); })
+      .observe(this.viewport, {attributes:true, attributeFilter:['style']});
+    // Panning moves the world: clusters near the canvas edge are re-placed inside it.
+    new MutationObserver(() => { if (!this.layer.querySelector('.comment-cluster')) return;cancelAnimationFrame(this.panFrame);this.panFrame = requestAnimationFrame(() => this.sync()); })
+      .observe(this.world, {attributes:true, attributeFilter:['style']});
+    this.pollPresence();
     // Armed: hover lights the target; a click drops the pin there.
     window.addEventListener('pointermove', e => { if (this.armed) this.hover(e); }, true);
     window.addEventListener('pointerdown', e => this.drop(e), true);
@@ -99,7 +133,10 @@ export class CommentPins {
     else toast('That comment is not on this board, or it was deleted.');
   }
   status(t) { return commentApi.status(t); }
-  pinned() { return this.threads.filter(t => t.anchor?.kind === 'point'); }
+  pinned() { return this.threads.filter(commentApi.pinned); }
+  // Where a thread's pin sits now, in board units: the shared helper places point and arrow
+  // anchors exactly as the server computes anchorPoint.
+  point(t, overrides) { return resolveCommentPoint(t.anchor, this.snapshot, overrides); }
   waiting() { return this.threads.filter(t => ['addressed','question'].includes(this.status(t))); }
   unsent() { return this.threads.filter(t => this.status(t) === 'open' && !commentApi.isAgent(t) && commentApi.forAgent(t)); }
   // ---- pins
@@ -107,14 +144,58 @@ export class CommentPins {
     if (!this.layer) return;
     if (this.layer.parentNode !== this.world) this.world.append(this.layer);
     this.layer.hidden = !this.visible || this.board.mode !== 'canvas';
-    const origin = this.board.origin || {x:0, y:0};
-    const html = this.pinned().filter(t => this.showResolved || this.status(t) !== 'resolved').map(t => {
-      const p = resolveCommentPoint(t.anchor, this.snapshot, overrides), status = this.status(t), agent = commentApi.isAgent(t);
-      const who = agent ? 'Agent' : t.author?.label || 'Someone', label = commentApi.targetLabel(t);
-      const gone = p.detached ? `<span class="comment-pin-gone">Was on ${esc(label || 'something')} · deleted</span>` : '';
-      return `<button type="button" class="comment-pin${p.detached ? ' detached' : ''}${this.active === t.id ? ' active' : ''}" data-comment-pin="${esc(t.id)}" data-status="${status}" data-author="${agent ? 'agent' : 'human'}" style="left:${p.x + origin.x}px;top:${p.y + origin.y}px" aria-label="${esc(`${who} · ${STATUS_LABEL[status] || status}${p.detached ? ` · was on ${label || 'something'}, deleted` : ''}: ${(t.body || t.excerpt || '').slice(0, 80)}`)}">${agent ? ICON.agent : esc((t.author?.label || '?').trim()[0]?.toUpperCase() || '?')}<span class="comment-pin-badge" aria-hidden="true"></span>${gone}</button>`;
-    }).join('');
+    const origin = this.board.origin || {x:0, y:0}, zoom = this.board.hooks.zoom?.() || 1;
+    const shown = this.pinned().filter(t => this.showResolved || this.status(t) !== 'resolved').map(t => ({t, p:this.point(t, overrides)}));
+    // Pins closer than about 26 screen pixels merge into one cluster with a count.
+    const groups = [];
+    for (const entry of shown) {
+      if (this.dragging?.id === entry.t.id) { groups.push([entry]);continue; }
+      const near = groups.find(g => g[0].t.id !== this.dragging?.id && Math.hypot((g[0].p.x - entry.p.x) * zoom, (g[0].p.y - entry.p.y) * zoom) < CLUSTER_PX);
+      near ? near.push(entry) : groups.push([entry]);
+    }
+    const html = groups.map(group => group.length === 1 ? this.pinMarkup(group[0].t, group[0].p, origin) : this.clusterMarkup(group, origin, zoom)).join('');
     if (this.layer.innerHTML !== html) this.layer.innerHTML = html;
+  }
+  pinMarkup(t, p, origin) {
+    const status = this.status(t), agent = commentApi.isAgent(t);
+    const who = agent ? 'Agent' : t.author?.label || 'Someone', label = commentApi.targetLabel(t);
+    const gone = p.detached ? `<span class="comment-pin-gone">Was on ${esc(label || 'something')} · deleted</span>` : '';
+    return `<button type="button" class="comment-pin${p.detached ? ' detached' : ''}${this.active === t.id ? ' active' : ''}${this.dragging?.id === t.id ? ' dragging' : ''}" data-comment-pin="${esc(t.id)}" data-status="${status}" data-author="${agent ? 'agent' : 'human'}" style="left:${p.x + origin.x}px;top:${p.y + origin.y}px" aria-label="${esc(`${who} · ${STATUS_LABEL[status] || status}${p.detached ? ` · was on ${label || 'something'}, deleted` : ''}: ${(t.body || t.excerpt || '').slice(0, 80)}`)}" title="${p.detached ? 'Drag onto a card, drawn element or arrow to re-pin' : 'Open · drag to move'}">${agent ? ICON.agent : esc((t.author?.label || '?').trim()[0]?.toUpperCase() || '?')}<span class="comment-pin-badge" aria-hidden="true"></span>${gone}</button>`;
+  }
+  clusterMarkup(group, origin, zoom) {
+    const status = group.map(g => this.status(g.t)).sort((a, b) => URGENCY[b] - URGENCY[a])[0];
+    let x = group.reduce((sum, g) => sum + g.p.x, 0) / group.length, y = group.reduce((sum, g) => sum + g.p.y, 0) / group.length;
+    // A cluster whose spot is on screen stays wholly inside the canvas edge (its count is the
+    // only way into those threads).
+    const view = this.viewport?.getBoundingClientRect(), world = this.world.getBoundingClientRect(), margin = 22 / zoom;
+    if (view?.width) {
+      const left = (view.left - world.left) / zoom - origin.x, top = (view.top - world.top) / zoom - origin.y, right = left + view.width / zoom, bottom = top + view.height / zoom;
+      if (x >= left && x <= right && y >= top && y <= bottom) { x = Math.min(Math.max(x, left + margin), right - margin);y = Math.min(Math.max(y, top + margin), bottom - margin); }
+    }
+    return `<button type="button" class="comment-pin comment-cluster" data-comment-cluster="${esc(group.map(g => g.t.id).join(' '))}" data-status="${status}" style="left:${x + origin.x}px;top:${y + origin.y}px" aria-haspopup="menu" aria-label="${group.length} comments here · ${STATUS_LABEL[status] || status}">${group.length}<span class="comment-pin-badge" aria-hidden="true"></span></button>`;
+  }
+  // A cluster opens a small list of its threads to pick from.
+  openCluster(button) {
+    this.closeMenu();
+    const ids = button.dataset.commentCluster.split(' '), threads = ids.map(id => this.threads.find(t => t.id === id)).filter(Boolean);
+    this.menu = document.createElement('div');this.menu.className = 'tk-menu comment-menu comment-cluster-menu';this.menu.setAttribute('role', 'menu');this.menu.setAttribute('aria-label', `${threads.length} comments here`);
+    this.menu.innerHTML = `<h6 class="comment-menu-head">${threads.length} comments here</h6>` + threads.map(t => `<button type="button" role="menuitem" class="tk-mi comment-waiting" data-comment-pick="${esc(t.id)}" data-status="${this.status(t)}"><span class="comment-dot" aria-hidden="true"></span><span class="comment-waiting-text"><b>${esc(commentApi.isAgent(t) ? 'Agent' : t.author?.label || 'Someone')} · ${STATUS_LABEL[this.status(t)]}</b>${esc((t.body || t.excerpt || '').slice(0, 70))}</span></button>`).join('');
+    document.body.append(this.menu);
+    this.menu.addEventListener('click', e => { const pick = e.target.closest('[data-comment-pick]');if (!pick) return;this.closeMenu();this.open(pick.dataset.commentPick, button); });
+    // Beside the pin (right, else left, else below or above it), clear of the bottom bar.
+    Object.assign(this.menu.style, {position:'fixed', left:'0px', top:'0px'});// measure at its real (fixed) size
+    const r = button.getBoundingClientRect(), w = this.menu.offsetWidth, h = this.menu.offsetHeight, gap = 8;
+    const floor = Math.min(innerHeight, document.querySelector('.canvas-footer .zoom-pill')?.getBoundingClientRect().top ?? innerHeight) - gap, ceiling = (document.getElementById('viewport')?.getBoundingClientRect().top ?? 0) + gap;
+    let left, top;
+    if (r.right + gap + w <= innerWidth - gap) left = r.right + gap;
+    else if (r.left - gap - w >= gap) left = r.left - gap - w;
+    if (left !== undefined) top = Math.max(ceiling, Math.min(floor - h, r.top + r.height / 2 - h / 2));
+    else {
+      left = Math.max(gap, Math.min(innerWidth - w - gap, r.left + r.width / 2 - w / 2));
+      top = r.bottom + gap + h <= floor ? r.bottom + gap : Math.max(ceiling, r.top - gap - h);
+    }
+    Object.assign(this.menu.style, {position:'fixed', left:`${left}px`, top:`${top}px`});
+    this.menu.querySelector('button')?.focus({preventScroll:true});
   }
   setVisible(visible) {
     this.visible = visible;try { localStorage.setItem(this.key, visible ? 'shown' : 'hidden'); } catch {}
@@ -123,18 +204,24 @@ export class CommentPins {
   toggleVisible() { this.setVisible(!this.visible);toast(this.visible ? 'Comments shown.' : 'Comments hidden. ⇧C shows them.'); }
   renderBar() {
     const layer = document.getElementById('comment-layer-toggle'), send = document.getElementById('comment-send');if (!layer) return;
-    // The bar's comment controls appear once the board has comments (the palette's C makes the first).
-    const canvas = this.board.mode === 'canvas';layer.closest('.comment-bar').hidden = !canvas || !this.threads.length;
+    // The bar's comment controls appear once the board has comments (the palette's C makes the
+    // first), or while an agent is watching, so the first comment is known to be picked up.
+    const canvas = this.board.mode === 'canvas', watching = commentApi.watching(this.presence);
+    layer.closest('.comment-bar').hidden = !canvas || !(this.threads.length || watching);layer.hidden = !this.threads.length;
     const waiting = this.waiting().length, open = this.threads.filter(t => this.status(t) !== 'resolved').length, count = layer.querySelector('.comment-count');
     count.hidden = !(waiting || open);count.textContent = String(waiting || open);count.classList.toggle('warn', !!waiting);
     layer.setAttribute('aria-label', waiting ? `Comments: ${waiting} waiting on you` : `Comments: ${open} open`);
     layer.setAttribute('aria-pressed', String(this.visible));
     for (const box of document.querySelectorAll('[data-feedback-pins]')) box.checked = this.visible;
     const unsent = this.unsent().length, badge = send.querySelector('.comment-count');
-    badge.hidden = !unsent;badge.textContent = String(unsent);send.disabled = !unsent;
+    // aria-disabled rather than disabled, so the watching tooltip still shows with nothing to send.
+    badge.hidden = !unsent;badge.textContent = String(unsent);send.setAttribute('aria-disabled', String(!unsent));
     // Calm at rest: with nothing to send, Send is just its icon.
     send.classList.toggle('comment-send-idle', !unsent);
-    send.setAttribute('aria-label', unsent ? `Send ${unsent} open comment${unsent === 1 ? '' : 's'} to your agent` : 'Send to agent: nothing open to send');
+    send.classList.toggle('agent-watching', watching);
+    send.title = watching ? 'Agent is watching: comments you send are picked up right away' : 'Send open comments to your agent';
+    const label = unsent ? `Send ${unsent} open comment${unsent === 1 ? '' : 's'} to your agent` : 'Send to agent: nothing open to send';
+    send.setAttribute('aria-label', watching ? `${label} · Agent is watching` : label);
   }
   // ---- the tool
   arm(on = !this.armed) {
@@ -169,13 +256,55 @@ export class CommentPins {
     const r = hit.element.getBoundingClientRect();
     Object.assign(this.tag.style, {left:`${Math.min(innerWidth - this.tag.offsetWidth - 8, Math.max(8, r.right - this.tag.offsetWidth))}px`, top:`${Math.max(8, Math.min(innerHeight - 40, r.bottom + 6))}px`});
   }
+  // The anchor for a pin dropped at a screen point: relative to a card or shape, along an arrow,
+  // or a plain board point.
+  anchorFor(clientX, clientY, hit) {
+    const point = this.board.canvasPoint({x:clientX, y:clientY});
+    const line = hit?.ref.decorationId && this.snapshot.decorations.find(d => d.id === hit.ref.decorationId && d.type === 'line');
+    if (line) {
+      const at = alongAnchorAt(point, line, this.snapshot);
+      return commentApi.arrowAnchor({decorationId:line.id, along:Math.round(at.along * 10000) / 10000, offset:at.offset, x:point.x, y:point.y});
+    }
+    return pointAnchorAt(point, this.snapshot, hit ? hit.ref : {});
+  }
+  // What is under a screen point, looking past the pins themselves.
+  targetAt(x, y) {
+    const under = document.elementsFromPoint(x, y).find(el => !el.closest('.comment-pins,.comment-target-tag'));
+    return under && this.viewport.contains(under) ? this.target({target:under}) : null;
+  }
+  movePin(e) {
+    const drag = this.pinDrag;if (!drag || e.pointerId !== drag.pointerId) return;
+    if (!drag.moved && Math.hypot(e.clientX - drag.x, e.clientY - drag.y) < 5) return;
+    if (!drag.moved) { drag.moved = true;this.dragging = {id:drag.id};this.sync();try { this.layer.setPointerCapture?.(e.pointerId); } catch {} }
+    e.preventDefault();
+    const pin = this.layer.querySelector(`[data-comment-pin="${CSS.escape(drag.id)}"]`), origin = this.board.origin || {x:0, y:0}, point = this.board.canvasPoint({x:e.clientX, y:e.clientY});
+    if (pin) Object.assign(pin.style, {left:`${point.x + origin.x}px`, top:`${point.y + origin.y}px`});
+    this.hover(null);const hit = this.targetAt(e.clientX, e.clientY);
+    if (hit) this.hover({target:hit.element});
+  }
+  async dropPin(e) {
+    const drag = this.pinDrag;if (!drag || e.pointerId !== drag.pointerId) return;
+    if (!drag.moved) { this.pinDrag = null;return; }
+    e.preventDefault();e.stopPropagation();this.draggedAt = Date.now();this.swallowClick = Date.now() + 400;
+    const hit = this.targetAt(e.clientX, e.clientY), anchor = this.anchorFor(e.clientX, e.clientY, hit);
+    this.endPinDrag();
+    try { await commentApi.repin(this.client, drag.id, anchor, hit?.label, this.board.feedback?.actor);toast(hit ? `Pinned to ${hit.label}.` : 'Pin moved.'); }
+    catch (error) { toast(`Could not move the pin. ${error.message}`); }
+    await this.reload();
+  }
+  endPinDrag() { this.pinDrag = null;this.dragging = null;this.hover(null);this.sync(); }
+  // "Agent is watching" on Send to agent, while an agent waits on the inbox.
+  async pollPresence() {
+    this.presence = await commentApi.presence(this.client);this.renderBar();
+    if (!this.presenceListening) {
+      this.presenceListening = true;
+      window.addEventListener('tinka:presence', e => { this.presence = e.detail;this.renderBar(); });
+    }
+  }
   async drop(e) {
     if (!this.armed || e.button !== 0 || !this.viewport?.contains(e.target) || e.target.closest('.comment-pins,.workspace-tile-toolbar,.whiteboard-toolbar')) return;
     e.preventDefault();e.stopImmediatePropagation();this.swallowClick = Date.now() + 700;
-    const hit = this.target(e), point = this.board.canvasPoint({x:e.clientX, y:e.clientY});
-    // Arrows follow by position for now: a box anchor is meaningless along a diagonal path.
-    const arrow = hit?.ref.decorationId && this.snapshot.decorations.find(d => d.id === hit.ref.decorationId)?.type === 'line';
-    const anchor = pointAnchorAt(point, this.snapshot, hit && !arrow ? hit.ref : {});
+    const hit = this.target(e), anchor = this.anchorFor(e.clientX, e.clientY, hit);
     this.arm(false);
     // The arming hint has done its job once the composer opens.
     const hint = document.getElementById('workspace-toast');if (hint && /^Click the board, a card/.test(hint.textContent)) hint.hidden = true;
@@ -199,7 +328,7 @@ export class CommentPins {
     if (!this.visible) this.setVisible(true);
     if (this.status(t) === 'resolved' && !this.showResolved) { this.showResolved = true;this.sync(); }
     if (t.anchor?.kind === 'point') {
-      const p = resolveCommentPoint(t.anchor, this.snapshot);
+      const p = this.point(t);
       this.board.hooks.revealPlacements?.([{id:`comment-${t.id}`, x:p.x - 60, y:p.y - 80, width:120, height:120}]);
       await new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)));
     }
@@ -222,6 +351,7 @@ export class CommentPins {
   renderMenu() {
     const waiting = this.waiting();
     this.menu.innerHTML = `<h6 class="comment-menu-head">Comments</h6><label class="tk-mi"><input type="checkbox" data-comment-option="visible" ${this.visible ? 'checked' : ''}> Show comments <kbd class="tk-kbd" aria-hidden="true">⇧C</kbd></label><label class="tk-mi"><input type="checkbox" data-comment-option="resolved" ${this.showResolved ? 'checked' : ''}> Show resolved</label><h6 class="comment-menu-head">Waiting on you</h6>${waiting.length ? waiting.map(t => `<button type="button" role="menuitem" class="tk-mi comment-waiting" data-comment-waiting="${esc(t.id)}" data-status="${this.status(t)}"><span class="comment-dot" aria-hidden="true"></span><span class="comment-waiting-text"><b>${STATUS_LABEL[this.status(t)]}</b>${esc(commentApi.targetLabel(t) || (t.body || t.excerpt || '').slice(0, 60))}</span></button>`).join('') : '<p class="comment-menu-empty">Nothing right now.</p>'}`;
+    Object.assign(this.menu.style, {position:'fixed', left:'0px', top:'0px'});
     const anchor = document.getElementById('comment-layer-toggle')?.getBoundingClientRect();
     if (anchor) Object.assign(this.menu.style, {position:'fixed', left:`${Math.max(8, Math.min(innerWidth - this.menu.offsetWidth - 8, anchor.left))}px`, top:`${Math.max(8, anchor.top - this.menu.offsetHeight - 8)}px`});
   }
@@ -231,7 +361,7 @@ export class CommentPins {
   }
   // ---- Send to agent: mark open threads sent, then copy a prompt naming them.
   async sendToAgent() {
-    const threads = this.unsent();if (!threads.length) return;
+    const threads = this.unsent();if (!threads.length) { if (commentApi.watching(this.presence)) toast('Agent is watching: comments you send are picked up right away.');return; }
     const actor = this.board.feedback?.actor;
     const prompt = commentPrompt(this.board.config, this.snapshot, threads);
     let copied = false;
