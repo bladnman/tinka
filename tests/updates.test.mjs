@@ -354,7 +354,7 @@ test('a major update is offered with clear wording and installs only after conse
   const digest = createHash('sha256').update(next.archive.zipBytes).digest('hex');
   const f = await fixture(t); let downloads = 0;
   const options = extra => ({context: f.context, fetchLatest: async () => ({version: majorVersion, compatibility: {...next.embedded, archiveSha256: digest}}), downloadRelease: async () => { downloads++; return {...next.archive, compatibility: next.embedded}; }, ...extra});
-  const offered = new RegExp(`^Tinka ${shown.replaceAll('.', '\\.')} is available \\(${majorVersion.replaceAll('.', '\\.')}; installed ${priorVersion.replaceAll('.', '\\.')}\\)\\. This is a major update; ask the user before updating\\.\nAfter the user agrees: node .*cli\\.mjs' update --config .* now --major\n`);
+  const offered = new RegExp(`^Tinka ${shown.replaceAll('.', '\\.')} is available \\(installed ${priorVersion.replace(/\.0$/, '').replaceAll('.', '\\.')}\\)\\. This is a major update; ask the user before updating\\.\nAfter the user agrees: node .*cli\\.mjs' update --config .* now --major\n`);
   // The rule itself: consent replaces the old refusal; every other check stays.
   const versions = {fromVersion: priorVersion, toVersion: majorVersion, nodeVersion: '22.0.0', platform: 'linux'};
   assert.equal(compatibilityError(next.embedded, versions), MAJOR_UPDATE_CONSENT);

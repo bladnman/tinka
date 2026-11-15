@@ -9,6 +9,11 @@ import { fileURLToPath } from 'node:url';
 
 const execFileAsync = promisify(execFile);
 export const DEFAULT_REPO = 'bladnman/tinka';
+// Versions stay X.Y.Z for npm, tags, pins and comparison; people see X.Y (releases bump the
+// minor only). A non-zero patch, from an older release, is kept: 1.1.0 -> 1.1, 1.0.4 -> 1.0.4.
+export const displayVersion = version => String(version ?? '').replace(/^(\d+\.\d+)\.0$/, '$1');
+// X.Y is accepted wherever a version is typed and means X.Y.0; anything else is unchanged.
+export const fullVersion = version => typeof version === 'string' && /^\d+\.\d+$/.test(version) ? `${version}.0` : version;
 const maxZipBytes = 100 * 1024 * 1024;
 const maxFileBytes = 20 * 1024 * 1024;
 const maxEntries = 10000;
@@ -111,7 +116,7 @@ export function compatibilityError(metadata, { fromVersion, toVersion, workspace
   return null;
 }
 
-function parseArgs(args) {
+export function parseArgs(args) {
   const options = {};
   for (let index = 0; index < args.length; index += 1) {
     const name = args[index];
@@ -122,7 +127,8 @@ function parseArgs(args) {
   if (!options['--project'] && path.basename(fileURLToPath(import.meta.url)) === 'setup.mjs') options['--project'] = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
   if (options['--project'] && (options['--install-dir'] || options['--config'])) throw new Error('Use --project or --install-dir/--config, not both.');
   if (!options['--project'] && (options['--boards'] || options['--label'])) throw new Error('--boards and --label require --project.');
-  if (options['--version'] && !/^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/.test(options['--version'])) throw new Error('Use a version such as 0.2.0.');
+  if (options['--version']) options['--version'] = fullVersion(options['--version']);
+  if (options['--version'] && !/^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/.test(options['--version'])) throw new Error('Use a version such as 1.1 (or 1.1.0).');
   if ((!options['--install-dir'] && !options['--project']) || (options['--repo'] && options['--zip']) || Boolean(options['--checksum']) !== Boolean(options['--zip'])) throw new Error(usage);
   return options;
 }
@@ -439,7 +445,7 @@ export async function main(args = process.argv.slice(2)) {
       const current=JSON.parse(await readFile(installed,'utf8'));
       if(current.name==='board-room'&&current.version===settings.version){
         const prepared=await execFileAsync(process.execPath,[path.join(installDir,'cli.mjs'),'project','init','--project',project],{timeout:12000});
-        return `Tinka ${current.version} is already installed.\n${prepared.stdout.trim()}`;
+        return `Tinka ${displayVersion(current.version)} is already installed.\n${prepared.stdout.trim()}`;
       }
     }
   }
@@ -476,7 +482,7 @@ export async function main(args = process.argv.slice(2)) {
     if(options['--repo'])arguments_.push('--repo',options['--repo']);
     prepared=`\n${(await execFileAsync(process.execPath,arguments_,{timeout:12000})).stdout.trim()}`;
   }
-  return `Installed Tinka ${result.version} at ${result.installDir}.${result.backup ? ` Backup: ${result.backup}.` : ''}${result.restarted ? ' Managed service restarted.' : ''}${prepared}`;
+  return `Installed Tinka ${displayVersion(result.version)} at ${result.installDir}.${result.backup ? ` Backup: ${result.backup}.` : ''}${result.restarted ? ' Managed service restarted.' : ''}${prepared}`;
 }
 
 if (process.argv[1] && await realpath(path.resolve(process.argv[1])).catch(() => null) === fileURLToPath(import.meta.url)) {

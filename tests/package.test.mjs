@@ -98,7 +98,7 @@ test('full app replacement restarts its managed service and retains external boa
   const port = await freePort();
   let running = false;
   try {
-    assert.match(await main(['--zip', fixture.release.appZip, '--checksum', fixture.release.appChecksum, '--install-dir', app]), /Installed Tinka \d+\.\d+\.\d+/);
+    assert.match(await main(['--zip', fixture.release.appZip, '--checksum', fixture.release.appChecksum, '--install-dir', app]), /Installed Tinka \d+\.\d+(?:\.\d+)? at /);
     const cli = path.join(app, 'cli.mjs');
     await exec(process.execPath, [cli, 'init', '--config', config, '--boards', boards, '--port', String(port)]);
     await exec(process.execPath, [cli, 'board', 'create', 'sample', '--config', config, '--title', 'Sample']);

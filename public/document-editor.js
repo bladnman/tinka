@@ -89,7 +89,7 @@ export function startDocumentEditor(options) {
   function setSource(on) {
     if (on === sourceMode) return;
     if (on) { raw.value = serializeDocument(page); page.replaceWith(raw); sourceMode = true; raw.focus(); }
-    else { build(raw.value); raw.replaceWith(page); sourceMode = false; page.focus(); }
+    else { build(raw.value); raw.replaceWith(page); sourceMode = false; resetHistory(); page.focus(); }
   }
   build(text);
   (article || content.firstChild) ? (article || content.firstChild).replaceWith(page) : content.append(page);
@@ -139,7 +139,7 @@ export function startDocumentEditor(options) {
       bom = fresh.text.startsWith(BOM) ? BOM : ""; text = saved = bom ? fresh.text.slice(1) : fresh.text; revision = fresh.revision;
       conflict = false; bar.hidden = true;
       if (sourceMode) raw.value = text; else build(text);
-      status("idle"); paintMarks();
+      resetHistory(); status("idle"); paintMarks();
     } catch { status("error", "The document could not be reloaded."); }
   });
 
@@ -156,7 +156,17 @@ export function startDocumentEditor(options) {
       const [threads, marks] = await Promise.all([fetch("/api/feedback?" + params, {cache:"no-store"}), fetch("/api/highlights?" + params, {cache:"no-store"})]);
       if (!threads.ok || !marks.ok) return;
       const comments = ((await threads.json()).threads || []).filter(thread => thread.anchor?.kind === "text"), highlights = (await marks.json()).highlights || [];
-      if (request !== markRequest || ended || sourceMode) return;
+      if (request !== markRequest || ended) return;
+      markRecords = {comments, highlights};
+      paintLocal();
+    } catch {}
+  }
+  // Paint the last fetched marks on the page as it is now (after a save, an undo or a redo).
+  let markRecords = null;
+  function paintLocal() {
+    if (!markRecords || ended || sourceMode || !globalThis.CSS?.highlights || !globalThis.Highlight) return;
+    const {comments, highlights} = markRecords;
+    try {
       const model = parseMarkdown(saved);
       // The page's text with a line break between blocks and list items, as the renderer has it.
       const nodes = []; let rawText = "";
@@ -204,7 +214,9 @@ export function startDocumentEditor(options) {
   const sel = () => getSelection();
   const blockOf = node => { let el = node?.nodeType === 1 ? node : node?.parentNode; el = el?.closest?.(BLOCK); return el && page.contains(el) && el !== page ? el : null; };
   const currentBlock = () => { const s = sel(); return s.rangeCount ? blockOf(s.anchorNode) : null; };
-  const exec = (command, value) => document.execCommand(command, false, value);
+  // Programmatic edits are recorded by explicit checkpoints, never by the typing coalescer.
+  let programmatic = false;
+  const exec = (command, value) => { programmatic = true; try { return document.execCommand(command, false, value); } finally { programmatic = false; } };
   function toggleBlock(tag) { const inside = currentBlock()?.closest(tag); exec("formatBlock", inside && page.contains(inside) ? "p" : tag); }
   const listKind = list => !list ? null : list.tagName === "OL" ? "ol" : list.classList.contains("checklist") ? "task" : "ul";
   function shapeList(list, kind) {
@@ -267,6 +279,7 @@ export function startDocumentEditor(options) {
     linkBox.hidden = true; page.focus({preventScroll:true});
     if (linkRange) { const s = sel(); s.removeAllRanges(); s.addRange(linkRange); }
     if (!apply) return;
+    checkpoint();
     const url = safeUrl(linkInput.value);
     if (!url) exec("unlink");
     else if (linkRange && !linkRange.collapsed) exec("createLink", url);
@@ -277,6 +290,53 @@ export function startDocumentEditor(options) {
   linkInput.addEventListener("keydown", e => { if (e.key === "Escape") { e.preventDefault(); e.stopPropagation(); closeLink(false); } });
   linkInput.addEventListener("blur", () => setTimeout(() => { if (!linkBox.contains(document.activeElement)) closeLink(false); }, 0));
 
+  // ---------- undo ----------
+  // The editor owns undo: every change is a step on its own stack, as a snapshot of the page (its
+  // HTML, which carries each block's source slot, and the selection) taken just before the change.
+  // Typing coalesces into word-sized steps; structural changes (lists, Markdown shortcuts, block
+  // formats, checkboxes, leaving a quote, paste, links) are one step each, and undoing a shortcut
+  // brings back the literal text typed (for example "- "). Native undo is never used.
+  const undoStack = [], redoStack = [], UNDO_LIMIT = 300;
+  let typing = null; // the open typing step: {kind, at, space, node, offset}
+  const lengthOf = node => node.nodeType === 3 ? node.length : node.childNodes.length;
+  const pathTo = node => { const path = []; while (node && node !== page) { const parent = node.parentNode; if (!parent) return null; path.unshift(Array.prototype.indexOf.call(parent.childNodes, node)); node = parent; } return node === page ? path : null; };
+  const nodeAt = path => { let node = page; for (const i of path || []) { node = node?.childNodes[i]; } return node || null; };
+  function snapshot() {
+    const s = sel(); let range = null;
+    if (s.rangeCount && page.contains(s.getRangeAt(0).startContainer)) { const r = s.getRangeAt(0); range = {sp:pathTo(r.startContainer), so:r.startOffset, ep:pathTo(r.endContainer), eo:r.endOffset}; }
+    return {html:page.innerHTML, range};
+  }
+  function restore(snap) {
+    page.innerHTML = snap.html;
+    page.focus({preventScroll:true});
+    const r = document.createRange(), start = snap.range && nodeAt(snap.range.sp), finish = snap.range && nodeAt(snap.range.ep);
+    try {
+      if (!start || !finish) throw new Error();
+      r.setStart(start, Math.min(snap.range.so, lengthOf(start))); r.setEnd(finish, Math.min(snap.range.eo, lengthOf(finish)));
+    } catch { r.selectNodeContents(page); r.collapse(false); }
+    const s = sel(); s.removeAllRanges(); s.addRange(r);
+    (start || page).parentElement?.scrollIntoView?.({block:"nearest"});
+    typing = null; paintLocal(); schedule();
+  }
+  function checkpoint() {
+    undoStack.push(snapshot()); if (undoStack.length > UNDO_LIMIT) undoStack.shift();
+    redoStack.length = 0; typing = null;
+  }
+  function resetHistory() { undoStack.length = 0; redoStack.length = 0; typing = null; }
+  function undo() { if (!undoStack.length) return; redoStack.push(snapshot()); restore(undoStack.pop()); }
+  function redo() { if (!redoStack.length) return; undoStack.push(snapshot()); restore(redoStack.pop()); }
+  page.addEventListener("beforeinput", e => {
+    if (e.inputType === "historyUndo" || e.inputType === "historyRedo") { e.preventDefault(); (e.inputType === "historyUndo" ? undo : redo)(); return; }
+    if (programmatic) return;
+    const kind = /^insert(Text|CompositionText|ReplacementText)$/.test(e.inputType) ? "insert" : /^delete(Content|Word|SoftLine|HardLine)/.test(e.inputType) ? "delete" : "other";
+    const s = sel(), space = kind === "insert" && /^\s+$/.test(e.data || "");
+    const moved = !typing || !s.rangeCount || !s.isCollapsed || typing.node !== s.anchorNode || typing.offset !== s.anchorOffset;
+    if (kind === "other" || moved || typing.kind !== kind || Date.now() - typing.at > 1500 || (space && !typing.space)) checkpoint();
+    typing = kind === "other" ? null : {kind, at:Date.now(), space, node:null, offset:-1};
+  });
+  // After each typed change, remember where the caret is: typing on from there extends the step.
+  page.addEventListener("input", () => { const s = sel(); if (typing && s.rangeCount) { typing.node = s.anchorNode; typing.offset = s.anchorOffset; typing.at = Date.now(); } });
+
   // ---------- keys ----------
   const KEYS = {KeyB:[false, () => exec("bold")], KeyI:[false, () => exec("italic")], KeyK:[false, openLink], KeyE:[false, toggleCode],
     KeyX:[true, () => exec("strikeThrough")], Digit7:[true, () => toggleList("ol")], Digit8:[true, () => toggleList("ul")], Digit9:[true, () => toggleList("task")]};
@@ -285,14 +345,16 @@ export function startDocumentEditor(options) {
     if (e.key === "Escape" && !e.isComposing) { e.preventDefault(); end(); return; }
     if (e.key === "Enter" && mod) { e.preventDefault(); end(); return; }
     if (sourceMode || e.isComposing) return;
-    if (mod && !e.altKey && KEYS[e.code] && KEYS[e.code][0] === e.shiftKey) { e.preventDefault(); KEYS[e.code][1](); schedule(); return; }
+    if (mod && !e.altKey && e.code === "KeyZ") { e.preventDefault(); (e.shiftKey ? redo : undo)(); return; }
+    if (!MAC && e.ctrlKey && !e.altKey && !e.shiftKey && e.code === "KeyY") { e.preventDefault(); redo(); return; }
+    if (mod && !e.altKey && KEYS[e.code] && KEYS[e.code][0] === e.shiftKey) { e.preventDefault(); if (e.code !== "KeyK") checkpoint(); KEYS[e.code][1](); schedule(); return; }
     const block = currentBlock();
-    if (e.key === "Enter" && !e.shiftKey && !mod && block?.matches("pre")) { e.preventDefault(); exec("insertText", "\n"); return; }
+    if (e.key === "Enter" && !e.shiftKey && !mod && block?.matches("pre")) { e.preventDefault(); checkpoint(); exec("insertText", "\n"); return; }
     const quote = block?.closest("blockquote");
     if (e.key === "Enter" && !e.shiftKey && quote && page.contains(quote)) {
       const s = sel(), r = document.createRange(); r.selectNodeContents(quote); r.setStart(s.focusNode, s.focusOffset);
       if (!r.toString().replace(/[​\n]/g, "").trim()) {
-        e.preventDefault();
+        e.preventDefault(); checkpoint();
         for (let last = quote.lastChild; last && quote.childNodes.length > 1 && (last.nodeName === "BR" || (!last.textContent.trim() && last.nodeName !== "IMG")); last = quote.lastChild) last.remove();
         const p = document.createElement("p"); p.innerHTML = "<br>"; quote.after(p); caret(p, 0); schedule(); return;
       }
@@ -316,10 +378,12 @@ export function startDocumentEditor(options) {
       const rule = {"# ":["block", "h1"], "## ":["block", "h2"], "### ":["block", "h3"], "- ":["list", "ul"], "* ":["list", "ul"], "1. ":["list", "ol"],
         "[] ":["list", "task"], "[ ] ":["list", "task"], "> ":["block", "blockquote"], "--- ":["hr"]}[before];
       if (!rule) return;
+      checkpoint();
       r.deleteContents();
       if (!block.textContent && !block.querySelector("br,img")) block.append(document.createElement("br"));
       caret(block, 0);
-      if (rule[0] === "block") exec("formatBlock", rule[1]);
+      // formatBlock can leave an empty, childless paragraph behind; it is not content.
+      if (rule[0] === "block") { exec("formatBlock", rule[1]); for (const el of [...page.children]) if (el.tagName === "P" && !el.textContent && !el.querySelector("br,img") && !el.contains(sel().anchorNode)) el.remove(); }
       else if (rule[0] === "list") { const list = block.closest("li")?.parentElement; if (list && listKind(list) !== rule[1]) shapeList(list, rule[1]); else if (!list) toggleList(rule[1]); }
       else divider();
       return;
@@ -328,6 +392,7 @@ export function startDocumentEditor(options) {
       const before = node.nodeValue.slice(0, offset);
       const match = e.data === "*" ? /\*\*([^*\n]+)\*\*$/.exec(before) : /`([^`\n]+)`$/.exec(before);
       if (!match || node.parentNode.closest("code")) return;
+      checkpoint();
       const el = document.createElement(e.data === "*" ? "strong" : "code"); el.textContent = match[1];
       const after = document.createTextNode("​" + node.nodeValue.slice(offset));
       node.nodeValue = before.slice(0, match.index);
@@ -339,13 +404,13 @@ export function startDocumentEditor(options) {
   page.addEventListener("mousedown", e => {
     const li = e.target.closest?.("ul.checklist > li");
     if (!li || !page.contains(li) || e.clientX >= li.getBoundingClientRect().left + parseFloat(getComputedStyle(li).paddingLeft)) return;
-    e.preventDefault(); li.dataset.checked = li.dataset.checked === "true" ? "false" : "true"; schedule();
+    e.preventDefault(); checkpoint(); li.dataset.checked = li.dataset.checked === "true" ? "false" : "true"; schedule();
   });
   page.addEventListener("click", e => { const a = e.target.closest?.("a"); if (a && page.contains(a) && (e.metaKey || e.ctrlKey)) { e.preventDefault(); window.open(a.href, "_blank", "noopener"); } else if (a) e.preventDefault(); });
   // Paste: plain text as text; HTML reduced to the supported structure via Markdown.
   page.addEventListener("paste", e => {
     const data = e.clipboardData; if (!data) return;
-    e.preventDefault();
+    e.preventDefault(); checkpoint();
     const html = data.getData("text/html"), plain = data.getData("text/plain");
     if (!html) { exec("insertText", plain); return; }
     const md = domToMarkdown(new DOMParser().parseFromString(html, "text/html").body);
@@ -368,7 +433,20 @@ export function startDocumentEditor(options) {
     window.removeEventListener("blur", onBlur); window.removeEventListener("keydown", onWindowKey, true);
     delete root.dataset.documentEditing;
     bar.remove(); linkBox.remove();
+    // On a board card, the keyboard goes back to the board (so D, E, arrows work at once).
+    if (root.dataset.documentMode !== "reader" && parent !== window) { try { document.activeElement?.blur?.(); parent.focus(); } catch {} }
     onEnd({saved:savedAny, unsaved:ok === false, text:bom + saved, title:titleFromMarkdown(saved), revision});
   }
-  return {end, flush, setSource, get editing() { return !ended; }};
+  // Keys typed before the caret appeared (options.pendingKeys) land where it is now, as one step.
+  function typeKeys(keys) {
+    if (!keys?.length || ended) return;
+    if (sourceMode) { for (const key of keys) if (key.length === 1) raw.setRangeText(key, raw.selectionStart, raw.selectionEnd, "end"); schedule(); return; }
+    checkpoint();
+    for (const key of keys) {
+      if (key === "Enter") exec("insertParagraph"); else if (key === "Backspace") exec("delete"); else exec("insertText", key);
+    }
+    typing = null; schedule();
+  }
+  typeKeys(options.pendingKeys);
+  return {end, flush, setSource, undo, redo, typeKeys, get editing() { return !ended; }};
 }

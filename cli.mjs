@@ -50,11 +50,13 @@ async function canonicalFuturePath(input){
 
 const appRoot=path.dirname(fileURLToPath(import.meta.url));
 export async function main(args=process.argv.slice(2)) {
+  // The agent inbox is read-only and runs on every agent turn: no app lock, nothing else loaded.
+  if(args[0]==='inbox'){const {inboxMain}=await import('./lib/inbox-cli.mjs');return inboxMain(args);}
   return withAppLock(appRoot,async token=>{
     const implementation=await import('./lib/cli.mjs');
     return implementation.main(args,{lockToken:token});
   });
 }
 if(process.argv[1]&&await realpath(path.resolve(process.argv[1])).catch(()=>null)===fileURLToPath(import.meta.url)){
-  try{process.stdout.write(`${await main()}\n`);}catch(error){process.stderr.write(`${error.message}\n`);process.exitCode=1;}
+  try{const output=await main();if(output!=='')process.stdout.write(`${output}\n`);}catch(error){process.stderr.write(`${error.message}\n`);process.exitCode=1;}
 }

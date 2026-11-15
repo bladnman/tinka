@@ -332,7 +332,7 @@ export class Whiteboard {
     const patches=new Map(list.map(d=>[d.id,this.stylePatch(d,action,value)]).filter(([,patch])=>patch));
     if(!patches.size)return;
     if(list.length===1){const [[id,patch]]=patches;await this.save(id,patch);return;}
-    await this.saveMany(this.host.snapshot.decorations.map(d=>patches.has(d.id)?{...d,...patches.get(d.id)}:d));
+    await this.host.history.group(patches.size>1?`Change style of ${patches.size} drawn elements`:'Change style',()=>this.saveMany(this.host.snapshot.decorations.map(d=>patches.has(d.id)?{...d,...patches.get(d.id)}:d)));
   }
   async saveMany(decorations) {
     const before=canonical(this.host.snapshot.decorations);
@@ -441,7 +441,7 @@ export class Whiteboard {
     if(many.length>1) {
       // Several selected: one atomic board write removes them all.
       const gone=new Set(many.map(d=>d.id));this.host.decorationSelection=new Set();this.connectMode=false;this.pendingFrom=null;
-      await this.saveMany(this.host.snapshot.decorations.filter(d=>!gone.has(d.id)));this.sync();return;
+      await this.host.history.group(`Delete ${gone.size} drawn elements`,()=>this.saveMany(this.host.snapshot.decorations.filter(d=>!gone.has(d.id))));this.sync();return;
     }
     const id=this.host.activeDecoration;if(!id)return;
     this.cancelEdit({focus:false});this.host.activeDecoration=null;this.connectMode=false;this.pendingFrom=null;

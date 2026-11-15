@@ -122,6 +122,8 @@ test('a new TINKA.md says to share the direct link and, when useful, a picture; 
     assert.match(text,/node tinka\/app\/cli\.mjs item shot ITEM_ID --config tinka\/local\/config\.json --out \/absolute\/shot\.png/);
     assert.match(text,/node tinka\/app\/cli\.mjs board overview BOARD_ID --config tinka\/local\/config\.json --out/);
     assert.match(text,/`--width 390` for a phone-sized page/);
+    // Any coding agent finds its comment inbox through TINKA.md, with no hook.
+    assert.match(text,/## Comments for you\n/);assert.match(text,/node tinka\/app\/cli\.mjs inbox --config tinka\/local\/config\.json/);assert.match(text,/Never resolve\na person's comment/);assert.match(text,/Before finishing any Tinka task, check the inbox once\./);
     // Version numbers live in tinka/project.json and the checksum sidecars, never copied into TINKA.md.
     assert.match(text,/Do not copy version numbers or checksums into this file: `tinka\/project\.json`\nand `tinka\/packages\/\*\.sha256` are the record\./);
     assert.doesNotMatch(text,/\d+\.\d+\.\d+/);

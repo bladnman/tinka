@@ -175,8 +175,13 @@ test("moving or resizing text, shapes and arrows records a receipt that undoes a
     from:{decorationId:box,side:"left"},to:{x:300,y:300}}})).result.decorationId;
   const start = await board(), placements = JSON.stringify(start.placements), order = JSON.stringify(start.reviewOrder);
   const find = (b,id) => b.decorations.find(d => d.id === id);
-  // A text-only edit is not a movement.
-  assert.equal((await f.op("updateDecoration",{boardId,decorationId:title,patch:{text:"Concepts · open one"}})).history,undefined);
+  // A text edit is its own undo step, which redoes exactly.
+  const edited = await f.op("updateDecoration",{boardId,decorationId:title,patch:{text:"Concepts · open one"}});
+  assert.ok(edited.history,"a text edit returns a receipt");
+  const unedited = await f.op("restoreMovement",{history:edited.history});
+  assert.equal(find(await board(),title).text,"Concepts");
+  await f.op("restoreMovement",{history:unedited.history});
+  assert.equal(find(await board(),title).text,"Concepts · open one");
   const named = await board();
   const moved = await f.op("updateDecoration",{boardId,decorationId:title,patch:{x:-1,y:814}});
   assert.ok(moved.history,"a dragged title returns a receipt");
@@ -210,4 +215,43 @@ test("moving or resizing text, shapes and arrows records a receipt that undoes a
   const cardMove = await f.op("translatePlacements",{boardId,placementIds:[f.ids[0]],dx:10,dy:0});
   assert.equal(cardMove.history.boards[0].decorationIds,undefined);
   await f.op("restoreMovement",{history:cardMove.history});
+});
+
+test("adding, restyling, batch-editing and deleting drawn elements each undo and redo as one step",async t => {
+  const f = await fixture(t), boardId = f.source.boardId;
+  const board = async () => (await f.snapshot()).boards.find(b => b.id === boardId);
+  const decorations = async () => JSON.stringify((await board()).decorations);
+  const roundTrip = async (response, label) => {
+    assert.ok(response.history, `${label} returns a receipt`);
+    const before = await decorations();
+    const undone = await f.op("restoreMovement",{history:response.history});
+    const reverted = await decorations();
+    assert.notEqual(reverted,before,`${label} undoes`);
+    const redone = await f.op("restoreMovement",{history:undone.history});
+    assert.equal(await decorations(),before,`${label} redoes`);
+    assert.ok(redone.history,"redo returns the next undo receipt");
+    return reverted;
+  };
+  const empty = await decorations();
+  const created = await f.op("createDecoration",{boardId,decoration:{id:"sticky-1",type:"region",shape:"rectangle",x:0,y:0,width:200,height:200,color:"#f6e6a4",text:"Hi"}});
+  assert.equal(await roundTrip(created,"create"),empty,"undoing a create removes it");
+  await roundTrip(await f.op("updateDecoration",{boardId,decorationId:"sticky-1",patch:{color:"#e0e8da",textSize:"large"}}),"style");
+  await f.op("createDecoration",{boardId,decoration:{id:"label-1",type:"text",x:0,y:300,width:200,height:50,color:"#7a8a68",text:"Label"}});
+  const current = (await board()).decorations;
+  const batch = await f.op("updateBoard",{boardId,patch:{decorations:current.map(d => ({...d,color:"#8b6fb0"}))}});
+  await roundTrip(batch,"batch style");
+  const removed = await f.op("removeDecoration",{boardId,decorationId:"label-1"});
+  const restored = await roundTrip(removed,"delete");
+  assert.ok(JSON.parse(restored).some(d => d.id === "label-1"),"undoing a delete brings it back");
+  // Remove with decorationIds deletes cards and drawn elements in one commit and one receipt.
+  const mixed = await f.op("remove",{boardId,placementIds:[f.ids[0]],decorationIds:["sticky-1"]});
+  assert.deepEqual(mixed.result.decorationIds,["sticky-1"]);
+  assert.equal((await board()).decorations.some(d => d.id === "sticky-1"),false);
+  await f.op("restoreMovement",{history:mixed.history});
+  const back = await board();
+  assert.ok(back.decorations.some(d => d.id === "sticky-1"),"one Undo restores the drawn element");
+  assert.equal(back.placements.find(p => p.id === f.ids[0]).removedAt,undefined,"and the card");
+  // Older forms are unchanged: remove without decorationIds, and its result shape.
+  const plain = await f.op("remove",{boardId,placementIds:[f.ids[1]]});
+  assert.equal(Object.hasOwn(plain.result,"decorationIds"),false);
 });

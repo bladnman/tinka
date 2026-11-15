@@ -222,6 +222,35 @@ one clear winner; the move is recorded in `reanchored`. Edited quotes and ties s
 file yourself, call `document.reanchor {itemId}` to persist those moves.
 Independent threads/ID.json files use the same lock/journal/revision as graph work.
 
+### Working your comment inbox
+
+People leave comments for agents on the boards. Find what needs you, quickly and
+read-only (no lock): `node cli.mjs inbox --config PATH` (or the `feedback.inbox`
+tool). It lists threads handed to you (`sent`), addressed to you and still open,
+or with a person's reply after your last message, each with board, link,
+`targetLabel`, reason and a one-line snippet. `--brief` prints one line, or nothing
+when nothing is new; a full run marks what it showed as seen for `--actor ID`
+(default `agent`). Then, for each thread:
+
+1. `feedback.setStatus {threadId, actor, status:"working"}`.
+2. Read it: `feedback.list {threadId, includeBodies:true}`. Each `refs` entry names
+   an item, placement, decoration or board with `exists`, `state` and `currentLabel`;
+   use them to find what the comment points at.
+3. Make the change, then `feedback.reply {threadId, author, body, changes:[{kind,id,boardId,label,note}], status:"addressed"}`.
+   If you need an answer instead, reply with `status:"question"`; the person's reply
+   sends the thread back to you as `sent`.
+4. Never resolve or reopen a person's comment (the server refuses with 403); the
+   author resolves it or reopens it. You may resolve threads you wrote.
+
+Status is `open|sent|working|addressed|question|resolved` with a `statusHistory` of
+who moved it; `resolved` stays as the boolean alias. `to:{kind:"agent"|"human",id?}`
+addresses a thread; skip threads addressed to people or to another named agent.
+`feedback.list` filters by `status` (one or a list), `to`, `toId`, `authorKind` and
+`updatedAfter`; `since` (start with `""`, then each `nextSince`) is a position that
+survives unrelated writes. `feedback.edit` and `feedback.delete` change only your own
+messages and keep their history. `targetLabel` names what a comment was on, even
+after that target is deleted.
+
 Point comments can follow a target with normalized fractions while retaining a
 creation fallback. For example, after inspecting a board and its placement IDs:
 

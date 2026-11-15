@@ -1,0 +1,88 @@
+/* The Comment tool's thread card, @ picker and reference chips (comment-thread.js,
+   comment-refs.js). Floating-object style of 1.0.4; light and dark come from tokens.css. */
+.ct-card{position:fixed;z-index:400;width:340px;max-width:calc(100vw - 16px);max-height:min(540px,calc(100dvh - 80px));display:flex;flex-direction:column;box-sizing:border-box;color:var(--ink);background:var(--surface-2);border-radius:var(--r-lg);box-shadow:var(--e3);font:var(--t-md)/1.5 var(--font-ui)}
+.ct-card[aria-busy=true]{cursor:progress}
+.ct-card svg{width:15px;height:15px;fill:none;stroke:currentColor;stroke-width:1.6;stroke-linecap:round;stroke-linejoin:round;flex:none}
+.ct-head{display:flex;flex-wrap:wrap;align-items:center;gap:2px 4px;padding:10px 8px 8px 14px;border-bottom:1px solid var(--line)}
+.ct-head>.ct-state,.ct-head>.ct-title{margin-right:auto}
+.ct-title{font-size:var(--t-md)}
+.ct-on{order:5;flex:1 0 100%;min-width:0;font-size:var(--t-sm);color:var(--ink-3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.ct-on b{color:var(--ink-2);font-weight:600}
+.ct-on-target{border:0;background:none;padding:0;color:var(--ink);font:600 var(--t-sm)/1.4 var(--font-ui);cursor:pointer;text-decoration:underline dotted;text-underline-offset:3px}
+.ct-on-target:hover{color:var(--accent-text)}
+.ct-icon.tk-btn{width:28px;height:28px;min-width:28px;padding:0;display:inline-grid;place-items:center;border:0;background:none;color:var(--ink-2);border-radius:var(--r-sm)}
+.ct-icon.tk-btn:hover{background:var(--hover)}
+.ct-state{display:inline-flex;align-items:center;gap:5px;padding:2px 8px;border-radius:var(--r-pill);font:600 var(--t-xs)/1.4 var(--font-ui);background:var(--surface-sunken);color:var(--ink-2)}
+.ct-state::before{content:"";width:6px;height:6px;border-radius:50%;background:currentColor}
+.ct-state[data-state=open]{color:var(--accent-text);background:var(--accent-soft)}
+.ct-state[data-state=addressed]{color:var(--warn);background:color-mix(in srgb,var(--warn) 14%,transparent)}
+.ct-state[data-state=question]{color:var(--danger);background:color-mix(in srgb,var(--danger) 12%,transparent)}
+.ct-state[data-state=resolved]{color:var(--ink-3)}
+.ct-state[data-state=working]::before{animation:ct-pulse 1s infinite}
+@keyframes ct-pulse{50%{opacity:.3}}
+.ct-scroll{flex:1 1 auto;min-height:0;overflow:auto;overscroll-behavior:contain;padding:0 14px}
+.ct-activity{margin:8px 0 0;font-size:var(--t-xs);color:var(--ink-3)}
+.ct-detached{margin:10px 0 0;padding:8px 10px;border-radius:var(--r-md);background:var(--surface-sunken);font-size:var(--t-sm);color:var(--ink-2)}
+.ct-msg{display:flex;gap:8px;padding:10px 0}
+.ct-msg+.ct-msg{border-top:1px solid var(--line)}
+.ct-msg-main{min-width:0;flex:1}
+.ct-msg-head{display:flex;flex-wrap:wrap;align-items:baseline;gap:2px 6px}
+.ct-who{font-weight:600}
+.ct-msg-head time,.ct-edited{color:var(--ink-3);font-size:var(--t-xs)}
+.ct-agent-tag{padding:0 6px;border-radius:var(--r-pill);background:var(--accent-soft-2);color:var(--accent-text);font:600 10px/1.6 var(--font-ui)}
+.ct-agent .ct-body{color:var(--ink)}
+.ct-agent{position:relative}
+.ct-agent::before{content:"";position:absolute;left:-14px;top:10px;bottom:10px;width:2px;border-radius:2px;background:var(--accent-soft-2)}
+.ct-msg-tools{margin-left:auto;display:inline-flex;gap:8px;opacity:0;transition:opacity .12s}
+.ct-msg:hover .ct-msg-tools,.ct-msg:focus-within .ct-msg-tools{opacity:1}
+@media (hover:none){.ct-msg-tools{opacity:1}}
+.ct-link{border:0;background:none;padding:0;color:var(--ink-3);font:500 var(--t-xs)/1.4 var(--font-ui);cursor:pointer}
+.ct-link:hover{color:var(--ink);text-decoration:underline}
+.ct-body{margin-top:2px;white-space:pre-wrap;overflow-wrap:anywhere}
+.ct-gone{color:var(--ink-3);font-style:italic}
+.ct-changes{display:flex;flex-wrap:wrap;align-items:center;gap:4px 6px;margin-top:6px;font-size:var(--t-xs);color:var(--ink-3)}
+.ct-confirm{display:flex;flex-wrap:wrap;align-items:center;gap:6px;margin-top:8px;padding:8px;border-radius:var(--r-md);background:var(--surface-sunken);font-size:var(--t-sm)}
+.ct-danger.tk-btn{color:var(--danger)}
+.ct-decide{display:flex;flex-wrap:wrap;gap:6px;padding:10px 0;border-top:1px solid var(--line)}
+.ct-decide .tk-btn{display:inline-flex;align-items:center;gap:6px}
+.ct-foot{display:grid;gap:8px;padding:10px 14px 12px;border-top:1px solid var(--line)}
+.ct-row{display:flex;flex-wrap:wrap;align-items:center;gap:6px}
+.ct-row .tk-btn:first-of-type{margin-left:auto}
+.ct-hint,.ct-status,.ct-for-agent{font-size:var(--t-xs);color:var(--ink-3)}
+.ct-status:empty{display:none}
+.ct-status[role=alert]{color:var(--danger)}
+.ct-for-agent{display:inline-flex;align-items:center;gap:5px;margin-left:auto;cursor:pointer}
+.ct-for-agent+.tk-btn{margin-left:0!important}
+.ct-composer{min-height:58px;max-height:160px;overflow:auto;padding:8px 10px;border-radius:var(--r-md);background:var(--field);box-shadow:inset 0 0 0 1px var(--line);outline:none;white-space:pre-wrap;overflow-wrap:anywhere;cursor:text}
+.ct-composer:focus{box-shadow:inset 0 0 0 1.5px var(--accent)}
+.ct-composer:empty::before{content:attr(data-placeholder);color:var(--ink-3);pointer-events:none}
+.ct-edit{margin-top:4px;min-height:44px}
+.ct-loading{margin:0;padding:18px 14px;color:var(--ink-3)}
+/* Bottom sheet on narrow screens */
+.ct-card.ct-sheet{left:0;right:0;bottom:0;top:auto;width:auto;max-width:none;max-height:70dvh;border-radius:var(--r-xl) var(--r-xl) 0 0;box-shadow:var(--e4)}
+.ct-card.ct-sheet .ct-foot{padding-bottom:max(12px,env(safe-area-inset-bottom))}
+/* Reference chips (in messages, the composer and "Changed") */
+.cref{display:inline-flex;align-items:center;gap:4px;max-width:100%;padding:0 7px 0 5px;margin:0 1px;border-radius:var(--r-sm);background:var(--accent-soft);color:var(--accent-text);font:600 var(--t-sm)/1.6 var(--font-ui);vertical-align:baseline;cursor:pointer;white-space:nowrap;user-select:none}
+.cref:hover{background:var(--accent-soft-2)}
+.cref:focus-visible{outline:2px solid var(--accent-ring,var(--accent));outline-offset:1px}
+.cref svg{width:12px;height:12px;fill:none;stroke:currentColor;stroke-width:1.5;stroke-linecap:round;stroke-linejoin:round;flex:none}
+.cref-label{overflow:hidden;text-overflow:ellipsis;max-width:200px}
+.cref-open{display:none;margin:0 -3px 0 1px;padding:0 2px;border:0;background:none;color:inherit;cursor:pointer;line-height:1}
+.cref:hover .cref-open,.cref:focus-visible .cref-open{display:inline-flex}
+@media (hover:none){.cref-open{display:inline-flex}}
+.cref.missing{background:var(--surface-sunken);color:var(--ink-3);text-decoration:line-through;cursor:default}
+.ct-composer .cref{cursor:default}
+/* @ picker */
+.cref-picker{position:fixed;z-index:420;max-height:300px;overflow:auto;box-sizing:border-box;padding:6px;color:var(--ink);background:var(--surface-2);border-radius:var(--r-lg);box-shadow:var(--e3);font:var(--t-md)/1.4 var(--font-ui)}
+.cref-picker h6{margin:6px 8px 4px;font:600 var(--t-xs)/1 var(--font-ui);color:var(--ink-3);text-transform:uppercase;letter-spacing:.05em}
+.cref-picker button{display:flex;width:100%;align-items:center;gap:8px;padding:6px 8px;border:0;border-radius:var(--r-sm);background:none;color:inherit;font:inherit;text-align:left;cursor:pointer}
+.cref-picker button span{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.cref-picker button svg{width:14px;height:14px;fill:none;stroke:var(--ink-3);stroke-width:1.5;stroke-linecap:round;stroke-linejoin:round;flex:none}
+.cref-picker button[aria-selected=true],.cref-picker button:hover{background:var(--accent-soft)}
+.cref-empty{margin:6px 8px;color:var(--ink-3);font-size:var(--t-sm)}
+.ct-avatar{width:22px;height:22px;border-radius:50%;display:grid;place-items:center;flex:none;font:700 11px/1 var(--font-ui);background:var(--ink-2);color:var(--surface-2)}
+.ct-avatar.agent{background:var(--accent-soft-2);color:var(--accent-text)}
+.ct-avatar.agent svg{width:13px;height:13px;fill:currentColor;stroke:none}
+
+/* Keyboard hints only where there is a keyboard: not on touch or at phone widths. */
+@media (hover:none),(pointer:coarse),(max-width:760px){.ct-keys{display:none}}

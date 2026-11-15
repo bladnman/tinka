@@ -171,7 +171,7 @@ export function createAppServer(config,{updates=createUpdateService(config)}={})
       if(pathname==='/api/highlights'&&method==='GET'){const input=Object.fromEntries(url.searchParams);if(input.limit!==undefined)input.limit=Number(input.limit);sendJson(res,200,await listHighlights(config,input));return;}
       if(pathname==='/api/feedback'&&method==='GET'){
         const input=Object.fromEntries(url.searchParams);
-        for(const key of ['resolved','includeBodies'])if(input[key]!==undefined){if(!['true','false'].includes(input[key]))throw new HttpError(400,`${key} must be true or false.`);input[key]=input[key]==='true';}
+        for(const key of ['resolved','includeBodies','includeHistory','includeDeleted'])if(input[key]!==undefined){if(!['true','false'].includes(input[key]))throw new HttpError(400,`${key} must be true or false.`);input[key]=input[key]==='true';}
         if(input.limit!==undefined)input.limit=Number(input.limit);
         sendJson(res,200,await listFeedback(config,input));return;
       }

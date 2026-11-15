@@ -166,21 +166,43 @@ export function mountMarkdownReader({asset,query,resourceRoot,path,boardId,conte
   reload.onclick=()=>{if(!editing)load();};
   // In-place editing. The board (cards) or the Edit button (reader) starts it; a request that
   // arrives before the document has loaded waits for the load. Every request is acknowledged.
+  // Keys typed between the request and the caret appearing are kept and replayed by the editor;
+  // Escape in that window cancels the start cleanly.
+  let startKeys=null,starting=false;
+  function bufferKeys(){
+    if(startKeys)return;const buffer=startKeys={keys:[],early:[],cancelled:false,received:false};
+    buffer.ready=new Promise(resolve=>{buffer.receive=resolve;});
+    buffer.listener=event=>{
+      if(event.isComposing)return;
+      if(event.key==='Escape'){event.preventDefault();buffer.cancelled=true;buffer.receive?.();return;}
+      if(event.metaKey||event.ctrlKey||event.altKey)return;
+      if(event.key.length===1||event.key==='Enter'||event.key==='Backspace'){event.preventDefault();buffer.keys.push(event.key);}
+    };
+    window.addEventListener('keydown',buffer.listener,true);
+  }
+  function takeKeys(){const buffer=startKeys;startKeys=null;if(buffer)window.removeEventListener('keydown',buffer.listener,true);return buffer||{keys:[],early:[],cancelled:false};}
   async function startEdit(request){
     if(itemId||request.itemId)post('tinka-document-edit-started',{itemId:itemId||request.itemId,pending:!article});
-    if(editing)return;
+    if(editing||starting)return;
+    bufferKeys();
     if(!article){pendingEdit=request;return;}
-    pendingEdit=null;clearPaint();selectionTools.hidden=true;composing=false;
-    const {startDocumentEditor,readSource}=await import('./document-editor.js');
-    // Edit the bytes as they are now (an agent may have written since this page loaded).
-    // Escape before the page becomes editable cancels the start.
-    let cancelled=false;const cancel=event=>{if(event.key==='Escape'){event.preventDefault();cancelled=true;}};window.addEventListener('keydown',cancel,true);
-    let fresh;try{fresh=await readSource(asset);}catch(error){status.textContent=error.message;window.removeEventListener('keydown',cancel,true);post('tinka-document-edit-end',{itemId:itemId||request.itemId,saved:false});return;}
-    window.removeEventListener('keydown',cancel,true);
-    if(cancelled){post('tinka-document-edit-end',{itemId:itemId||request.itemId,saved:false});return;}
+    pendingEdit=null;starting=true;
+    let fresh,startDocumentEditor;
+    try{
+      ({startDocumentEditor}=await import('./document-editor.js'));
+      // Edit the bytes as they are now (an agent may have written since this page loaded).
+      fresh=await (await import('./document-editor.js')).readSource(asset);
+    }catch(error){starting=false;takeKeys();status.textContent=error.message;post('tinka-document-edit-end',{itemId:itemId||request.itemId,saved:false});return;}
+    // Keys the board held arrive in their own message; start only once they are here (the board
+    // sends them as soon as this page acknowledged the request), so they come first.
+    if(request.expectKeys&&startKeys&&!startKeys.received&&!startKeys.cancelled)await Promise.race([startKeys.ready,new Promise(resolve=>setTimeout(resolve,10000))]);
+    starting=false;
+    const buffered=takeKeys();
+    if(buffered.cancelled){post('tinka-document-edit-end',{itemId:itemId||request.itemId,saved:false});return;}
     if(editing)return;
+    clearPaint();selectionTools.hidden=true;composing=false;
     edit.textContent='Done';edit.title='Finish editing (Esc)';reload.disabled=true;
-    editing=startDocumentEditor({content,article,asset,text:fresh.text,revision:fresh.revision,itemId:itemId||request.itemId,point:request.point,source:!!request.source,selectTitle:!!request.selectTitle,
+    editing=startDocumentEditor({content,article,asset,text:fresh.text,revision:fresh.revision,itemId:itemId||request.itemId,point:request.point,source:!!request.source,selectTitle:!!request.selectTitle,pendingKeys:[...buffered.early,...buffered.keys],
       onStatus:({state,message,revision:saved})=>{post('tinka-document-status',{itemId:itemId||request.itemId,state,message,...(saved?{revision:saved}:{})});if(reader)status.textContent=state==='saving'?'Saving…':state==='saved'?'Saved':state==='conflict'?'Changed elsewhere. Reload to continue.':state==='error'?`Not saved. ${message}`:'';},
       onEnd:result=>{editing=null;edit.textContent='Edit';edit.title='Edit this document in place (E)';post('tinka-document-edit-end',{itemId:itemId||request.itemId,saved:result.saved,unsaved:result.unsaved,title:result.title});load().then(()=>{if(reader&&result.unsaved)status.textContent='Some changes were not saved.';});}});
   }
@@ -189,7 +211,13 @@ export function mountMarkdownReader({asset,query,resourceRoot,path,boardId,conte
     if(event.data?.type==='tinka-annotations-refresh'||event.data?.type==='tinka-feedback-refresh')loadAnnotations();
     if(event.data?.type==='tinka-document-reload'&&!editing)load();
     if(event.data?.type==='tinka-document-edit')startEdit(event.data);
-    if(event.data?.type==='tinka-document-edit-stop')editing?.end();
+    // Keys the board held before this page had the keyboard; they come before any typed here.
+    if(event.data?.type==='tinka-document-keys'&&Array.isArray(event.data.keys)){
+      const keys=event.data.keys.filter(key=>typeof key==='string'&&(key.length===1||key==='Enter'||key==='Backspace')).slice(0,500);
+      if(editing)editing.typeKeys(keys);else if(startKeys){startKeys.early.push(...keys);startKeys.received=true;startKeys.receive();}
+    }
+    // Stop before the editor has started (still loading or reading): cancel the start.
+    if(event.data?.type==='tinka-document-edit-stop'){if(editing)editing.end();else if(startKeys){startKeys.cancelled=true;startKeys.receive?.();if(!starting){pendingEdit=null;takeKeys();post('tinka-document-edit-end',{itemId,saved:false});}}}
     if(event.data?.type==='tinka-annotation-result'){
       if(event.data.ok)status.textContent='Highlight updated.';
       else{status.textContent=event.data.message||'The highlight was not saved. Try again.';renderList();}

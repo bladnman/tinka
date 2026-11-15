@@ -174,7 +174,10 @@ export class FeedbackController {
   highlightOnText(itemId,anchor,options={}){return this.annotationAction('addHighlight',itemId,{anchor},options);}
   removeHighlight(itemId,highlightId,options={}){return this.annotationAction('removeHighlight',itemId,{highlightId},options);}
   syncPins(overrides){
-    if(!this.layer||!this.world)return;this.layer.hidden=!this.pinsVisible||this.getMode()!=='canvas';if(this.layer.parentNode!==this.world)this.world.append(this.layer);const origin=this.getOrigin()||{x:0,y:0};
+    if(!this.layer||!this.world)return;
+    // The Comment tool's pin layer (.comment-pins, from the board) replaces these numbered pins.
+    if(document.querySelector('.comment-pins')){this.layer.hidden=true;this.layer.replaceChildren();return;}
+    this.layer.hidden=!this.pinsVisible||this.getMode()!=='canvas';if(this.layer.parentNode!==this.world)this.world.append(this.layer);const origin=this.getOrigin()||{x:0,y:0};
     this.layer.innerHTML=this.threads.map((t,i)=>{if(t.anchor?.kind!=='point')return '';const p=resolveCommentPoint(t.anchor,this.getBoard(),overrides);return`<button type="button" class="feedback-pin ${t.resolved?'resolved':''} ${p.detached?'detached':''}" data-feedback-pin="${esc(t.id)}" style="left:${p.x+origin.x}px;top:${p.y+origin.y}px" aria-label="Comment ${i+1}${p.detached?' · target unavailable; original point':''}: ${esc((t.body||t.excerpt||'').slice(0,80))}">${i+1}</button>`;}).join('');
     for(const pin of this.layer.querySelectorAll('[data-feedback-pin]'))pin.onclick=e=>{e.stopPropagation();this.open({itemId:this.itemId,threadId:pin.dataset.feedbackPin,returnFocus:pin});};
   }

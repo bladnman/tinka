@@ -47,6 +47,25 @@ try{
     assert.equal((await decos(id)).length,1,'typing adds nothing else');
   });
 
+  // Keys typed the instant after T, S or a double-click reach the new editor in order, with
+  // no pause, including under a slowed CPU; Escape among them finishes the edit cleanly.
+  await run('Keys typed at once after T, S or a double-click are kept, also under CPU load',async(page,id)=>{
+    const settled=async(n,text)=>until(async()=>{const d=await decos(id);return d.length===n&&d[n-1].text===text&&!(await page.locator('.whiteboard-editor').count())&&d;});
+    await page.mouse.move(400,300);await page.keyboard.press('t');await page.keyboard.type('Hello');await page.keyboard.press('Escape');
+    assert.ok(await settled(1,'Hello'),'T: Hello kept and committed by Escape');
+    await page.mouse.dblclick(800,600);await page.keyboard.type('Dbl');await page.keyboard.press('Escape');
+    assert.ok(await settled(2,'Dbl'),'double-click: keys kept');
+    const cdp=await page.context().newCDPSession(page);await cdp.send('Emulation.setCPUThrottlingRate',{rate:8});
+    try{
+      await page.mouse.move(700,250);await page.keyboard.press('s');await page.keyboard.type('Plan it');await page.keyboard.press('Escape');
+      assert.ok(await settled(3,'Plan it'),'S under load: every key and the Escape kept, in order');
+      await page.mouse.move(300,600);await page.keyboard.press('t');await page.keyboard.press('Escape');
+      assert.ok(await settled(4,'Write something'),'Escape alone closes the new text cleanly');
+      await page.keyboard.type('zz');await page.waitForTimeout(300);
+      assert.equal((await decos(id)).length,4,'later keys are not swallowed into a box');
+    }finally{await cdp.send('Emulation.setCPUThrottlingRate',{rate:1});}
+  });
+
   await run('S creates a sticky',async(page,id)=>{
     await page.mouse.move(600,350);await page.keyboard.press('s');
     const d=await until(async()=>(await decos(id))[0]);

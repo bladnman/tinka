@@ -548,6 +548,8 @@ function decodeHash(hash) {
 function parseHash(hash = location.hash) {
   const raw = decodeHash(hash);
   if (!raw) return { view: 'board', round: null, invalid: raw === null };
+  // #comments/THREAD_ID is a board view; the comment layer opens that thread's card.
+  if (/^comments\/./.test(raw)) return { view: 'board', round: null };
   const row = rounds.findIndex(round => raw === `round-${round.id}`);
   if (row >= 0) return { view: 'board', round: rounds[row].id };
   let [key, revision] = raw.split('~');
@@ -1477,7 +1479,7 @@ function applyBoardSnapshotNow(snapshot) {
       loadedPreviews.set(concept.key, revision);
     }
     const entry=concepts[active?.key]; if(active&&entry?.revision){ if(!activeRevision)activeRevision=entry.revision; $('reader-update').hidden=activeRevision===entry.revision; }
-    $('live-status').textContent='Live · '+all.length+' items'; if(active)updateReaderNavigation(); return;
+    $('live-status').textContent=`Live · ${all.length} ${all.length===1?'item':'items'}`; if(active)updateReaderNavigation(); return;
   }
   liveSnapshot = snapshot;
   const labels = { building: 'Building', reserved: 'Reserved', review: 'Ready to review', ready: 'Ready' };

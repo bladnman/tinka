@@ -376,7 +376,7 @@ keep their normal keys. A successful removal cancels any pending Cut intent.
 Use ⌘Z / Ctrl-Z to undo a move and ⇧⌘Z / Ctrl-Shift-Z to redo it. The top bar and Inspector also have
 Undo and Redo. This tab remembers up to 50 successful movement, paste or board-removal steps for this
 workspace, including across Parent/child navigation: card positioning, resizing,
-selected-card nudges, moving or resizing text, shapes and arrows, and moves into or out of existing boards. A selection moves
+selected-card nudges, every change to drawn elements (text, stickies, shapes, regions and arrows), and moves into or out of existing boards. A selection moves
 as one step, with exact placement identities and arrangement restored. Movement undo keeps notes,
 titles and content; paste undo removes only the copies that paste created. New-board creation and canonical item deletion are outside
 movement history. Text fields keep their own undo, and replay is available after
@@ -441,8 +441,10 @@ logical board units and shows free, attached or detached endpoints. Dragging an 
 to reconnect, or More → Detach start/end/both to make resolved endpoints free.
 Reverse swaps the complete endpoints while keeping the arrow identity. Arrow text appears at its midpoint. Escape
 cancels a gesture. Focus a decoration and press Enter for exact geometry or F2
-to edit its text. ⌘Z / Ctrl-Z undoes moving or resizing text, shapes and arrows like
-cards; their text, color, creation and removal are not part of Undo.
+to edit its text. ⌘Z / Ctrl-Z undoes every change to text, stickies, shapes, regions
+and arrows in one step each, like cards: adding, moving, resizing, restyling,
+editing the text and deleting them, including a mixed Delete or ⌘/Ctrl-D of cards
+with drawn elements and a change applied to several at once.
 Sticky and label text use plain Enter for a newline and Cmd/Ctrl+Enter to finish;
 Escape also finishes and keeps what you typed, while the Cancel button discards it.
 Text and Sticky blocks show a small, safe Markdown subset: **bold**, *italic*,
@@ -462,7 +464,10 @@ reader: choose **Edit** on the card's hover toolbar, **Edit document** in its �
 or the selection bar, or press **E** with it selected. Editing is WYSIWYG with
 Markdown typing shortcuts, ⌘/Ctrl-B, -I, -K and -E, list keys and clickable
 checkboxes; it saves about a second after you stop typing and when you leave, and
-Escape or ⌘/Ctrl-Enter ends it. Blocks you did not touch keep their exact source.
+Escape or ⌘/Ctrl-Enter ends it. While editing, ⌘/Ctrl-Z and ⇧⌘/Ctrl-Shift-Z undo and
+redo inside the document, a word of typing or one formatting change at a time
+(undoing a Markdown shortcut brings back the characters you typed), and keys typed
+right after the double-click that starts editing are kept. Blocks you did not touch keep their exact source.
 If the file changed elsewhere since editing began, the save is refused and Tinka
 says so instead of overwriting it. Document cards look like paper and fill their
 tile, with checklists, strikethrough, nested formatting, and live highlights and
@@ -492,6 +497,24 @@ visible. Highlights retain source-match status after edits. Raw HTML is displaye
 2 MiB. Simple pipe tables support up to 16 columns and 200 rows. Source edits retain comment history and report uncertain or unlocated
 quotes instead of silently moving a highlight. Historical document versions
 remain readable; open the current version to comment.
+
+### Comments for you and your agent
+
+Press **C** for the Comment tool, then click empty canvas, a card or a drawn element
+to drop a pin and start a thread there; Shift-C shows or hides comments. Pins show
+who wrote each thread and where it stands, and a pin's card holds the messages, a
+reply box and the thread's status (Open, Sent to agent, Agent working, Addressed ·
+check it, Agent asks you, Resolved). Type **@** in a comment to reference an item, a
+drawn element or a board; the chip shows it on the board when clicked and opens it
+with ⌘-click. **Send to agent** in the bottom bar marks the open threads as sent and
+copies a short prompt to paste to your agent, and **Waiting on you** in the comments
+menu lists the threads an agent has addressed or asked about. When an agent says a
+thread is addressed, choose **Looks good · Resolve** or **Not yet**. Agents find their
+work with `node tinka/app/cli.mjs inbox --config tinka/local/config.json` (the
+`feedback.inbox` tool), reply with what they changed, and never resolve or reopen a
+person's thread: only its author does. New `TINKA.md` files and the agent guide tell
+agents to check the inbox when you mention comments or feedback, and before they
+finish a Tinka task.
 
 Open Comments for a board-wide note or use an item's comment button for
 its discussion. Add point can attach a note within a card or shape so it follows
@@ -571,7 +594,13 @@ version, stable releases within the same app major, supported Node/platform and
 workspace/config schemas, and no migration. Version numbers alone grant nothing,
 including within 0.x.
 
-A new major version (for example 0.7.17 to 1.0.0) is offered, never refused for
+Releases are numbered X.Y and shown that way (Tinka 1.1); each release bumps the
+minor number, and there are no patch releases. Machinery keeps the full form
+(1.1.0 in `package.json`, the `v1.1.0` tag, `tinka/project.json`), and wherever
+you type a version, X.Y means X.Y.0. Older releases with a patch number, such as
+1.0.4, keep showing it.
+
+A new major version (for example 0.7.17 to 1.0) is offered, never refused for
 being major: the notice and `update status` say "Tinka 1.0 is available. This is
 a major update; ask the user before updating." and give the one command that
 installs it after the user agrees, `update now --major`. Plain `update now` and
@@ -596,7 +625,7 @@ grey text; its popover offers **Update now**, **Later** (24 hours, the same as
 auto`). A major update has the accent and a dot and opens **Update to Tinka X?**,
 which starts on Later, so Enter never approves. The board Inspector's **Tinka**
 section shows the version and the policy as **Ask first** / **Automatic** / **Off**
-(notify / auto / off). Update now runs `update now --to X.Y.Z` (with `--major` after
+(notify / auto / off). Update now runs `update now --to X.Y.Z` (the exact release) (with `--major` after
 that yes) as a separate process: while Tinka restarts, the board stays visible,
 adding and undoing pause and changes wait, then **Tinka X is ready · Refresh**
 offers the usual Refresh. Nothing reloads by itself. The browser never installs
@@ -611,10 +640,12 @@ tests; every other check still applies.
 Existing installations receive these commands through a deliberate upgrade:
 
 ```sh
-node tinka/setup.mjs --version X.Y.Z
+node tinka/setup.mjs --version X.Y
 ```
 
-With no version argument, setup always restores its existing pin. Custom existing
+With no version argument, setup always restores its existing pin. `--version 1.1`
+means 1.1.0 for installers and setup helpers from 1.1 on; an older `setup.mjs`
+needs the full `--version 1.1.0`. Custom existing
 `setup.mjs` and `TINKA.md` are preserved. Older setup helpers can install the new
 feature but write receipts without file baselines. To enable future automatic
 replacement safely, review local app modifications, download the **current**
@@ -623,7 +654,7 @@ version with it:
 
 ```sh
 node /absolute/tinka-install.mjs --install-dir /absolute/project/tinka/app \
-  --config /absolute/project/tinka/local/config.json --version X.Y.Z
+  --config /absolute/project/tinka/local/config.json --version X.Y
 ```
 
 This also works when already on the latest version and preserves custom project

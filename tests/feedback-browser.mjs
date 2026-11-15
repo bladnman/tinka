@@ -27,14 +27,28 @@ try{
  const page=await browser.newPage({viewport:{width:1440,height:960}}),errors=[];page.on('pageerror',error=>errors.push(error.message));
  await page.goto(`${url}/boards/${board.boardId}/`);
  await page.locator('[data-item-feedback]').waitFor();
- await page.locator('[data-item-vote]').click();
+ // The vote button is on the card's hover bar, which takes pointer events only while the
+ // card is hovered (or focused): point at the card, then at the button, as a person does.
+ const viaPill=async selector=>{
+   const button=page.locator(selector).first(),card=page.locator('.workspace-card').filter({has:button}).first();
+   const box=await card.boundingBox(),view=await page.locator('#viewport').boundingBox();
+   if(box.x<view.x||box.y<view.y||box.x+box.width>view.x+view.width||box.y+box.height>view.y+view.height)await card.scrollIntoViewIfNeeded();
+   await card.hover();const b=await button.boundingBox(),x=b.x+b.width/2,y=b.y+b.height/2;
+   await page.mouse.move(x,y,{steps:3});
+   // A button covered by an open panel is reached from the keyboard instead (focus also shows the bar).
+   const hit=await button.evaluate((el,{x,y})=>{const e=document.elementFromPoint(x,y);return el.contains(e);},{x,y});
+   if(hit===true)await page.mouse.click(x,y);
+   else{await button.evaluate(el=>el.focus({preventScroll:true}));await page.keyboard.press('Enter');}
+ };
+ const clickVote=()=>viaPill('[data-item-vote]');
+ await clickVote();
  await page.locator('[data-feedback-vote=yes]').click();
  await page.waitForFunction(()=>document.querySelector('[data-feedback-vote=yes]')?.getAttribute('aria-pressed')==='true');
  assert.equal(await page.locator('[data-feedback-vote=yes] span').textContent(),'1');
  await page.locator('[data-feedback-vote=no]').click();
  await page.waitForFunction(()=>document.querySelector('[data-feedback-vote=no]')?.getAttribute('aria-pressed')==='true');
  assert.equal(await page.locator('[data-feedback-vote=yes] span').textContent(),'0');
- await page.locator('[data-ballot-close]').click();await page.locator('[data-item-feedback]').click();
+ await page.locator('[data-ballot-close]').click();await viaPill('[data-item-feedback]');
  await page.locator('.feedback-composer textarea').click();
  const composer=page.locator('.feedback-composer textarea');
  assert.equal(await page.locator('.feedback-panel [data-feedback-vote]').count(),0,'conversation contains no ballot');
@@ -52,7 +66,7 @@ try{
  await page.waitForFunction(()=>!document.querySelector('.feedback-composer').hasAttribute('aria-busy'));
  assert.equal(attempts.length,2,'button and shortcut share one pending guard');assert.equal(attempts[0],attempts[1],'failed retry retains operation identity');await page.unroute('**/api/operations',intercept);
  await page.locator('.feedback-thread').waitFor();assert.match(await page.locator('.feedback-thread').textContent(),/arrows easier to read/);
- await composer.fill('Draft survives Escape');await composer.press('Escape');assert.equal(await page.locator('.feedback-panel').isVisible(),false);await page.locator('[data-item-feedback]').click();assert.equal(await composer.inputValue(),'Draft survives Escape');await page.locator('#board-title').click();assert.equal(await page.locator('.feedback-panel').isVisible(),false);await page.locator('[data-item-feedback]').click();assert.equal(await composer.inputValue(),'Draft survives Escape','click-away retains draft');
+ await composer.fill('Draft survives Escape');await composer.press('Escape');assert.equal(await page.locator('.feedback-panel').isVisible(),false);await viaPill('[data-item-feedback]');assert.equal(await composer.inputValue(),'Draft survives Escape');await page.locator('#board-title').click();assert.equal(await page.locator('.feedback-panel').isVisible(),false);await viaPill('[data-item-feedback]');assert.equal(await composer.inputValue(),'Draft survives Escape','click-away retains draft');
  await page.locator('[data-feedback-reply]').click();await page.locator('.feedback-composer textarea').fill('Keep the simplest approach.');await page.locator('[data-feedback-post]').click();
  await page.locator('.feedback-reply').waitFor();
  await page.locator('[data-feedback-resolve]').click();await page.waitForFunction(()=>document.querySelector('.feedback-thread')?.classList.contains('resolved'));
@@ -60,17 +74,19 @@ try{
  await page.locator('[data-feedback-unresolved]').uncheck();await page.locator('[data-feedback-settings]').click();await page.locator('[data-feedback-resolve]').click();await page.waitForFunction(()=>!document.querySelector('.feedback-thread')?.classList.contains('resolved'));
  await page.locator('[data-feedback-settings]').click();await page.locator('[data-feedback-point]').click();
  const box=await page.locator('#viewport').boundingBox();await page.mouse.click(box.x+420,box.y+150);
- await page.locator('.feedback-composer textarea').fill('Leave more space here.');await page.locator('[data-feedback-post]').click();await page.locator('.feedback-pin').waitFor();
- await page.locator('[data-feedback-settings]').click();await page.locator('[data-feedback-pins]').uncheck();assert.equal(await page.locator('.feedback-pins').isVisible(),false);
- await page.locator('[data-feedback-pins]').check();if(await page.locator('[data-feedback-board]').isVisible())await page.locator('[data-feedback-board]').click();else await page.locator('[data-feedback-settings]').click();
+ await page.locator('.feedback-composer textarea').fill('Leave more space here.');await page.locator('[data-feedback-post]').click();await page.locator('.comment-pins .comment-pin').waitFor();
+ assert.equal(await page.locator('.feedback-pin').count(),0,'the old numbered canvas pins stay off');
+ await page.locator('[data-feedback-settings]').click();await page.locator('[data-feedback-pins]').uncheck();assert.equal(await page.locator('.comment-pins').isVisible(),false,'Show pins hides the comment layer');
+ await page.locator('[data-feedback-pins]').check();assert.equal(await page.locator('.comment-pins').isVisible(),true);if(await page.locator('[data-feedback-board]').isVisible())await page.locator('[data-feedback-board]').click();else await page.locator('[data-feedback-settings]').click();
  await page.locator('.feedback-composer textarea').click();await page.locator('.feedback-composer textarea').fill('Board-wide decision: keep this release focused.');await page.locator('[data-feedback-post]').click();
  await page.waitForFunction(()=>document.querySelectorAll('.feedback-thread').length===3);
  await page.screenshot({path:path.join(evidence,'feedback-wide.png')});
- await page.reload();await page.locator('.feedback-pin').waitFor();await page.locator('[data-item-vote]').click();
+ await page.reload();await page.locator('.comment-pins .comment-pin').waitFor();
+ await clickVote();
  assert.equal(await page.locator('[data-feedback-vote=no]').getAttribute('aria-pressed'),'true');
  await page.locator('[data-feedback-vote=clear]').click();await page.waitForFunction(()=>document.querySelector('[data-feedback-vote=clear]')?.disabled);
- await page.locator('[data-ballot-close]').click();await page.locator('.feedback-pin').waitFor({state:'visible'});
- await page.locator('[data-item-feedback]').click();
+ await page.locator('[data-ballot-close]').click();await page.locator('.comment-pins .comment-pin').first().waitFor({state:'visible'});
+ await viaPill('[data-item-feedback]');
  await page.waitForFunction(()=>document.querySelectorAll('.feedback-thread').length===1);
  await page.setViewportSize({width:390,height:844});await page.screenshot({path:path.join(evidence,'feedback-narrow.png')});
  const bounds=await page.locator('.feedback-panel').boundingBox();assert.ok(bounds.x>=0&&bounds.x+bounds.width<=391);
@@ -78,7 +94,7 @@ try{
  assert.equal(await page.locator('.feedback-panel').isVisible(),false,'390px point picking exposes the canvas');
  const narrowCanvas=await page.locator('#viewport').boundingBox();await page.mouse.click(narrowCanvas.x+Math.min(180,narrowCanvas.width-20),narrowCanvas.y+Math.min(180,narrowCanvas.height-20));
  await page.locator('.feedback-composer textarea').fill('Narrow screen point survives.');await page.locator('[data-feedback-post]').click();
- await page.waitForFunction(()=>document.querySelector('.feedback-list')?.textContent.includes('Narrow screen point survives.')&&document.querySelectorAll('.feedback-pin').length>=1);
+ await page.waitForFunction(()=>document.querySelector('.feedback-list')?.textContent.includes('Narrow screen point survives.')&&document.querySelectorAll('.comment-pins .comment-pin').length>=1);
  await page.screenshot({path:path.join(evidence,'feedback-narrow-point.png')});
  const response=await fetch(`${url}/api/feedback?boardId=${board.boardId}&includeBodies=true`),saved=await response.json();assert.equal(saved.threads.length,4);assert.equal(saved.threads[0].replies.length,1);
  assert.ok(saved.threads.some(thread=>thread.body==='Narrow screen point survives.'&&thread.anchor?.kind==='point'));
@@ -95,7 +111,7 @@ try{
  const current=JSON.parse(await main(['tools','call','board.get','--config',configFile,'--json',JSON.stringify({boardId:board.boardId})]));
  const placement=current.placements.find(p=>p.itemId===item.itemId),card=page.locator(`[data-placement="${placement.id}"]`),shape=page.locator('[data-decoration="feedback-shape"]');
  async function addTargetPoint(target,body){
-   await page.locator('[data-item-feedback]').first().click();await page.locator('[data-feedback-settings]').click();await page.locator('[data-feedback-board]').click();await page.locator('[data-feedback-settings]').click();await page.locator('[data-feedback-point]').click();
+   await viaPill('[data-item-feedback]');await page.locator('[data-feedback-settings]').click();await page.locator('[data-feedback-board]').click();await page.locator('[data-feedback-settings]').click();await page.locator('[data-feedback-point]').click();
    const rect=await target.boundingBox();await page.mouse.click(rect.x+rect.width*.25,rect.y+rect.height*.5);
    await page.locator('.feedback-composer textarea').fill(body);await page.locator('[data-feedback-post]').click();
    await page.waitForFunction(text=>document.querySelector('.feedback-list')?.textContent.includes(text),body);
@@ -106,17 +122,17 @@ try{
  const attached=await addTargetPoint(card,'Follow this card.'),decorated=await addTargetPoint(shape,'Follow this shape.');
  assert.equal(attached.anchor.placementId,placement.id);assert.equal(decorated.anchor.decorationId,'feedback-shape');
  async function assertPinTracks(thread,target){
-   await page.waitForFunction(({id,targetId,decoration,relative})=>{const pin=document.querySelector(`[data-feedback-pin="${id}"]`),target=document.querySelector(`[${decoration?'data-decoration':'data-placement'}="${targetId}"]`);return pin&&target&&Math.abs(parseFloat(pin.style.left)-parseFloat(target.style.left)-relative.x*parseFloat(target.style.width))<1&&Math.abs(parseFloat(pin.style.top)-parseFloat(target.style.top)-relative.y*parseFloat(target.style.height))<1;},{id:thread.id,targetId:thread.anchor.placementId||thread.anchor.decorationId,decoration:!!thread.anchor.decorationId,relative:thread.anchor.relative});
+   await page.waitForFunction(({id,targetId,decoration,relative})=>{const pin=document.querySelector(`[data-comment-pin="${id}"]`),target=document.querySelector(`[${decoration?'data-decoration':'data-placement'}="${targetId}"]`);return pin&&target&&Math.abs(parseFloat(pin.style.left)-parseFloat(target.style.left)-relative.x*parseFloat(target.style.width))<1&&Math.abs(parseFloat(pin.style.top)-parseFloat(target.style.top)-relative.y*parseFloat(target.style.height))<1;},{id:thread.id,targetId:thread.anchor.placementId||thread.anchor.decorationId,decoration:!!thread.anchor.decorationId,relative:thread.anchor.relative});
  }
  await applyOperation(config,{type:'updatePlacement',boardId:board.boardId,placementId:placement.id,patch:{x:50,y:80,width:400,height:300}});
  await applyOperation(config,{type:'updateDecoration',boardId:board.boardId,decorationId:'feedback-shape',patch:{x:550,y:40,width:320,height:240}});
- await page.reload();await page.locator(`[data-feedback-pin="${attached.id}"]`).waitFor();await assertPinTracks(attached,card);await assertPinTracks(decorated,shape);
+ await page.reload();await page.locator(`[data-comment-pin="${attached.id}"]`).waitFor();await assertPinTracks(attached,card);await assertPinTracks(decorated,shape);
  // During a real gesture the pin follows the temporary geometry before save.
  const dragBox=await card.boundingBox();await page.mouse.move(dragBox.x+dragBox.width*.75,dragBox.y+30);await page.mouse.down();await page.mouse.move(dragBox.x+dragBox.width*.75+70,dragBox.y+80,{steps:4});assert.ok(Math.abs((await card.boundingBox()).x-dragBox.x)>20);await assertPinTracks(attached,card);const moveSaved=page.waitForResponse(response=>response.url().endsWith('/api/operations')&&response.request().method()==='POST'),moveView=page.waitForResponse(response=>response.url().includes('/api/feedback?'));await page.mouse.up();await moveSaved;await (await moveView).finished();await page.evaluate(()=>new Promise(requestAnimationFrame));
  const resize=await card.locator('[data-resize]').boundingBox();await page.mouse.move(resize.x+resize.width/2,resize.y+resize.height/2);await page.mouse.down();const widthBeforeResize=await card.evaluate(el=>parseFloat(el.style.width));await page.mouse.move(resize.x+resize.width/2+60,resize.y+resize.height/2+40,{steps:4});assert.ok(await card.evaluate((el,before)=>parseFloat(el.style.width)>before+20,widthBeforeResize));await assertPinTracks(attached,card);const resizeSaved=page.waitForResponse(response=>response.url().endsWith('/api/operations')&&response.request().method()==='POST');await page.mouse.up();await resizeSaved;
  await page.screenshot({path:path.join(evidence,'feedback-relative-wide.png')});
  await applyOperation(config,{type:'removeDecoration',boardId:board.boardId,decorationId:'feedback-shape'});
- await page.reload();const detachedPin=page.locator(`[data-feedback-pin="${decorated.id}"]`);await detachedPin.waitFor();assert.match(await detachedPin.getAttribute('aria-label'),/target unavailable; original point/);assert.equal(await detachedPin.evaluate(el=>el.classList.contains('detached')),true);
+ await page.reload();const detachedPin=page.locator(`[data-comment-pin="${decorated.id}"]`);await detachedPin.waitFor();assert.match(await detachedPin.getAttribute('aria-label'),/was on .+, deleted/);assert.equal(await detachedPin.evaluate(el=>el.classList.contains('detached')),true);
  const detached=JSON.parse(await main(['tools','call','feedback.list','--config',configFile,'--json',JSON.stringify({threadId:decorated.id})])).threads[0];assert.deepEqual(detached.anchorPoint,{x:decorated.anchor.x,y:decorated.anchor.y,detached:true,fallback:true});
  // Compact graph loading must retain complete immediate child layouts for Copy.
  const child=(await applyOperation(config,{type:'createBoard',title:'Child layout',parentBoardId:board.boardId})).result;
@@ -130,10 +146,10 @@ try{
    if(copied)break;await new Promise(resolve=>setTimeout(resolve,100));
  }
  assert.ok(copied);assert.equal(copied.boards[child.boardId].decorations[0].text,'Retain this decoration');
- await page.locator(`[data-item-feedback="${item.itemId}"]`).click();await composer.fill('Original scoped draft');await page.locator(`[data-item-feedback="${child.itemId}"]`).click();await composer.fill('Child scoped draft');await page.locator(`[data-item-feedback="${item.itemId}"]`).click();assert.equal(await composer.inputValue(),'Original scoped draft');
- await page.reload();await page.locator(`[data-item-feedback="${item.itemId}"]`).click();assert.equal(await composer.inputValue(),'Original scoped draft','tab reload restores scoped draft');
+ await viaPill(`[data-item-feedback="${item.itemId}"]`);await composer.fill('Original scoped draft');await viaPill(`[data-item-feedback="${child.itemId}"]`);await composer.fill('Child scoped draft');await viaPill(`[data-item-feedback="${item.itemId}"]`);assert.equal(await composer.inputValue(),'Original scoped draft');
+ await page.reload();await viaPill(`[data-item-feedback="${item.itemId}"]`);assert.equal(await composer.inputValue(),'Original scoped draft','tab reload restores scoped draft');
  let release;const gate=new Promise(resolve=>{release=resolve;});const hold=async route=>{if(route.request().postDataJSON().type==='addComment')await gate;await route.continue();};await page.route('**/api/operations',hold);
- await composer.press('Control+Enter');await page.waitForFunction(()=>document.querySelector('.feedback-composer').getAttribute('aria-busy')==='true');await page.locator(`[data-item-feedback="${child.itemId}"]`).click();assert.equal(await composer.inputValue(),'Child scoped draft');release();await page.waitForFunction(()=>!document.querySelector('.feedback-composer').hasAttribute('aria-busy'));assert.equal(await composer.inputValue(),'Child scoped draft','other scope survives delayed successful post');await page.unroute('**/api/operations',hold);
+ await composer.press('Control+Enter');await page.waitForFunction(()=>document.querySelector('.feedback-composer').getAttribute('aria-busy')==='true');await viaPill(`[data-item-feedback="${child.itemId}"]`);assert.equal(await composer.inputValue(),'Child scoped draft');release();await page.waitForFunction(()=>!document.querySelector('.feedback-composer').hasAttribute('aria-busy'));assert.equal(await composer.inputValue(),'Child scoped draft','other scope survives delayed successful post');await page.unroute('**/api/operations',hold);
  await page.screenshot({path:path.join(evidence,'feedback-draft-scopes.png')});
  assert.deepEqual(errors,[]);
  console.log(JSON.stringify({passed:true,threads:saved.threads.length+3,checks:'inline conversation, distinct ballot, vote replace/clear, multiline Enter, IME/repeat, failed retry identity, no duplicate post, retained scoped/reloaded drafts, delayed scope switch, comment/reply, resolve/reopen/filter, point, hide/show, reload persistence, 1440/390 layout, target point picking, target move/resize preview, detached fallback, HTTP/CLI read parity, child layout copy',evidence}));

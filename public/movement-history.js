@@ -30,11 +30,33 @@ export class MovementHistory {
     try { sessionStorage.setItem(this.key,JSON.stringify(this.state)); } catch {}
     this.onChange();
   }
+  // Several writes made for one user action (a mixed Duplicate, a multi-edit) become
+  // one entry: its receipts undo in reverse order and redo in the original order.
+  async group(label, action) {
+    const outer = !this.grouping;
+    if (outer) this.grouping = [];
+    try { return await action(); }
+    finally {
+      if (outer) {
+        const receipts = this.grouping;
+        this.grouping = null;
+        if (receipts.length) {
+          this.state.undo.push({history:receipts.length === 1 ? receipts[0] : receipts,label});
+          this.state.redo = [];
+          this.changed();
+        }
+      }
+    }
+  }
   record(history, {type,data}, operationId) {
     if (operationId && this.state.seen.includes(operationId)) return;
     if (operationId) this.state.seen = [...this.state.seen,operationId].slice(-100);
+    if (this.grouping) { this.grouping.push(history); return; }
     const count = data.placementIds?.length || data.clipboard?.placements?.length || data.files?.length || 1;
-    const action = type === "reference" && data.featureOnParent ? (count > 1 ? `Show ${count} items on parent` : "Show item on parent") : type === "duplicate" ? (count > 1 ? `Duplicate ${count} items` : "Duplicate item") : type === "remove" ? (count > 1 ? `Remove ${count} items` : "Remove item") : type === "importFiles" ? (count > 1 ? `Import ${count} files` : "Import file") : type === "pastePlacements" ? (count > 1 ? `Paste ${count} items` : "Paste item") : type === "updateDecoration" ? "Move or resize" : type === "arrangePlacements" ? "Arrange" : type === "updatePlacement" && ("width" in (data.patch || {}) || "height" in (data.patch || {}))
+    const action = type === "reference" && data.featureOnParent ? (count > 1 ? `Show ${count} items on parent` : "Show item on parent") : type === "duplicate" ? (count > 1 ? `Duplicate ${count} items` : "Duplicate item") : type === "remove" ? (count > 1 ? `Remove ${count} items` : "Remove item") : type === "importFiles" ? (count > 1 ? `Import ${count} files` : "Import file") : type === "pastePlacements" ? (count > 1 ? `Paste ${count} items` : "Paste item") : type === "createDecoration" ? (data.decoration?.type === "line" ? "Add arrow" : data.decoration?.type === "text" ? "Add text" : "Add shape") :
+      type === "removeDecoration" ? "Delete drawn element" : type === "updateBoard" ? "Edit drawn elements" :
+      type === "remove" && data.decorationIds?.length ? `Remove ${(data.placementIds?.length || 0) + data.decorationIds.length} items` :
+      type === "updateDecoration" ? (["x","y","width","height","from","to"].some(key => key in (data.patch || {})) ? "Move or resize" : "text" in (data.patch || {}) ? "Edit text" : "Change style") : type === "arrangePlacements" ? "Arrange" : type === "updatePlacement" && ("width" in (data.patch || {}) || "height" in (data.patch || {}))
       ? "Resize item" : count > 1 ? `Move ${count} items` : "Move item";
     this.state.undo.push({history,label:action});
     this.state.redo = [];
@@ -51,11 +73,22 @@ export class MovementHistory {
       // the exact state it restores from, under the same lock. A revision-only
       // rejection can therefore be resubmitted at the reported revision; a real
       // arrangement change still rejects on the server.
-      const response = await this.client.writeRechecked("restoreMovement",{history:entry.history},
-        error => error.revision,{recordHistory:false,includeHistory:true});
+      const receipts = Array.isArray(entry.history) ? entry.history : [entry.history], reciprocal = [];
+      let response, failure, left = receipts.length;
+      for (let i = receipts.length - 1; i >= 0; i--) {
+        try {
+          response = await this.client.writeRechecked("restoreMovement",{history:receipts[i]},
+            error => error.revision,{recordHistory:false,includeHistory:true});
+        } catch (error) { failure = error; break; }
+        left = i;
+        if (response.history) reciprocal.push(response.history);
+      }
+      // A grouped entry that stopped part way keeps what is left on this stack.
       this.state[direction].pop();
-      if (response.history) this.state[opposite].push({history:response.history,label:entry.label});
+      if (failure && left) this.state[direction].push({history:left === 1 ? receipts[0] : receipts.slice(0,left),label:entry.label});
+      if (reciprocal.length) this.state[opposite].push({history:reciprocal.length === 1 ? reciprocal[0] : reciprocal,label:entry.label});
       this.changed();
+      if (failure) throw failure;
       return {label:entry.label,result:response.result};
     } finally {
       this.busy = false;

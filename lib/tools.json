@@ -1971,7 +1971,7 @@
     },
     {
       "name": "placement.remove",
-      "description": "Detach selected placements without deleting canonical items or files; movement history supports undo.",
+      "description": "Detach selected placements without deleting canonical items or files, and optionally delete drawn elements (decorationIds) in the same revision; movement history supports undo.",
       "inputSchema": {
         "type": "object",
         "additionalProperties": false,
@@ -1997,7 +1997,16 @@
               "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_-]{0,127}$",
               "maxLength": 128
             },
-            "minItems": 1
+            "description": "Placements to remove from this board; may be empty when decorationIds is given."
+          },
+          "decorationIds": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_-]{0,127}$",
+              "maxLength": 128
+            },
+            "description": "Optional drawn elements (decorations) on this board to delete in the same revision; one undo restores them with the placements."
           }
         },
         "required": [
@@ -3027,7 +3036,7 @@
     {
       "name": "feedback.list",
       "mutating": false,
-      "description": "List compact feedback summaries by board/item or inspect one complete thread. Cursor binds the workspace revision. Point results include anchorPoint with resolved x/y and detached/fallback flags. Actor names are self-reported.",
+      "description": "List compact feedback summaries by board/item or inspect one complete thread. Filters: status (one or a list), to (agent|human), toId, authorKind, updatedAfter. Cursor binds the workspace revision; since (start with \"\") is an inbox position that survives unrelated writes and returns nextSince. Summaries carry status, to, refs, targetLabel and lastAuthor; refs report exists/state/currentLabel. Point results include anchorPoint. Actor names are self-reported.",
       "inputSchema": {
         "type": "object",
         "additionalProperties": false,
@@ -3050,6 +3059,59 @@
           "resolved": {
             "type": "boolean"
           },
+          "status": {
+            "oneOf": [
+              {
+                "enum": [
+                  "open",
+                  "sent",
+                  "working",
+                  "addressed",
+                  "question",
+                  "resolved"
+                ]
+              },
+              {
+                "type": "array",
+                "minItems": 1,
+                "maxItems": 6,
+                "items": {
+                  "enum": [
+                    "open",
+                    "sent",
+                    "working",
+                    "addressed",
+                    "question",
+                    "resolved"
+                  ]
+                }
+              }
+            ]
+          },
+          "to": {
+            "enum": [
+              "agent",
+              "human"
+            ]
+          },
+          "toId": {
+            "type": "string",
+            "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_-]{0,127}$",
+            "maxLength": 128
+          },
+          "authorKind": {
+            "enum": [
+              "agent",
+              "human"
+            ]
+          },
+          "updatedAfter": {
+            "type": "string"
+          },
+          "since": {
+            "type": "string",
+            "maxLength": 512
+          },
           "limit": {
             "type": "integer",
             "minimum": 1,
@@ -3060,6 +3122,12 @@
           },
           "includeBodies": {
             "type": "boolean"
+          },
+          "includeHistory": {
+            "type": "boolean"
+          },
+          "includeDeleted": {
+            "type": "boolean"
           }
         },
         "required": []
@@ -3068,7 +3136,7 @@
     {
       "name": "feedback.comment",
       "mutating": true,
-      "description": "Add a general, board-point, item or exact text-quote comment. Optional point relative:{x,y} fractions (0–1) require one target and follow its bounds; x/y retains the creation fallback. Author is a self-reported local identity.",
+      "description": "Add a general, board-point, item or exact text-quote comment. Optional point relative:{x,y} fractions (0–1) require one target and follow its bounds; x/y retains the creation fallback. to:{kind:agent|human,id?} addresses it; status \"sent\" (with to agent) hands it to the agent at once. refs are structured @ references; targetLabel snapshots what it is on (computed when omitted). Author is a self-reported local identity.",
       "inputSchema": {
         "type": "object",
         "additionalProperties": false,
@@ -3260,6 +3328,75 @@
             "type": "string",
             "minLength": 1,
             "maxLength": 20000
+          },
+          "to": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "kind"
+            ],
+            "properties": {
+              "kind": {
+                "enum": [
+                  "agent",
+                  "human"
+                ]
+              },
+              "id": {
+                "type": "string",
+                "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_-]{0,127}$",
+                "maxLength": 128
+              }
+            }
+          },
+          "refs": {
+            "type": "array",
+            "maxItems": 20,
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "kind",
+                "id",
+                "label"
+              ],
+              "properties": {
+                "kind": {
+                  "enum": [
+                    "item",
+                    "placement",
+                    "decoration",
+                    "board"
+                  ]
+                },
+                "id": {
+                  "type": "string",
+                  "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_-]{0,127}$",
+                  "maxLength": 128
+                },
+                "boardId": {
+                  "type": "string",
+                  "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_-]{0,127}$",
+                  "maxLength": 128
+                },
+                "label": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 120
+                }
+              }
+            }
+          },
+          "targetLabel": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 120
+          },
+          "status": {
+            "enum": [
+              "open",
+              "sent"
+            ]
           }
         },
         "required": [
@@ -3272,7 +3409,7 @@
     {
       "name": "feedback.reply",
       "mutating": true,
-      "description": "Append a human or agent reply to a stable feedback thread.",
+      "description": "Append a human or agent reply to a stable feedback thread. changes lists what the reply changed (\"Changed A\"); status moves the thread in the same write (an agent: addressed or question; never resolved on a person's thread). A person replying to an agent's question or addressed note sends the thread back (sent).",
       "inputSchema": {
         "type": "object",
         "additionalProperties": false,
@@ -3327,6 +3464,96 @@
             "type": "string",
             "minLength": 1,
             "maxLength": 20000
+          },
+          "refs": {
+            "type": "array",
+            "maxItems": 20,
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "kind",
+                "id",
+                "label"
+              ],
+              "properties": {
+                "kind": {
+                  "enum": [
+                    "item",
+                    "placement",
+                    "decoration",
+                    "board"
+                  ]
+                },
+                "id": {
+                  "type": "string",
+                  "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_-]{0,127}$",
+                  "maxLength": 128
+                },
+                "boardId": {
+                  "type": "string",
+                  "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_-]{0,127}$",
+                  "maxLength": 128
+                },
+                "label": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 120
+                }
+              }
+            }
+          },
+          "changes": {
+            "type": "array",
+            "maxItems": 20,
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "kind",
+                "id",
+                "label"
+              ],
+              "properties": {
+                "kind": {
+                  "enum": [
+                    "item",
+                    "placement",
+                    "decoration",
+                    "board"
+                  ]
+                },
+                "id": {
+                  "type": "string",
+                  "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_-]{0,127}$",
+                  "maxLength": 128
+                },
+                "boardId": {
+                  "type": "string",
+                  "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_-]{0,127}$",
+                  "maxLength": 128
+                },
+                "label": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 120
+                },
+                "note": {
+                  "type": "string",
+                  "maxLength": 500
+                }
+              }
+            }
+          },
+          "status": {
+            "enum": [
+              "open",
+              "sent",
+              "working",
+              "addressed",
+              "question",
+              "resolved"
+            ]
           }
         },
         "required": [
@@ -3337,9 +3564,106 @@
       }
     },
     {
+      "name": "feedback.setStatus",
+      "mutating": true,
+      "description": "Set a thread's status (open, sent, working, addressed, question, resolved) and/or its addressee to (null clears), recorded with the actor in statusHistory. Agents may set sent, working, addressed or question; an agent may not resolve or reopen a thread a person wrote. Same status again is a no-op.",
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "expectedRevision": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "operationId": {
+            "type": "string",
+            "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_-]{0,127}$",
+            "maxLength": 128
+          },
+          "threadId": {
+            "type": "string",
+            "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_-]{0,127}$",
+            "maxLength": 128
+          },
+          "actor": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "id",
+              "label",
+              "kind"
+            ],
+            "properties": {
+              "id": {
+                "type": "string",
+                "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_-]{0,127}$",
+                "maxLength": 128
+              },
+              "label": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 120
+              },
+              "kind": {
+                "enum": [
+                  "human",
+                  "agent"
+                ]
+              }
+            }
+          },
+          "status": {
+            "enum": [
+              "open",
+              "sent",
+              "working",
+              "addressed",
+              "question",
+              "resolved"
+            ]
+          },
+          "to": {
+            "oneOf": [
+              {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "kind"
+                ],
+                "properties": {
+                  "kind": {
+                    "enum": [
+                      "agent",
+                      "human"
+                    ]
+                  },
+                  "id": {
+                    "type": "string",
+                    "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_-]{0,127}$",
+                    "maxLength": 128
+                  }
+                }
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "note": {
+            "type": "string",
+            "maxLength": 500
+          }
+        },
+        "required": [
+          "threadId",
+          "actor"
+        ]
+      }
+    },
+    {
       "name": "feedback.resolve",
       "mutating": true,
-      "description": "Resolve or reopen a feedback thread without losing its messages.",
+      "description": "Resolve or reopen a feedback thread without losing its messages (status resolved or open). Pass actor to record who did it; an agent may not resolve or reopen a thread a person wrote.",
       "inputSchema": {
         "type": "object",
         "additionalProperties": false,
@@ -3360,11 +3684,204 @@
           },
           "resolved": {
             "type": "boolean"
+          },
+          "actor": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "id",
+              "label",
+              "kind"
+            ],
+            "properties": {
+              "id": {
+                "type": "string",
+                "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_-]{0,127}$",
+                "maxLength": 128
+              },
+              "label": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 120
+              },
+              "kind": {
+                "enum": [
+                  "human",
+                  "agent"
+                ]
+              }
+            }
           }
         },
         "required": [
           "threadId",
           "resolved"
+        ]
+      }
+    },
+    {
+      "name": "feedback.edit",
+      "mutating": true,
+      "description": "Edit your own comment or reply (messageId; omit for the thread's first comment). Only the author (same actor id and kind) may edit; the previous version is kept in editHistory.",
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "expectedRevision": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "operationId": {
+            "type": "string",
+            "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_-]{0,127}$",
+            "maxLength": 128
+          },
+          "threadId": {
+            "type": "string",
+            "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_-]{0,127}$",
+            "maxLength": 128
+          },
+          "messageId": {
+            "type": "string",
+            "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_-]{0,127}$",
+            "maxLength": 128
+          },
+          "actor": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "id",
+              "label",
+              "kind"
+            ],
+            "properties": {
+              "id": {
+                "type": "string",
+                "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_-]{0,127}$",
+                "maxLength": 128
+              },
+              "label": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 120
+              },
+              "kind": {
+                "enum": [
+                  "human",
+                  "agent"
+                ]
+              }
+            }
+          },
+          "body": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 20000
+          },
+          "refs": {
+            "type": "array",
+            "maxItems": 20,
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "kind",
+                "id",
+                "label"
+              ],
+              "properties": {
+                "kind": {
+                  "enum": [
+                    "item",
+                    "placement",
+                    "decoration",
+                    "board"
+                  ]
+                },
+                "id": {
+                  "type": "string",
+                  "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_-]{0,127}$",
+                  "maxLength": 128
+                },
+                "boardId": {
+                  "type": "string",
+                  "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_-]{0,127}$",
+                  "maxLength": 128
+                },
+                "label": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 120
+                }
+              }
+            }
+          }
+        },
+        "required": [
+          "threadId",
+          "actor",
+          "body"
+        ]
+      }
+    },
+    {
+      "name": "feedback.delete",
+      "mutating": true,
+      "description": "Delete your own comment or reply (messageId; omit for the first comment). Only the author may delete; the message is kept with deletedAt and listed without its body. A deleted first comment with no live replies hides the thread.",
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "expectedRevision": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "operationId": {
+            "type": "string",
+            "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_-]{0,127}$",
+            "maxLength": 128
+          },
+          "threadId": {
+            "type": "string",
+            "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_-]{0,127}$",
+            "maxLength": 128
+          },
+          "messageId": {
+            "type": "string",
+            "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_-]{0,127}$",
+            "maxLength": 128
+          },
+          "actor": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "id",
+              "label",
+              "kind"
+            ],
+            "properties": {
+              "id": {
+                "type": "string",
+                "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_-]{0,127}$",
+                "maxLength": 128
+              },
+              "label": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 120
+              },
+              "kind": {
+                "enum": [
+                  "human",
+                  "agent"
+                ]
+              }
+            }
+          }
+        },
+        "required": [
+          "threadId",
+          "actor"
         ]
       }
     },
@@ -3624,6 +4141,31 @@
         "required": [
           "itemId"
         ]
+      }
+    },
+    {
+      "name": "feedback.inbox",
+      "mutating": false,
+      "description": "Comments that need this agent: handed to it (sent), addressed to it and open, or a person replied after its last message. Read-only and fast (no lock). Each has board, link, targetLabel, status, reason and a one-line snippet. since is a position from a previous nextSince; omit it for everything waiting.",
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "actorId": {
+            "type": "string",
+            "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_-]{0,127}$",
+            "maxLength": 128
+          },
+          "since": {
+            "type": "string",
+            "maxLength": 512
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 100
+          }
+        }
       }
     }
   ]

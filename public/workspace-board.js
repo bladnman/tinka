@@ -13,6 +13,7 @@ import {timeHTML} from "./relative-dates.js";
 import {navigationGraph} from "./navigator-graph.js";
 import {isMacPlatform,stepModifierLabel} from "./reader-keys.js";
 import {snapBox,boundsOf,snapDisabled,GuideLayer} from "./snap-guides.js";
+import {CommentPins,COMMENT_ICON,refBox} from "./comment-pins.js";
 import {CLIPBOARD_MIME,CLIPBOARD_PREFIX,clipboardBytes,readClipboard,externalClipboard} from "./clipboard.js";
 import {
   WorkspaceClient,
@@ -400,6 +401,8 @@ export class WorkspaceBoard {
       getMode:()=>this.mode,refresh:()=>this.refresh({saveReview:false})});
     this.feedback.mount({toolbar:bar,world:$("world"),viewport:$("viewport")});
     this.feedback.reload().catch(error=>console.warn("Feedback unavailable:",error.message));
+    // The Comment tool: pins, the comments layer menu and Send to agent.
+    if (!this.hooks.viewOnly) { this.commentPins = new CommentPins(this); this.commentPins.mount(); this.commentPins.reload(); }
     this.arrangeInspector(bar);
     this.setMode(this.mode, false);
     this.loadCrumb();
@@ -620,6 +623,7 @@ export class WorkspaceBoard {
     this.hooks.data(this.adapt(snapshot));
     await this.loadCrumb();
     if (this.feedback) await this.feedback.reload();
+    await this.commentPins?.reload();
   }
   liveBlocked() {
     return !!(this.documentEditing || this.pointerGesture || this.decorationGesture || this.decorationCommitting || this.moveCommitting || this.movePending ||
@@ -637,6 +641,9 @@ export class WorkspaceBoard {
   }
   syncGeometry(overrides) {
     this.whiteboard?.sync(overrides);
+    // The comment layer goes back into the world first, so feedback.js sees it and
+    // leaves the old numbered pins off.
+    this.commentPins?.sync(overrides);
     this.feedback?.sync(overrides);
   }
   drainGeometryRefresh() {
@@ -728,7 +735,8 @@ export class WorkspaceBoard {
           if (event.repeat || this.boardCommandBlocked(event) || this.movePending) return;
           const drawn = this.keyboardDecorations().length ? this.keyboardDecorations()
             : (this.snapshot.decorations || []).filter(d => d.id === this.activeDecoration);
-          this.duplicateDecorations(drawn).then(ids => this.whiteboard?.selectDecorations(ids)).catch(showFailure);
+          this.history.group(drawn.length > 1 ? `Duplicate ${drawn.length} drawn elements` : "Duplicate drawn element", () => this.duplicateDecorations(drawn))
+            .then(ids => this.whiteboard?.selectDecorations(ids)).catch(showFailure);
           return;
         }
         // Board-owned Duplicate never falls through to browser Bookmark while
@@ -788,6 +796,9 @@ export class WorkspaceBoard {
         const id = this.selectedDocument().id;
         action = () => this.editDocument(id);
       }
+      // C arms the Comment tool; Shift-C shows or hides the comments layer.
+      else if (!command && key === "c" && this.mode === "canvas" && this.commentPins)
+        action = () => event.shiftKey ? this.commentPins.toggleVisible() : this.commentPins.arm();
       // N opens Quick jot: each Enter'd line becomes a sticky.
       else if (!command && !event.shiftKey && key === "n" && this.mode === "canvas" && this.snapshot?.id)
         action = () => this.quickJot();
@@ -823,6 +834,7 @@ export class WorkspaceBoard {
       <dt>A</dt><dd>Show or hide the edit tools</dd>
       <dt>T · S · D</dt><dd>Add Text · a Sticky note · a Markdown Document at the pointer</dd>
       <dt>E</dt><dd>Edit the selected Markdown document</dd>
+      <dt>C · Shift-C</dt><dd>Comment tool: click the board, a card or a drawn element to comment · Show or hide comments</dd>
       <dt>N</dt><dd>Quick jot: type a line, Enter adds it as a sticky; Escape closes</dd>
       <dt>?</dt><dd>Show keyboard shortcuts</dd>
       <dt>⌘/Ctrl-C · X · V</dt><dd>Copy · Cut · Paste</dd>
@@ -1140,10 +1152,11 @@ export class WorkspaceBoard {
         y:Math.min(...clipboard.placements.map(p => p.y)) + 32};
       // (Optional calls keep this usable on the bare boards unit tests build.)
       const drawn = this.groupDecorations?.() || [], before = new Set(this.snapshot?.placements.map(p => p.id));
-      const pasted = this.pasteClipboard({kind:"duplicate",clipboard,targetPosition});
-      if (!drawn.length) return pasted;
-      // A mixed group's drawn elements are copied too, 32 units down and right.
-      return Promise.resolve(pasted).then(async () => {
+      if (!drawn.length) return this.pasteClipboard({kind:"duplicate",clipboard,targetPosition});
+      // A mixed group's drawn elements are copied too, 32 units down and right; the
+      // two writes are one Undo step.
+      return this.history.group(`Duplicate ${clipboard.placements.length + drawn.length} items`, async () => {
+        await this.pasteClipboard({kind:"duplicate",clipboard,targetPosition});
         if (![...this.selection].some(id => !before.has(id))) return;
         const ids = await this.duplicateDecorations(drawn);
         this.setMixedGroup(ids);
@@ -1270,6 +1283,8 @@ export class WorkspaceBoard {
       .forEach((b) => b.setAttribute("aria-pressed", b.dataset.mode === mode));
     this.hooks.mode(mode);
     this.syncEditTools?.();
+    if (mode !== "canvas" && this.commentPins?.armed) this.commentPins.arm(false);
+    this.commentPins?.renderBar();
     if (rebuild) this.rebuild();
   }
   build(concepts) {
@@ -1587,17 +1602,16 @@ export class WorkspaceBoard {
     const drawn = this.groupDecorations().map(d => d.id);
     let confirmedRemoved = false;
     try {
-      await this.client.write("remove", {boardId:this.snapshot.id,placementIds:ids});
+      // A mixed group's drawn elements are deleted in the same write, so one Undo restores all.
+      await this.client.write("remove", {boardId:this.snapshot.id,placementIds:ids,...(drawn.length ? {decorationIds:drawn} : {})});
       confirmedRemoved = true;
-      // A mixed group's drawn elements are deleted with it (not part of Undo, as for one).
-      for (const decorationId of drawn) await this.client.write("removeDecoration", {boardId:this.snapshot.id,decorationId});
       if (drawn.length) { this.mixedGroup = false; this.decorationSelection = new Set(); }
       // Clear only the intent captured before this request, never a newer tab's cut.
       this.cutIntent.clear(cut);
       ids.forEach(id => this.selection.delete(id));
       if (ids.includes(this.contextPlacement)) this.closeContext();
       await this.refresh({saveReview:false});
-      toast(drawn.length ? `Removed ${ids.length} Tinka${ids.length === 1 ? "" : "s"} and deleted ${drawn.length} drawn element${drawn.length === 1 ? "" : "s"}. Undo restores the Tinkas only.`
+      toast(drawn.length ? `Removed ${ids.length} Tinka${ids.length === 1 ? "" : "s"} and ${drawn.length} drawn element${drawn.length === 1 ? "" : "s"}. Undo to restore.`
         : `Removed ${ids.length} Tinka${ids.length === 1 ? "" : "s"} from this board. Undo to restore.`);
     } catch (error) {
       try { await this.refresh({saveReview:false}); } catch {}
@@ -2627,7 +2641,42 @@ export class WorkspaceBoard {
     const point = screen || { x: viewport.left + viewport.width / 2, y: viewport.top + viewport.height / 2 };
     return { x: Math.round((point.x - world.left) / this.hooks.zoom() - (this.origin?.x || 0)), y: Math.round((point.y - world.top) / this.hooks.zoom() - (this.origin?.y || 0)) };
   }
+  // Keys typed between T/S (or a double-click, or the palette) and the editor taking focus
+  // are held here and replayed into it in order; Escape among them finishes the edit.
+  holdEditorKeys() {
+    const early = {keys:[]};
+    early.listener = e => {
+      if (e.isComposing || e.keyCode === 229 || e.metaKey || e.ctrlKey || e.altKey) return;
+      if (e.key === "Escape" || e.key === "Enter" || e.key === "Backspace" || e.key.length === 1) { e.preventDefault(); e.stopImmediatePropagation(); early.keys.push(e.key); }
+    };
+    window.addEventListener("keydown", early.listener, true);
+    early.release = () => { clearTimeout(early.timer); window.removeEventListener("keydown", early.listener, true); };
+    early.timer = setTimeout(early.release, 15000);
+    return early;
+  }
+  // Waits for the real readiness signal (this decoration's editor textarea has focus), then replays.
+  async replayEditorKeys(early, id) {
+    const deadline = Date.now() + 3000;
+    let area;
+    while (Date.now() < deadline) {
+      area = this.whiteboard?.editor?.id === id ? this.whiteboard.editor.textarea : null;
+      if (area && document.activeElement === area) break;
+      await new Promise(resolve => requestAnimationFrame(resolve));
+    }
+    early.release();
+    if (!area || document.activeElement !== area) return;
+    const line = this.snapshot.decorations.find(d => d.id === id)?.type === "line";
+    for (const key of early.keys) {
+      if (key === "Escape" || (key === "Enter" && line)) { this.whiteboard.commitEdit({focus:true}); return; }
+      const {selectionStart:start, selectionEnd:end} = area;
+      if (key === "Backspace") area.setRangeText("", start === end ? Math.max(0, start - 1) : start, end, "end");
+      else area.setRangeText(key === "Enter" ? "\n" : key, start, end, "end");
+      area.dispatchEvent(new InputEvent("input", {bubbles:true, inputType:key === "Backspace" ? "deleteContentBackward" : "insertText", data:key.length === 1 ? key : null}));
+    }
+  }
   async createDecoration(type, screen) {
+    // Quick jot types into its own field; every other creation holds early keys for the editor.
+    const early = type !== "arrow" && !document.querySelector(".quick-jot") ? this.holdEditorKeys() : null;
     if (this.mode !== "canvas") this.setMode("canvas");
     const point = this.canvasPoint(screen), shaped = ["sticky","rounded","diamond","ellipse"].includes(type), region = type === "region" || shaped;
     const d = { id: crypto.randomUUID(), type: type === "arrow" ? "line" : region ? "region" : type,
@@ -2658,7 +2707,9 @@ export class WorkspaceBoard {
       element?.scrollIntoView({ block: "nearest", inline: "nearest" });
       element?.focus({ preventScroll: true });
       if (type !== "arrow") this.editDecoration(d.id, true);
+      if (early) await this.replayEditorKeys(early, d.id);
     } catch (error) { showFailure(error); }
+    finally { early?.release(); }
   }
   // Document creation and editing live in board-document.js (loaded on first use).
   // point is the same screen (client) point createDecoration takes, or undefined
@@ -2675,8 +2726,8 @@ export class WorkspaceBoard {
     palette.setAttribute("role", "toolbar");
     palette.setAttribute("aria-label", "Edit tools");
     palette.setAttribute("aria-orientation", "vertical");
-    palette.innerHTML = [["text","Text · T","T"],["sticky","Sticky note · S","S"],["document","Document · D","D"],["jot","Quick jot · N","N"]]
-      .map(([tool,label,key]) => `<button type="button" class="tk-btn tk-icon" data-edit-tool="${tool}" aria-label="${label}" title="${label}" aria-keyshortcuts="${key}">${EDIT_TOOL_ICONS[tool]}</button>`).join("") +
+    palette.innerHTML = [["text","Text · T","T"],["sticky","Sticky note · S","S"],["document","Document · D","D"],["jot","Quick jot · N","N"],["comment","Comment · C","C"]]
+      .map(([tool,label,key]) => `${tool === "comment" ? '<span class="edit-tools-divider" aria-hidden="true"></span>' : ""}<button type="button" class="tk-btn tk-icon" data-edit-tool="${tool}" aria-label="${label}" title="${label}" aria-keyshortcuts="${key}"${tool === "comment" ? ' aria-pressed="false"' : ""}>${tool === "comment" ? COMMENT_ICON : EDIT_TOOL_ICONS[tool]}</button>`).join("") +
       `<span class="edit-tools-divider" aria-hidden="true"></span><button type="button" class="tk-btn tk-icon" data-edit-tool="more" aria-label="More to add" title="More to add…" aria-haspopup="menu">${EDIT_TOOL_ICONS.more}</button>`;
     palette.onclick = e => {
       const button = e.target.closest("[data-edit-tool]");
@@ -2690,6 +2741,7 @@ export class WorkspaceBoard {
           top:`${Math.max(8, Math.min(innerHeight - menu.offsetHeight - 8, rect.top))}px`});
       } else if (tool === "document") this.createDocument();
       else if (tool === "jot") this.quickJot();
+      else if (tool === "comment") this.commentPins?.arm();
       else this.createDecoration(tool);
     };
     document.body.append(palette);
@@ -2729,18 +2781,21 @@ export class WorkspaceBoard {
     this.groupSignature = this.groupKey();
     this.whiteboard?.sync(this.whiteboard.overrides);
   }
-  // Copies drawn elements 32 units down and right (non-arrows first, so arrows attached to a
-  // copied element attach to its copy); other attached ends become free points. Not undoable.
+  // Copies drawn elements 32 units down and right in one board write (one Undo step);
+  // arrows attached to a copied element attach to its copy, other attached ends become free.
   async duplicateDecorations(drawn) {
     const ids = new Map(drawn.map(d => [d.id,crypto.randomUUID()]));
     const end = (point,end) => end?.decorationId && ids.has(end.decorationId)
       ? Object.fromEntries(Object.entries({...end,decorationId:ids.get(end.decorationId)}).filter(([key]) => key !== "fallback"))
       : {x:point.x + 32,y:point.y + 32};
-    for (const d of [...drawn.filter(d => d.type !== "line"), ...drawn.filter(d => d.type === "line")]) {
+    const copies = drawn.map(d => {
       const copy = {...d,id:ids.get(d.id),x:d.x + 32,y:d.y + 32};
       if (d.type === "line" && d.from && d.to) { const r = resolveLine(d,this.snapshot); copy.from = end(r.from,d.from); copy.to = end(r.to,d.to); }
-      await this.client.write("createDecoration",{boardId:this.snapshot.id,decoration:copy});
-    }
+      return copy;
+    });
+    const before = JSON.stringify(this.snapshot.decorations || []);
+    await this.writeArrangement("updateBoard",{boardId:this.snapshot.id,patch:{decorations:[...(this.snapshot.decorations || []),...copies]}},
+      latest => JSON.stringify(latest.decorations || []) === before);
     await this.refresh({saveReview:false});
     return [...ids.values()];
   }
@@ -2834,6 +2889,32 @@ export class WorkspaceBoard {
   shiftedDecoration(d, dx, dy) {
     const shift = end => end && !end.placementId && !end.decorationId ? {...end, x:end.x + dx, y:end.y + dy} : end;
     return {x:d.x + dx, y:d.y + dy, ...(d.from ? {from:shift(d.from)} : {}), ...(d.to ? {to:shift(d.to)} : {})};
+  }
+  // Chips in comment threads: revealRef pans to what a ref names and pulses it;
+  // openRef opens it (an item in the reader, a board by navigating, a drawn element selected).
+  revealRef(ref) {
+    if (ref?.boardId && ref.boardId !== this.snapshot.id && ref.kind !== "board") {
+      location.href = `/boards/${encodeURIComponent(ref.boardId)}/${ref.kind === "placement" ? `#items/${encodeURIComponent(ref.id)}` : ""}`; return false;
+    }
+    const box = refBox(this.snapshot, ref);
+    if (!box) { toast(ref?.label ? `${ref.label} is not on this board now.` : "That is not on this board now."); return false; }
+    if (this.mode !== "canvas") this.setMode("canvas");
+    this.hooks.revealPlacements?.([{id:box.placement?.id || `ref-${ref.id}`, x:box.x, y:box.y, width:box.width, height:box.height}]);
+    if (box.placement) this.pulse(box.placement.id);
+    else {
+      const el = document.querySelector(`[data-decoration="${CSS.escape(box.decoration.id)}"]`);
+      el?.classList.remove("comment-ref-pulse"); void el?.offsetWidth; el?.classList.add("comment-ref-pulse");
+      setTimeout(() => document.querySelector(`[data-decoration="${CSS.escape(box.decoration.id)}"]`)?.classList.remove("comment-ref-pulse"), 1800);
+    }
+    return true;
+  }
+  openRef(ref) {
+    if (ref?.kind === "board") { location.href = `/boards/${encodeURIComponent(ref.id)}/`; return; }
+    if (!this.revealRef(ref)) return;
+    const box = refBox(this.snapshot, ref);
+    if (box?.decoration) { this.whiteboard?.select(box.decoration.id); return; }
+    const card = [...$("world").querySelectorAll(".workspace-card[data-placement]")].find(c => c.dataset.placement === box.placement.id);
+    card?.querySelector("[data-open]:not(:disabled)")?.click();
   }
   // A local Markdown document item (the same test as the card's documentContent).
   editableDocument(item) { return item?.content?.kind === "markdown" && !!item.content.resource && !item.content.url; }

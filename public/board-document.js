@@ -63,6 +63,29 @@ function documentItem(board, itemId) {
 const resourcePath = resource => `/resources/${encodeURIComponent(resource.rootId)}/${resource.path.split("/").map(encodeURIComponent).join("/")}`;
 
 // ---------- in-place editing on a card ----------
+// Early keys: from the double-click (or the edit call) until the card's page has the keyboard.
+let heldKeys = null;
+function holdKeys() {
+  if (heldKeys) return heldKeys;
+  const early = heldKeys = {keys:[], cancelled:false};
+  early.listener = event => {
+    if (event.isComposing) return;
+    if (event.key === "Escape") { event.preventDefault(); event.stopImmediatePropagation(); early.cancelled = true; return; }
+    if (event.metaKey || event.ctrlKey || event.altKey) return;
+    if (event.key.length === 1 || event.key === "Enter" || event.key === "Backspace") { event.preventDefault(); event.stopImmediatePropagation(); early.keys.push(event.key); }
+  };
+  document.addEventListener("keydown", early.listener, true);
+  // A safety net only: the hold normally ends when the page takes the keyboard.
+  early.timer = setTimeout(() => releaseKeys(early), 15000);
+  return early;
+}
+function releaseKeys(early) { clearTimeout(early.timer); document.removeEventListener("keydown", early.listener, true); if (heldKeys === early) heldKeys = null; }
+// A double-click on a document card's page starts holding keys at once, before the board's own
+// handler (which stops the event at the document) has loaded anything.
+if (typeof window !== "undefined") window.addEventListener("dblclick", event => {
+  const card = event.button === 0 && event.target.closest?.("#world .workspace-preview-launch")?.closest(".workspace-card");
+  if (card && /[?&]kind=markdown(&|$)/.test(frameOf(card)?.getAttribute("src") || "")) holdKeys();
+}, true);
 const editing = new WeakMap(); // board -> session
 const frameOf = card => card?.querySelector(".workspace-live-preview iframe");
 function cardFor(board, itemId, placementId) {
@@ -87,24 +110,38 @@ export async function editBoardDocument(board, itemId, options = {}) {
   if (!item || item.content?.kind !== "markdown" || !item.content.resource || item.content.url) { toast("Only local Markdown documents can be edited here."); return false; }
   const active = editing.get(board);
   if (active && active.itemId === itemId && !options.source) { active.frame.focus(); return true; }
-  if (active) await stopEditing(board);
+  // Keys typed before the card's page takes the keyboard (right after a double-click) are kept
+  // and replayed there; Escape in that window cancels the start.
+  const early = holdKeys(), release = () => releaseKeys(early);
+  try { if (active) await stopEditing(board); } catch {}
   if (board.mode !== "canvas" && board.mode !== "grid") board.setMode?.("canvas");
   let card = cardFor(board, itemId, options.placementId);
   if (!card) { await new Promise(r => setTimeout(r, 150)); card = cardFor(board, itemId, options.placementId); }
-  if (!card) { toast("Show this document as a card or full preview to edit it on the board, or open it and choose Edit."); return false; }
+  if (!card || early.cancelled) { release(); if (!early.cancelled) toast("Show this document as a card or full preview to edit it on the board, or open it and choose Edit."); return false; }
   injectStyle(); install(board);
   const frame = frameOf(card);
   const session = {board, itemId, item, placementId:card.dataset.placement, frame, started:false, state:"idle"};
   editing.set(board, session);
   board.documentEditing = session;
   apply(session);
-  frame.focus();
+  // The page takes the keyboard only once it is listening (its first acknowledgement): until then
+  // keys stay held here, then go to it ahead of anything typed later.
+  // expectKeys: the page waits for the held keys before it starts, so they land first.
+  const request = {type:"tinka-document-edit", itemId, point:framePoint(frame, options.point), source:!!options.source, selectTitle:!!options.selectTitle, expectKeys:true};
+  const handOver = () => {
+    if (session.listening) return; session.listening = true;
+    release();
+    if (early.cancelled) { stopEditing(board); return; }
+    try { frame.contentWindow?.postMessage({type:"tinka-document-keys", itemId, keys:early.keys}, location.origin); } catch {}
+    frame.focus();
+  };
+  session.onListening = handOver;
   // The frame may still be loading (a new card): repeat the request until it is acknowledged.
-  const request = {type:"tinka-document-edit", itemId, point:framePoint(frame, options.point), source:!!options.source, selectTitle:!!options.selectTitle};
   for (let tries = 0; tries < 50 && !session.started && editing.get(board) === session; tries++) {
     try { frame.contentWindow?.postMessage(request, location.origin); } catch {}
-    await new Promise(r => setTimeout(r, tries < 5 ? 60 : 200));
+    await new Promise(r => setTimeout(r, tries < 5 ? 40 : 200));
   }
+  if (!session.listening) { release(); if (early.cancelled && editing.get(board) === session) { finish(board, session, {}); return false; } }
   if (!session.started && editing.get(board) === session) { finish(board, session, {}); toast("The document could not be opened for editing."); return false; }
   return true;
 }
@@ -158,9 +195,11 @@ function install(board) {
     if (!session || event.origin !== location.origin || event.source !== session.frame.contentWindow) return;
     const data = event.data || {};
     if (data.itemId && data.itemId !== session.itemId) return;
-    if (data.type === "tinka-document-edit-started") { if (!data.pending) session.started = true; return; }
+    if (data.type === "tinka-document-edit-started") { session.onListening?.(); if (!data.pending) session.started = true; return; }
+    // Escape reached the page before editing began there (media.js asks to close): cancel.
+    if (data.type === "reader-close") { stopEditing(board); return; }
     if (data.type === "tinka-document-status") {
-      session.started = true; session.state = data.state; session.message = data.message || ""; apply(session);
+      session.onListening?.(); session.started = true; session.state = data.state; session.message = data.message || ""; apply(session);
       if (data.state === "saved") documentSaved(board, session.itemId, session.frame);
       return;
     }

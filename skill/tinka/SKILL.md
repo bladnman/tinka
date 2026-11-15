@@ -20,6 +20,9 @@ Read the project's `AGENTS.md` and `TINKA.md` to locate its boards and
 installation. Follow the selected app's `docs/AGENT.md` (or its README on older
 installs) and `docs/PROTOCOL.md`, plus the board's own instructions. Those files carry the guidance for that installed version.
 
+When the user mentions comments, notes or feedback on the boards, run the inbox
+(`node tinka/app/cli.mjs inbox --config tinka/local/config.json`; see `TINKA.md`).
+
 If the app is missing, follow the project's checked-in `tinka/setup.mjs` and
 `tinka/project.json` to restore its pinned release. Existing installations may
 use other paths; an optional `~/.config/tinka/workspaces.json` has legacy

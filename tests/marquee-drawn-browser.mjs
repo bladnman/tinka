@@ -100,6 +100,8 @@ try{
     assert.deepEqual(after.card,[before.card[0]+dx,before.card[1]+dy],'card moved with the sticky');
     assert.deepEqual(after.label,[before.label[0]+dx,before.label[1]+dy]);
     assert.deepEqual(await selectedDrawn(page),DRAWN,'group still selected after the drag');
+    // Board keys wait while the drag's save settles, as they do for a person.
+    await until(async()=>await page.locator('#chrome-undo').isEnabled());await page.waitForTimeout(300);
     await page.keyboard.press('Shift+ArrowRight');
     const nudged=await until(async()=>{const w=await where(id,pid);return w.card[0]===after.card[0]+10&&w;});
     for(const d of DRAWN)assert.deepEqual(nudged[d],[after[d][0]+10,after[d][1]],`${d} nudged`);

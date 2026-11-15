@@ -268,14 +268,14 @@ one history receipt. Browser Align, Distribute and Tidy into grid each submit on
 presentation, z order and canonical items stay unchanged. An invalid/missing ID,
 coordinate overflow or revision conflict rejects the entire operation.
 
-Successful `remove`, `pastePlacements`, geometry `updatePlacement`, `translatePlacements`, `arrangePlacements`, geometry `updateDecoration` (a patch with `x`, `y`, `width`, `height`, `from` or `to`) and `move` operations
+Successful `remove` (with optional `decorationIds`, which deletes those drawn elements in the same revision and adds `decorationIds` to its result), `pastePlacements`, geometry `updatePlacement`, `translatePlacements`, `arrangePlacements`, any `updateDecoration`, `createDecoration`, `removeDecoration`, `updateBoard` with `decorations`, and `move` operations
 from source placements into an existing board also return an opaque, signed
 top-level `history` receipt beside `revision` and `result`. A geometry patch can
 include presentation changes; presentation-only patches and unchanged arrangements
 do not return receipts. A decoration receipt restores the moved decoration and any arrow
 whose fallback point the move froze, and rejects with 409 if any of them changed since; its
 board's placements are not compared. New-board creation, home-only moves, references, canonical
-deletion, canonical item edits and decoration text, color, creation and removal are outside movement history.
+deletion and canonical item edits are outside movement history. A decoration receipt holds only the drawn elements that changed (a created one is absent before, a removed one absent after), so restoring it re-adds, removes or reverts exactly those.
 
 Submit `{"type":"restoreMovement","history":RECEIPT}` to undo that movement.
 The operation accepts the usual `expectedRevision` and `operationId`, restores
@@ -459,8 +459,28 @@ placementId or decorationId. Text anchors preserve quote/context/offsets/source
 revision and report matched/uncertain/stale/unverified state after source edits.
 Document re-anchoring: a saved text anchor follows its exact quote in the new rendered text when it can be placed without guessing. A quote that occurs exactly once moves there whatever its context; among several occurrences, the only one whose saved prefix and suffix both match exactly wins, else the one with the most matching context characters (prefix matched backwards plus suffix matched forwards, at least one) wins if strictly ahead of every other. The anchor takes the new start/end/sourceRevision and the 96-character context around its new place (the quote is unchanged), and the record's `reanchored` history gains `{from,to,start,end,at}` (at most 20). An edited or missing quote, a tie, or a legacy text model is never retargeted and reports uncertain/stale for review. Reads never write: a relocatable anchor lists as matched with a
 computed `currentAnchor`; saves and `document.reanchor` persist it.
+Comment status (1.1): threads may carry `status` (open, sent, working, addressed,
+question, resolved; absent means `resolved ? "resolved" : "open"`, and `resolved` stays
+its boolean alias), `statusHistory[{status,actor?,at,note?}]`, an addressee
+`to:{kind:"agent"|"human",id?}`, `refs[{kind:"item"|"placement"|"decoration"|"board",id,boardId?,label}]`
+on the comment and replies, reply `changes` (the same shape plus `note`), a
+`targetLabel` snapshot of what it was placed on, author-only `editedAt`/`editHistory`
+and `deletedAt`/`deletedBy` (messages stay on disk), and `updatedRevision`.
+Operations: `setCommentStatus {threadId,actor,status?,to?|null,note?}` (feedback.setStatus),
+`editComment {threadId,messageId?,actor,body,refs?}` (feedback.edit), `deleteComment
+{threadId,messageId?,actor}` (feedback.delete); addComment adds `to`, `refs`,
+`targetLabel` and `status` open|sent (sent needs to agent); replyComment adds `refs`,
+`changes` and `status`; resolveComment adds an optional `actor`. An agent may not
+resolve or reopen a human-authored thread (403). A person's reply on a question or
+addressed thread for an agent moves it to sent. An unchanged status commits nothing.
+Refs and changes in list results add `exists`, `state` and `currentLabel`.
 GET `/api/feedback` accepts boardId,itemId,threadId,resolved,limit,cursor and
-includeBodies. Scoped feedback/vote writes share the same lock/journal/revision/
+includeBodies. It also accepts status (comma-separated), to, toId, authorKind,
+updatedAfter, since (an inbox position: `""` to start, then `nextSince`; unrelated writes
+never invalidate it; not combined with cursor), includeHistory and includeDeleted.
+`inbox --config PATH [--brief] [--since TOKEN] [--actor ID] [--json]` and the
+`feedback.inbox` tool read thread files without a lock and write no metadata; a full
+CLI run stores the actor's position in `.inbox-state.json` beside the config. Scoped feedback/vote writes share the same lock/journal/revision/
 retry cache without loading the complete graph. No message bodies/thread array
 are added to the workspace header. Actors are self-reported, not authentication.
 vote/item.vote takes itemId, actor and yes/no/abstain/null, where null clears that

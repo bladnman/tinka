@@ -152,7 +152,7 @@ deleted and unrendered placements are excluded. On Canvas the box also selects d
 elements (text, stickies, shapes, arrows) by positive intersection, and a plain colored
 region only when it encloses it. Cards with drawn elements form one mixed group: a drag
 of any member or an arrow key moves it in one translatePlacements (one Undo), ⌘/Ctrl-D
-copies it and Delete removes it (drawn-element copies and deletions are outside Undo);
+copies it and Delete removes it, each as one Undo step (Delete is one remove with decorationIds);
 ⌘/Ctrl-A selects both. Drawn elements alone become the whiteboard multi-selection, which
 the same keys move, copy and delete. Plain replaces selection, Shift
 at pointerdown adds to the original, and empty clicks clear/preserve respectively.
@@ -174,7 +174,7 @@ values. Successful server-authenticated movement inverses are treated as opaque;
 restoreMovement returns a reciprocal receipt for the opposite stack. No receipt is
 recorded for failure, cancellation or no-op, and a new eligible movement clears redo.
 Eligible changes are placement geometry/resize, arrangePlacements, translatePlacements (including one
-atomic selected arrow nudge), source-placement moves to existing boards, pastePlacements, board-placement remove and decoration geometry (an updateDecoration patch with x/y/width/height/from/to: text, shapes, regions and arrows moved, resized, nudged or re-pointed; text, color and creation/removal stay outside). Moves
+atomic selected arrow nudge), source-placement moves to existing boards, pastePlacements, board-placement remove and decoration geometry (an updateDecoration patch with x/y/width/height/from/to: text, shapes, regions and arrows moved, resized, nudged or re-pointed), and every other drawn-element change: createDecoration, removeDecoration, any updateDecoration (text and style too) and updateBoard decoration batches; remove takes optional decorationIds to delete drawn elements in the same commit. The browser groups the writes of one action (a mixed ⌘D, a multi-select edit) into one Undo entry whose receipts undo in reverse order and redo in order. Moves
 creating a board, home-only operations and canonical deletion are outside browser movement
 history. Movement replay does not roll back canonical content, review or titles. Paste
 receipts remove/restore only the new copied identities and arrangements. Replay refreshes
@@ -363,7 +363,7 @@ Old receipts without baselines and modified installs never auto replace; deliber
 current-installer reinstallation establishes a baseline. No implicit data migration.
 A major step (a different first version number) is never refused for being major
 and never taken without consent: start/check notices, `update status` and plain
-`update now` report "Tinka X.Y is available (X.Y.Z; installed …). This is a major
+`update now` report "Tinka X.Y is available (installed …). This is a major
 update; ask the user before updating." with `update now --major` as the one
 installing action; automatic and plain paths only notify. With --major every other
 check still applies (fromVersions, schemas, runtime, migration none, checksum,
@@ -410,7 +410,7 @@ values are board units and expose attached/free/detached state. Temporary card
 and decoration geometry drives connectors and relative feedback pins through the
 same pure helpers without remounting card media. Attached whole-line movement preserves its endpoint objects; explicit Detach
 captures resolved free points. Scoped decoration mutations preserve peers. Decoration
-geometry joins movement Undo/Redo; its text, color, creation and removal do not.
+changes all join movement Undo/Redo: geometry, text, style, creation and removal.
 
 Point feedback optionally adds normalized relative:{x,y} within one placement or
 decoration; saved board x/y remains the creation fallback. Read results derive
@@ -467,6 +467,8 @@ and viewport selection controls. Compact Markdown is a readable excerpt. Comment
 and ballots use compact controls, with ordinary item voting retained. Document
 comments mount inside the reader, preserving source/frame/variant and selected
 passage through narrow reflow. The innermost active editor handles Escape first. In Text and Sticky editing Escape commits the typed text; the Cancel control discards it. Their rendered text uses a safe Markdown subset (`public/deco-format.js`: bold, italic, code, lists, checkboxes, headings) built only from text nodes or escaped strings.
+
+Comment tool (1.1, lib/feedback.mjs, lib/inbox.mjs): threads add optional `status` open|sent|working|addressed|question|resolved (absent: derived from `resolved`, which stays as the alias), `statusHistory[{status,actor?,at,note?}]` (≤200), `to:{kind:agent|human,id?}`, `refs[{kind:item|placement|decoration|board,id,boardId?,label}]` (≤20; boardId required for placement/decoration) on comments and replies, reply `changes` (refs plus note), `targetLabel` snapshotted at creation (computed from the anchor target unless supplied), author-only `editedAt/editHistory` (≤50) and `deletedAt/deletedBy` that keep the message on disk, and `updatedRevision`. setCommentStatus (`feedback.setStatus {threadId,actor,status?,to?|null,note?}`), editComment (`feedback.edit`) and deleteComment (`feedback.delete`) are scoped operations; resolveComment takes an optional actor. An agent actor may not set resolved or open on a human-authored thread (403); humans may set any status; a no-op status/addressee change commits nothing. A human reply on a question/addressed thread addressed to an agent moves it to sent. feedback.list adds filters status (one or list), to, toId, authorKind, updatedAfter, includeHistory and includeDeleted, and a `since` position ((updatedRevision,id), start with "") returning `nextSince` that unrelated writes never invalidate; summaries add status, to, refs, targetLabel, lastAuthor and updatedRevision; refs and changes report exists, state (active/archived/removed/deleted/missing) and currentLabel; deleted bodies are blank without includeHistory, and a deleted root with no live replies hides the thread unless includeDeleted. The feedback index format is version 2 (older buckets rebuild). `inbox --config PATH [--brief] [--since TOKEN] [--actor ID] [--json]` and the read-only `feedback.inbox` tool read thread files without the workspace or app lock and write no metadata: they list threads that are sent, open and addressed to the agent, or have a person's reply after the agent's last message, skipping threads for people or another named agent; `--brief` prints one line or nothing and never moves the position; a full run saves the actor's position in `.inbox-state.json` beside the config. Generated TINKA.md has a "Comments for you" section pointing agents at the inbox.
 
 Optional canonical review.highlights stores bounded bodyless marks, independent
 of thread files, using the existing author/text-anchor model. Fixed yellow, max 200

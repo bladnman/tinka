@@ -1416,3 +1416,60 @@ html[data-appearance="dark"] .board-miniature .workspace-cover-tile.mini-tile { 
 .arrange-menu svg { width: 16px; height: 16px; }
 .arrange-menu .arrange-tidy { grid-column: 1 / -1; display: flex; align-items: center; gap: 8px; min-height: 32px; margin-top: 4px; padding: 0 8px; border: 0; border-top: 1px solid var(--line); border-radius: 0; background: transparent; color: var(--ink); font-size: 13px; text-align: left; }
 #workspace-selection [data-arrange-open] svg { width: 16px; height: 16px; }
+
+/* ---------- Comment tool: pins, the comments layer and Send to agent ---------- */
+.comment-pins { position: absolute; inset: 0; pointer-events: none; z-index: 30; }
+.comment-pins[hidden] { display: none; }
+.comment-pin { position: absolute; pointer-events: auto; display: grid; place-items: center; width: 30px; height: 30px; min-width: 0; min-height: 0; padding: 0;
+  transform: translate(-4px, -100%) scale(var(--chrome-scale, 1)); transform-origin: 4px 100%;
+  border: 2px solid var(--surface-2); border-radius: 50% 50% 50% 3px; background: var(--accent); color: var(--on-accent);
+  font: 700 12px/1 var(--font-ui); box-shadow: var(--e2); cursor: pointer; }
+.comment-pin svg { width: 15px; height: 15px; fill: currentColor; stroke: none; }
+.comment-pin[data-author="agent"] { background: var(--accent-soft-2); color: var(--accent-text); }
+.comment-pin:is([data-status="sent"],[data-status="working"]) { background: var(--surface-2); color: var(--ink-2); box-shadow: var(--e2), inset 0 0 0 2px var(--line-strong); }
+.comment-pin[data-status="resolved"] { background: var(--surface-sunken); color: var(--ink-3); opacity: .85; }
+.comment-pin-badge { display: none; position: absolute; right: -5px; top: -5px; width: 13px; height: 13px; border-radius: 50%; border: 2px solid var(--surface-2); }
+.comment-pin:is([data-status="addressed"],[data-status="question"],[data-status="working"]) .comment-pin-badge { display: block; }
+.comment-pin[data-status="addressed"] { background: var(--warn); color: var(--surface-2); }
+.comment-pin[data-status="addressed"] .comment-pin-badge { background: var(--warn); }
+.comment-pin[data-status="question"] .comment-pin-badge { background: var(--danger); }
+.comment-pin[data-status="working"] .comment-pin-badge { background: var(--ink-3); }
+.comment-pin.detached { background: var(--surface-2); color: var(--ink-3); border: 2px dashed var(--ink-3); }
+.comment-pin.active { outline: 3px solid color-mix(in srgb, var(--accent) 40%, transparent); outline-offset: 2px; }
+.comment-pin-gone { position: absolute; left: calc(100% + 6px); top: 50%; transform: translateY(-50%); padding: 3px 8px; border-radius: var(--r-pill, 999px);
+  background: var(--surface-2); color: var(--ink-2); box-shadow: var(--e2); font: 500 11px/1.3 var(--font-ui); white-space: nowrap; }
+#viewport.comment-armed, #viewport.comment-armed * { cursor: crosshair !important; }
+#world .comment-target { outline: 2px solid var(--accent); outline-offset: 3px; }
+.comment-target-tag { position: fixed; z-index: 70; padding: 4px 10px; border-radius: var(--r-pill, 999px); background: var(--accent); color: var(--on-accent);
+  font: 600 12px/1.3 var(--font-ui); pointer-events: none; box-shadow: var(--e2); }
+#world .comment-ref-pulse { animation: comment-ref-pulse 1.6s var(--ease, ease) 1; }
+@keyframes comment-ref-pulse { 0%,100% { box-shadow: none; } 20%,60% { box-shadow: 0 0 0 4px color-mix(in srgb, var(--accent) 45%, transparent); } }
+.comment-bar { display: inline-flex; align-items: center; }
+.comment-bar[hidden] { display: none; }
+body .canvas-footer .zoom-pill .comment-bar button { display: inline-flex; align-items: center; gap: 6px; padding: 0 8px; }
+.comment-bar svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round; }
+.comment-count { min-width: 18px; height: 18px; padding: 0 5px; border-radius: 9px; background: var(--accent); color: var(--on-accent); font: 700 11px/18px var(--font-ui); text-align: center; }
+.comment-count.warn { background: var(--warn); color: #fff; }
+.comment-count[hidden] { display: none; }
+.comment-send:disabled { opacity: .55; }
+.comment-menu { z-index: 70; min-width: 250px; max-width: min(340px, calc(100vw - 16px)); max-height: min(60vh, 460px); overflow: auto; padding: 6px; }
+.comment-menu label.tk-mi { display: flex; align-items: center; gap: 8px; cursor: pointer; }
+.comment-menu label.tk-mi kbd { margin-left: auto; }
+.comment-menu-head { margin: 8px 8px 4px; font: 600 var(--t-xs, 11px)/1 var(--font-ui); color: var(--ink-3); text-transform: uppercase; letter-spacing: .05em; }
+.comment-menu-empty { margin: 4px 8px 8px; color: var(--ink-3); font-size: 13px; }
+.comment-waiting { display: flex; align-items: flex-start; gap: 8px; width: 100%; text-align: left; }
+.comment-waiting-text { display: grid; gap: 2px; min-width: 0; }
+.comment-waiting-text b { font-size: 12px; }
+.comment-dot { flex: none; width: 10px; height: 10px; margin-top: 3px; border-radius: 50%; background: var(--warn); }
+.comment-waiting[data-status="question"] .comment-dot { background: var(--danger); }
+.comment-prompt textarea { width: 100%; font: 12px/1.45 var(--font-mono, ui-monospace, monospace); }
+@media (max-width: 720px) {
+  .comment-send-label { display: none; }
+  .comment-pin { width: 28px; height: 28px; }
+}
+/* Phones pinch to zoom, so the bar drops − and + to make room for the comment controls. */
+@media (max-width: 480px) {
+  body .canvas-footer .zoom-pill:has(.comment-bar:not([hidden])) :is(#zoom-minus,#zoom-plus) { display: none; }
+  body .canvas-footer .zoom-pill .comment-bar button { padding: 0 6px; }
+}
+.comment-send-idle .comment-send-label { display: none; }
