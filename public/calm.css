@@ -108,37 +108,64 @@ body .canvas-footer .zoom-slider-row input[type=range] { flex: 1; width: auto; m
 #board-info > :not(.calm-side-head), #workspace-item-controls .calm-side-body { padding-left: 16px; padding-right: 16px; }
 #workspace-item-controls .calm-side-body { display: grid; gap: 14px; padding-top: 2px; }
 .inspector-sec { display: grid; gap: 8px; padding-top: 14px; border-top: 1px solid var(--line); }
-.inspector-sec > h3, #board-info #board-info-heading { margin: 0; display: flex; justify-content: space-between; gap: 8px; font: 600 var(--t-xs)/1.3 var(--font-ui); letter-spacing: .06em; text-transform: uppercase; color: var(--ink-3); }
+.inspector-sec > h3, #board-info > #board-info-heading { margin: 0; display: flex; justify-content: space-between; gap: 8px; font: 600 var(--t-xs)/1.3 var(--font-ui); letter-spacing: .06em; text-transform: uppercase; color: var(--ink-3); }
 .inspector-sec > h3 span { text-transform: none; letter-spacing: 0; font-weight: 400; }
 .inspector-row { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
 .inspector-label { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
 
-/* Board Inspector: the former Tools drawer. */
-#board-info .workspace-toolbar { display: grid; gap: 14px; padding: 2px 16px 0; margin: 0 -16px; border: 0; background: none; box-shadow: none; position: static; }
-#board-info .workspace-toolbar .inspector-sec:first-child { border-top: 0; padding-top: 4px; }
-#board-info .workspace-toolbar button:not(.tk-seg > button) { min-height: 0; }
-#board-info .workspace-search { flex: 1 1 100%; display: block; order: -1; }
-#board-info .workspace-search input { box-sizing: border-box; width: 100%; height: var(--control-h); padding: 0 10px; border: 1px solid var(--field-line); border-radius: var(--r-md); background: var(--field); color: var(--ink); font: var(--t-md)/1.3 var(--font-ui); }
+/* Board Inspector: built like the opened Tinka's Inspector (reader.css #reader-info):
+   one body at 16px, the board's identity first, then sections with full-width controls. */
+#board-info .board-info-body { display: grid; gap: 14px; padding-top: 2px; min-width: 0; }
+#board-info .board-info-body > * { min-width: 0; }
+#board-info .board-info-identity .info-meta { margin: 3px 0 0; display: flex; flex-wrap: wrap; gap: 0 4px; color: var(--ink-3); font-size: var(--t-sm); }
+#board-info .board-info-identity .info-meta span + span::before { content: "· "; }
+#board-info .board-info-body #board-description { margin: 0; color: var(--ink-2); font: var(--t-md)/1.5 var(--font-ui); }
+/* The panel sits inside the board header, whose 44px hit-area rule (Touch targets, below)
+   is for the header's own controls; the Inspector's buttons keep the item Inspector's sizes. */
+#board-info .calm-side-head .tk-btn, #board-info .board-info-body .tk-btn, #board-info > .update-about .tk-btn { box-sizing: border-box; height: var(--control-h-sm); min-height: 0; min-width: var(--control-h-sm); border: 0; border-radius: var(--r-sm); background-clip: border-box; }
+#board-info .calm-side-head .tk-btn.tk-icon { width: var(--control-h-sm); }
+#board-info .workspace-toolbar { display: grid; gap: 14px; min-width: 0; padding: 0; margin: 0; border: 0; background: none; box-shadow: none; position: static; z-index: auto; }
+#board-info .workspace-toolbar button { min-height: 0; white-space: nowrap; }
+#board-info .inspector-choice { display: grid; grid-template-columns: 84px minmax(0, 1fr); align-items: center; gap: 8px; }
+#board-info .inspector-choice-label { color: var(--ink-3); font-size: var(--t-sm); }
+#board-info .tk-seg { display: flex; width: 100%; box-sizing: border-box; border: 0; margin: 0; }
+#board-info .tk-seg > button { flex: 1; min-width: 0; min-height: 0; border: 0; padding: 0 6px; }
+#board-info .tk-seg > button[aria-pressed="true"] { background: var(--surface-2); color: var(--ink); box-shadow: var(--e1); border: 0; }
+#board-info .workspace-search { display: block; order: 0; min-width: 0; max-width: none; margin: 0; }
+#board-info .workspace-search input { box-sizing: border-box; display: block; width: 100%; height: var(--control-h); padding: 0 10px; border: 1px solid var(--field-line); border-radius: var(--r-md); background: var(--field); color: var(--ink); font: var(--t-md)/1.3 var(--font-ui); }
 #board-info .workspace-search input:focus { outline: none; border-color: var(--accent-ring); box-shadow: 0 0 0 3px var(--accent-soft); }
-#board-info .workspace-history-actions, #board-info .workspace-clipboard-actions { display: inline-flex; gap: 4px; margin: 0; padding: 0; border: 0; }
-#board-info .tk-seg { border: 0; }
-#board-info .tk-seg > button { border: 0; min-height: 0; }
-#board-info .appearance-control { display: inline-flex; align-items: center; gap: 8px; margin: 0; color: var(--ink-3); font: var(--t-sm)/1 var(--font-ui); }
-#board-info .appearance-control select { min-height: 0; height: var(--control-h-sm); padding: 0 8px; border: 1px solid var(--field-line); border-radius: var(--r-sm); background: var(--field); color: var(--ink); }
-#board-info #board-info-heading { margin: 16px 0 6px; padding-top: 14px; border-top: 1px solid var(--line); }
-#board-info > .workspace-toolbar + #board-info-heading { margin-top: 14px; }
-#board-info > .calm-side-head + #board-info-heading { margin-top: 0; padding-top: 4px; border-top: 0; }
-#board-info #board-description { margin: 0 0 6px; color: var(--ink-2); font: var(--t-md)/1.5 var(--font-ui); }
-#board-info .info-meta { margin: 0 0 10px; display: flex; flex-wrap: wrap; gap: 4px 12px; color: var(--ink-3); font-size: var(--t-sm); }
+#board-info .inspector-toggles > .tk-btn { flex: 1 1 0; min-width: 0; padding: 0 6px; }
+#board-info .inspector-edit-row .workspace-history-actions, #board-info .inspector-edit-row .workspace-clipboard-actions { display: contents; }
+#board-info .inspector-sec .tk-btn.tk-tonal { background: var(--hover); }
+#board-info .inspector-sec .tk-btn.tk-tonal:hover:enabled { background: var(--line); }
+#board-info .inspector-sec .tk-btn.tk-tonal:disabled { background: var(--hover); }
+#board-info .inspector-sec .tk-btn[aria-pressed="true"] { background: var(--accent-soft); color: var(--accent-text); }
+#board-info .board-info-body .inspector-row-btn { display: flex; justify-content: flex-start; align-items: center; width: 100%; height: 36px; margin: 0; padding: 0 12px; border-radius: var(--r-md); background: var(--hover); color: var(--ink); text-align: left; font-weight: 500; }
+#board-info .board-info-body .inspector-row-btn:hover { background: var(--line); }
+#board-info .board-info-body .inspector-row-btn[aria-expanded="true"] { background: var(--accent-soft); color: var(--accent-text); }
+#board-info .appearance-control { display: flex; width: 100%; margin: 0; }
+#board-info .appearance-label { display: none; }
+#board-info .board-help { margin: 0; }
+#board-info .board-help summary { cursor: pointer; min-height: var(--control-h-sm); color: var(--ink-2); font-weight: 500; padding: 4px 0; }
+#board-info .board-info-body .board-help summary { min-height: var(--control-h-sm); padding: 0; font-size: var(--t-md); }
+#board-info #help-panel { margin-top: 6px; padding: 10px 12px; border: 0; border-radius: var(--r-md); background: var(--surface-sunken); color: var(--ink-2); font-size: var(--t-sm); line-height: 1.55; overflow-wrap: anywhere; }
+/* The Tinka (version and updates) section follows the body as one more section. */
+#board-info > .update-about { margin: 14px 16px 0; padding: 14px 0 0; }
+#board-info > .update-about .tk-seg { width: auto; }
+#board-info > .update-about .update-about-row { min-width: 0; flex-wrap: wrap; }
+
+/* A legacy board keeps its simpler panel: About, help, actions and Appearance, on the same 16px edge. */
+#board-info > #board-info-heading { margin: 0 0 6px; padding-top: 4px; }
+#board-info > #board-description { margin: 0 0 6px; color: var(--ink-2); font: var(--t-md)/1.5 var(--font-ui); }
+#board-info > .info-meta { margin: 0 0 10px; display: flex; flex-wrap: wrap; gap: 4px 12px; color: var(--ink-3); font-size: var(--t-sm); }
 #board-info .info-meta span { border: 0; padding: 0; margin: 0; }
-#board-info .info-meta span::before, #board-info .info-meta span::after { content: none; }
-#board-info .board-help { margin: 0 0 10px; }
-#board-info .board-help summary { cursor: pointer; color: var(--ink-2); font-weight: 500; padding: 4px 0; }
-#board-info #help-panel { margin-top: 6px; padding: 10px 12px; border: 0; border-radius: var(--r-md); background: var(--surface-sunken); color: var(--ink-2); font-size: var(--t-sm); line-height: 1.55; }
-#board-info .info-actions { display: flex; flex-wrap: wrap; gap: 4px; margin: 0 -8px; }
-#board-info .info-actions button { display: inline-flex; align-items: center; height: var(--control-h-sm); padding: 0 8px; border: 0; border-radius: var(--r-sm); background: transparent; color: var(--ink-2); font: 500 var(--t-sm)/1 var(--font-ui); cursor: pointer; }
-#board-info .info-actions button:hover { background: var(--hover); color: var(--ink); }
-body:not(.workspace-board) #board-info > .appearance-control { margin: 8px 16px 0; }
+#board-info > .info-meta span::before, #board-info .info-meta span::after { content: none; }
+#board-info > .board-help { margin: 0 0 10px; }
+#board-info > .info-actions { display: flex; flex-wrap: wrap; gap: 6px; }
+#board-info > .info-actions button { display: inline-flex; align-items: center; box-sizing: border-box; height: var(--control-h-sm); min-height: 0; padding: 0 8px; border: 0; border-radius: var(--r-sm); background: var(--hover); color: var(--ink); font: 500 var(--t-sm)/1 var(--font-ui); cursor: pointer; }
+#board-info > .info-actions button:hover { background: var(--line); }
+body:not(.workspace-board) #board-info > .appearance-control { width: auto; margin: 14px 16px 0; padding: 14px 0 0; border-top: 1px solid var(--line); }
+body:not(.workspace-board) #board-info > .appearance-control .tk-seg { width: 100%; }
 
 /* Item Inspector: what this item is, notes first, labelled choices. */
 .inspector-title h2 { margin: 0; font: 600 var(--t-xl)/1.25 var(--font-ui); letter-spacing: -.01em; overflow-wrap: anywhere; }

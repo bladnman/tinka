@@ -345,38 +345,75 @@ export class WorkspaceBoard {
       !this.snapshot.items[this.snapshot.ownerItemId]?.content;
     $("workspace-owner").onclick = () => this.hooks.openOwner();
   }
-  // The board Inspector groups the former Tools drawer into labelled sections.
+  // The board Inspector matches the opened Tinka's Inspector: the board's identity
+  // first, then labelled sections in one body with one left edge (see calm.css).
   arrangeInspector(bar) {
+    const panel = $("board-info");
     const section = (title, note, nodes, cls = "") => {
       const el = document.createElement("section");
       el.className = `inspector-sec ${cls}`.trim();
-      el.innerHTML = `<h3>${esc(title)}${note ? ` <span>${esc(note)}</span>` : ""}</h3>`;
-      const row = document.createElement("div"); row.className = "inspector-row";
-      nodes.filter(Boolean).forEach(node => row.append(node));
-      el.append(row);
+      const id = `board-info-${cls.replace(/^inspector-/, "")}-heading`;
+      el.setAttribute("aria-labelledby", id);
+      el.innerHTML = `<h3 id="${id}">${esc(title)}${note ? ` <span>${esc(note)}</span>` : ""}</h3>`;
+      nodes.filter(Boolean).forEach(node => el.append(node));
       return el;
     };
-    const pick = selector => bar.querySelector(selector);
+    const row = (cls, nodes) => {
+      const el = document.createElement("div"); el.className = `inspector-row ${cls}`.trim();
+      nodes.filter(Boolean).forEach(node => el.append(node));
+      return el;
+    };
+    // A labelled full-width choice (Layout, Background): the label names the control.
+    const choice = (label, seg) => {
+      if (!seg) return null;
+      const el = document.createElement("div"); el.className = "inspector-choice";
+      const name = document.createElement("span"); name.className = "inspector-choice-label"; name.textContent = label; name.setAttribute("aria-hidden", "true");
+      seg.setAttribute("aria-label", seg.getAttribute("aria-label") || label);
+      el.append(name, seg);
+      return el;
+    };
+    const pick = selector => bar.querySelector(selector) || panel.querySelector(selector);
     const pattern = document.createElement("div");
     pattern.className = "tk-seg canvas-pattern"; pattern.setAttribute("role", "group"); pattern.setAttribute("aria-label", "Canvas background");
     pattern.innerHTML = '<button type="button" data-canvas-pattern="dots">Dots</button><button type="button" data-canvas-pattern="grid">Grid</button><button type="button" data-canvas-pattern="plain">Plain</button>';
     // Show the board's current background, whether this panel is built before or after it loads.
     const current = $("viewport")?.dataset.canvasPattern || "plain";
     pattern.querySelectorAll("[data-canvas-pattern]").forEach(button => button.setAttribute("aria-pressed", String(button.dataset.canvasPattern === current)));
-    const segments = pick(".workspace-segments"); segments?.classList.add("tk-seg");
-    const view = section("View", "this board, this browser", [segments, pattern], "inspector-view");
-    const filter = section("Filter", "", [pick(".workspace-search"), pick("#workspace-favorites"), pick("#workspace-recent"), pick("#workspace-archive")], "inspector-filter");
-    const edit = section("Edit", "", [pick(".workspace-history-actions"), pick(".workspace-clipboard-actions"), pick("#workspace-owner"), pick("#workspace-retry-drafts")], "inspector-edit");
-    const discuss = section("Discuss", "", [pick("[data-feedback-toggle]"), ...[...bar.children].filter(node => !node.matches?.(".inspector-sec,#workspace-keyboard-shortcuts"))], "inspector-discuss");
-    const guide = pick("#workspace-keyboard-shortcuts");
-    bar.replaceChildren(view, filter, edit, discuss);
-    bar.querySelectorAll(".inspector-row button:not(.tk-btn):not(.tk-seg > button):not(.workspace-segments button)").forEach(button => button.classList.add("tk-btn", "tk-sm"));
-    bar.querySelectorAll(".workspace-history-actions button, .workspace-clipboard-actions button").forEach(button => button.classList.add("tk-btn", "tk-sm"));
-    if (guide) { guide.classList.add("tk-btn", "tk-sm"); $("board-info").querySelector(".info-actions")?.prepend(guide); }
-    const head = $("board-info").querySelector(".calm-side-head");
-    if (head) $("board-info").prepend(head);
-    const appearance = $("board-info").querySelector(".appearance-control");
-    if (appearance) view.querySelector(".inspector-row").append(appearance);
+    const segments = pick(".workspace-segments");
+    if (segments) { segments.classList.add("tk-seg"); segments.setAttribute("role", "group"); segments.setAttribute("aria-label", "Layout"); }
+    const tonal = nodes => nodes.filter(Boolean).forEach(node => (node.matches("button") ? [node] : [...node.querySelectorAll("button")]).forEach(button => button.classList.add("tk-btn", "tk-sm", "tk-tonal")));
+    const toggles = [pick("#workspace-favorites"), pick("#workspace-recent"), pick("#workspace-archive")];
+    tonal(toggles);
+    const edits = [pick(".workspace-history-actions"), pick(".workspace-clipboard-actions"), pick("#workspace-owner"), pick("#workspace-retry-drafts")];
+    tonal(edits);
+    const view = section("View", "this board, this browser", [choice("Layout", segments), choice("Background", pattern)], "inspector-view");
+    const filter = section("Filter", "", [pick(".workspace-search"), row("inspector-toggles", toggles)], "inspector-filter");
+    const edit = section("Edit", "", [row("inspector-edit-row", edits)], "inspector-edit");
+    // Feedback: board-wide Comments as one full-width row (as in the opened Tinka's
+    // Inspector), anything else the feedback controls add, and notes export.
+    const comments = pick("[data-feedback-toggle]");
+    comments?.classList.add("tk-btn", "inspector-row-btn");
+    const extra = [...bar.children].filter(node => !node.matches?.(".inspector-sec,#workspace-keyboard-shortcuts,[data-feedback-toggle]"));
+    const exporter = $("export"); exporter?.classList.add("tk-btn", "tk-sm", "tk-tonal");
+    const feedback = section("Feedback", "", [comments, ...extra, row("", [exporter])], "inspector-feedback");
+    const appearance = section("Appearance", "this browser", [row("", [panel.querySelector(".appearance-control")])], "inspector-appearance");
+    const guide = pick("#workspace-keyboard-shortcuts"); guide?.classList.add("tk-btn", "tk-sm", "tk-tonal");
+    const help = section("Help", "", [panel.querySelector(".board-help"), row("", [guide])], "inspector-help");
+    bar.replaceChildren(view, filter, edit, feedback, appearance, help);
+    // Identity: the board's name, what it holds and its description, like a Tinka's.
+    const identity = document.createElement("div"); identity.className = "inspector-title board-info-identity";
+    const name = document.createElement("h2"); name.id = "board-info-heading";
+    const syncName = () => { name.textContent = $("board-title")?.textContent || "Board"; };
+    syncName(); new MutationObserver(syncName).observe($("board-title"), { childList: true, characterData: true, subtree: true });
+    const meta = panel.querySelector(".info-meta");
+    identity.append(name, ...(meta ? [meta] : []));
+    const description = $("board-description"); description?.classList.add("inspector-desc");
+    const body = document.createElement("div"); body.className = "calm-side-body board-info-body";
+    body.append(identity, ...(description ? [description] : []), bar);
+    panel.querySelector("#board-info-heading:not(h2)")?.remove();
+    panel.querySelector(".info-actions")?.remove();
+    const head = panel.querySelector(".calm-side-head");
+    panel.prepend(...(head ? [head] : []), body);
   }
   revisionsFor(item) {
     return (item.revisions || []).map((v, i) => ({

@@ -434,7 +434,9 @@ require review. A major update is offered, never installed automatically or by
 plain `update now`: ask the user, and only after they agree run
 `update now --major`, which keeps every other check. Old installation receipts lack file baselines. Follow
 the root README's current standalone-installer reinstall command to establish a
-baseline even when already current; preserve custom setup.mjs/TINKA.md. App setup
+baseline even when already current; preserve custom setup.mjs/TINKA.md. Never copy
+version numbers or checksums into TINKA.md: `tinka/project.json` and
+`tinka/packages/*.sha256` are the record, and a copied number goes stale. App setup
 with no arguments remains a pinned restore. Preferences/cache stay local, and
 manual/dotfolder config paths stay in place.
 
