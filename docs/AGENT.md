@@ -25,7 +25,7 @@ README's installation procedure; do not require a skill. Ask for a location only
 when the project gives none. Recommend visible `tinka/` for tooling and
 `design/boards/` for durable content. Installation paths are configurable.
 
-When asked to open or return to boards, always run the normal `node /absolute/app/cli.mjs start --config /absolute/config.json`, even if the server is already healthy. This checks for updates once daily and returns the verified existing URL without restarting it. Relay an available update in one short sentence offering update now, later, or always install compatible updates; do not dump CLI lines or local paths into the user conversation. The CLI notice contains exact commands for the agent. Do not select auto policy without the user's explicit personal consent.
+When asked to open or return to boards, always run the normal `node /absolute/app/cli.mjs start --config /absolute/config.json`, even if the server is already healthy. This checks for updates once daily and returns the verified existing URL without restarting it. Relay an available update in one short sentence offering update now, later, or always install compatible updates; do not dump CLI lines or local paths into the user conversation. The CLI notice contains exact commands for the agent. Do not select auto policy without the user's explicit personal consent. When Tinka reports a major update ("This is a major update; ask the user before updating."), tell the user and ask before installing; run the notice's `update now --major` command only after they agree.
 
 Before claiming a running workspace, verify `/api/health` matches the selected
 canonical config path and project label. Report the actual URL printed by start.
@@ -429,8 +429,10 @@ never interrupts an already-running board. A failed auto install is not retried
 until explicit `update now` or a different release.
 
 Compatibility metadata must name eligible starting versions, runtime and schemas,
-and declare no migration; major changes, missing/unknown compatibility and local
-app edits require review. Old installation receipts lack file baselines. Follow
+and declare no migration; missing/unknown compatibility and local app edits
+require review. A major update is offered, never installed automatically or by
+plain `update now`: ask the user, and only after they agree run
+`update now --major`, which keeps every other check. Old installation receipts lack file baselines. Follow
 the root README's current standalone-installer reinstall command to establish a
 baseline even when already current; preserve custom setup.mjs/TINKA.md. App setup
 with no arguments remains a pinned restore. Preferences/cache stay local, and

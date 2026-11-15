@@ -528,7 +528,15 @@ automatic release checks.
 Automatic eligibility requires explicit published compatibility from the installed
 version, stable releases within the same app major, supported Node/platform and
 workspace/config schemas, and no migration. Version numbers alone grant nothing,
-including within 0.x. The updater revalidates metadata against the checksum-verified
+including within 0.x.
+
+A new major version (for example 0.7.17 to 1.0.0) is offered, never refused for
+being major: the notice and `update status` say "Tinka 1.0 is available. This is
+a major update; ask the user before updating." and give the one command that
+installs it after the user agrees, `update now --major`. Plain `update now` and
+automatic updates never cross a major version; they show that notice instead.
+Every other check (declared starting versions, schemas, runtime, no migration,
+checksum and file baseline) still applies to a major update. The updater revalidates metadata against the checksum-verified
 package. Locally modified app files or an older installation receipt without file
 baselines require review. An ordinary app update never migrates workspace data.
 

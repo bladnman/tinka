@@ -336,10 +336,17 @@ app/config pair; manual layouts use CONFIG_PATH.updates.json without relocation.
 lib/update-compatibility.json names the release, eligible starting versions,
 Node/platform requirements, config/workspace schemas and migration:none. Packaging
 also writes a version-bound compatibility asset containing the app ZIP SHA-256.
-The updater checks stable same-major versions, declared compatibility, package
+The updater checks stable versions, declared compatibility, package
 metadata equality/runtime, archive digest and per-file installation baselines.
 Old receipts without baselines and modified installs never auto replace; deliberate
 current-installer reinstallation establishes a baseline. No implicit data migration.
+A major step (a different first version number) is never refused for being major
+and never taken without consent: start/check notices, `update status` and plain
+`update now` report "Tinka X.Y is available (X.Y.Z; installed …). This is a major
+update; ask the user before updating." with `update now --major` as the one
+installing action; automatic and plain paths only notify. With --major every other
+check still applies (fromVersions, schemas, runtime, migration none, checksum,
+baseline); the installer refuses a major step unless the updater passes that consent.
 
 A per-app cooperating lock covers dynamic CLI implementation imports, start,
 check and replacement. Installer child commands carry a validated lock token and

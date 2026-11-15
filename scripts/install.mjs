@@ -92,11 +92,18 @@ export async function installationPristine(app) {
   return Object.keys(actual).length === Object.keys(receipt.files).length && Object.entries(actual).every(([file, digest]) => receipt.files[file] === digest);
 }
 
+export const MAJOR_UPDATE_CONSENT = 'This is a major update; ask the user before updating.';
+export function majorUpdate(fromVersion, toVersion) {
+  const stable = /^\d+\.\d+\.\d+$/;
+  return stable.test(fromVersion || '') && stable.test(toVersion || '') && fromVersion.split('.')[0] !== toVersion.split('.')[0];
+}
 // Deliberately narrow format. Version numbers alone never grant compatibility.
-export function compatibilityError(metadata, { fromVersion, toVersion, workspaceSchema = 1, nodeVersion = process.versions.node, platform = process.platform } = {}) {
+// A major step is never refused for being major: it needs the user's explicit
+// consent (allowMajor), and every other check still applies.
+export function compatibilityError(metadata, { fromVersion, toVersion, workspaceSchema = 1, nodeVersion = process.versions.node, platform = process.platform, allowMajor = false } = {}) {
   const stable = /^\d+\.\d+\.\d+$/;
   if (!stable.test(fromVersion || '') || !stable.test(toVersion || '')) return 'Prerelease or unknown version requires review.';
-  if (fromVersion.split('.')[0] !== toVersion.split('.')[0]) return 'App major changes require review.';
+  if (!allowMajor && majorUpdate(fromVersion, toVersion)) return MAJOR_UPDATE_CONSENT;
   if (!metadata || metadata.schemaVersion !== 1 || metadata.version !== toVersion || !Array.isArray(metadata.fromVersions) || metadata.fromVersions.some(version=>typeof version!=='string'||!stable.test(version)) || !metadata.fromVersions.includes(fromVersion)) return 'Release has no explicit compatibility from this version.';
   if (metadata.migration !== 'none' || !Array.isArray(metadata.schemas?.config) || !Array.isArray(metadata.schemas?.workspace) || metadata.schemas.config.some(value=>!Number.isInteger(value)) || metadata.schemas.workspace.some(value=>!Number.isInteger(value)) || !metadata.schemas.config.includes(1) || !metadata.schemas.workspace.includes(workspaceSchema)) return 'Schema compatibility or migration requires review.';
   const minimum = typeof metadata.runtime?.node==='string' ? /^>=(\d+)$/.exec(metadata.runtime.node) : null;
@@ -246,7 +253,7 @@ export async function installArchive(options) {
   if (!path.isAbsolute(options.installDir)) throw new Error('--install-dir must be absolute.');
   return withAppLock(options.installDir, token => installArchiveLocked({...options, lockToken: token}), {token: options.lockToken});
 }
-async function installArchiveLocked({ zipBytes, checksumText, zipName, installDir, configPath, lockToken, compatibility, fromVersion, requirePristine = false, pinPath }) {
+async function installArchiveLocked({ zipBytes, checksumText, zipName, installDir, configPath, lockToken, compatibility, fromVersion, allowMajor = false, requirePristine = false, pinPath }) {
   if (!path.isAbsolute(installDir)) throw new Error('--install-dir must be absolute.');
   verifyChecksum(zipBytes, checksumText, zipName);
   const entries = readSafeZip(zipBytes);
@@ -287,7 +294,7 @@ async function installArchiveLocked({ zipBytes, checksumText, zipName, installDi
       if (JSON.stringify(embedded) !== JSON.stringify(compatibility)) throw new Error('Package compatibility does not match the checked release metadata.');
       let workspaceSchema = 1;
       if (external && await exists(path.join(external.workspaceRoot, 'workspace.json'))) workspaceSchema = JSON.parse(await readFile(path.join(external.workspaceRoot, 'workspace.json'), 'utf8')).schemaVersion;
-      const reason = compatibilityError(embedded, {fromVersion, toVersion: manifest.version, workspaceSchema});
+      const reason = compatibilityError(embedded, {fromVersion, toVersion: manifest.version, workspaceSchema, allowMajor});
       if (reason) throw new Error(reason);
       if (manifest.engines?.node !== embedded.runtime.node) throw new Error('Package runtime does not match compatibility metadata.');
     }

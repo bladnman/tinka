@@ -8,20 +8,35 @@ import {createHash} from 'node:crypto';
 import {execFile} from 'node:child_process';
 import {createServer} from 'node:http';
 import {promisify} from 'node:util';
+import {fileURLToPath} from 'node:url';
 import {buildRelease} from '../scripts/package.mjs';
-import {installArchive, main as installMain, installationPristine, compatibilityError, withAppLock, operationLockPath} from '../scripts/install.mjs';
+import {installArchive, main as installMain, installationPristine, compatibilityError, withAppLock, operationLockPath, MAJOR_UPDATE_CONSENT} from '../scripts/install.mjs';
 import {checkForUpdates, CHECK_INTERVAL, updateContext, loadUpdateState, updateCommand, publishedLatest} from '../lib/updates.mjs';
 const exec = promisify(execFile);
 const json = file => readFile(file, 'utf8').then(JSON.parse);
 const node = process.execPath;
-let root, release, archive, embedded, candidateVersion, priorVersion;
+let root, release, archive, embedded, candidateVersion, priorVersion, shipped;
+const sourceFiles = ['README.md','LICENSE','AGENTS.md','IMPLEMENTATION_CONTRACT.md','package.json','cli.mjs','server.mjs','public','lib','docs','examples','scripts','skill'];
+// Package this source under another version, declaring the given starting versions.
+async function variant(name, version, fromVersions) {
+  const source = path.join(root, `${name}-source`);
+  await mkdir(source);
+  for (const file of sourceFiles) await cp(fileURLToPath(new URL(`../${file}`, import.meta.url)), path.join(source, file), {recursive: true});
+  await writeFile(path.join(source, 'package.json'), JSON.stringify({...await json(path.join(source, 'package.json')), version}, null, 2));
+  const metadata = {...shipped, version, fromVersions};
+  await writeFile(path.join(source, 'lib/update-compatibility.json'), JSON.stringify(metadata, null, 2));
+  const built = JSON.parse((await exec(node, [path.join(source, 'scripts/package.mjs'), '--out', path.join(root, `${name}-release`)])).stdout);
+  return {release: built, embedded: metadata, archive: {zipBytes: await readFile(built.appZip), checksumText: await readFile(built.appChecksum, 'utf8'), zipName: path.basename(built.appZip)}};
+}
 before(async () => {
   root = await realpath(await mkdtemp(path.join(os.tmpdir(), 'tinka-updates-')));
-  release = await buildRelease({outDir: path.join(root, 'release')});
-  archive = {zipBytes: await readFile(release.appZip), checksumText: await readFile(release.appChecksum, 'utf8'), zipName: path.basename(release.appZip)};
-  embedded = await json(new URL('../lib/update-compatibility.json', import.meta.url));
-  candidateVersion = release.version; priorVersion = embedded.fromVersions.at(-1);
-  assert(priorVersion, 'Release declares a tested eligible predecessor');
+  shipped = await json(new URL('../lib/update-compatibility.json', import.meta.url));
+  // Updates run from this release to a same-major next patch built from the same
+  // source, so the ordinary path stays tested at any version, including X.0.0.
+  priorVersion = (await buildRelease({outDir: path.join(root, 'release')})).version;
+  const [major, minor, patch] = priorVersion.split('.').map(Number);
+  ({release, embedded, archive} = await variant('next', `${major}.${minor}.${patch + 1}`, [priorVersion]));
+  candidateVersion = release.version;
 });
 after(() => rm(root, {recursive: true, force: true}));
 async function fixture(t, portable = true) {
@@ -77,6 +92,12 @@ test('forced check never downloads, attempts installation, or suppresses a later
   assert.equal(downloads, 0); assert.equal((await json(f.context.statePath)).attemptedVersion, undefined);
   const result = await withAppLock(f.app, lockToken => checkForUpdates(f.config, {context: f.context, fetchLatest: async () => latest(), downloadRelease: source, lockToken}));
   assert.equal(result.replaced, true);
+});
+
+test('the shipped compatibility file validates from its last declared starting version', () => {
+  const from = shipped.fromVersions.at(-1);
+  assert(from, 'Release declares an eligible predecessor');
+  assert.equal(compatibilityError(shipped, {fromVersion: from, toVersion: priorVersion, nodeVersion: '22.0.0', platform: 'linux', allowMajor: true}), null);
 });
 
 test('compatibility requires explicit starting version, stable same major, runtime, schema and no migration', () => {
@@ -269,7 +290,7 @@ test('failed candidate health rolls back app, exact config and pin; a prior owne
   // A checked-out portable project can lack local config entirely. Its pin
   // still must survive a broken candidate's failed health verification.
   await rm(path.join(f.project,'tinka/local'),{recursive:true});
-  await assert.rejects(installMain(['--project',f.project,'--version',candidateVersion,'--zip',bad.appZip,'--checksum',bad.appChecksum]),/health identity/);
+  await assert.rejects(installMain(['--project',f.project,'--version',bad.version,'--zip',bad.appZip,'--checksum',bad.appChecksum]),/health identity/);
   assert.deepEqual(await readFile(f.context.pinPath),pinBefore);
   assert.equal((await json(path.join(f.app,'package.json'))).version,priorVersion);
   const cli = path.join(f.app, 'cli.mjs');
@@ -325,4 +346,40 @@ test('every install and portable start keeps the AGENTS.md block current; manual
   const manualStart = (await exec(node, [path.join(manual.app, 'cli.mjs'), 'start', '--config', manual.config.configPath])).stdout;
   assert.doesNotMatch(manualStart, /Tinka section|Warning/);
   assert.equal(await readFile(outside, 'utf8'), `${oneLiner}\n`);
+});
+
+test('a major update is offered with clear wording and installs only after consent', async t => {
+  const majorVersion = `${Number(priorVersion.split('.')[0]) + 1}.0.0`, shown = majorVersion.replace(/\.0$/, '');
+  const next = await variant('major', majorVersion, [priorVersion]);
+  const digest = createHash('sha256').update(next.archive.zipBytes).digest('hex');
+  const f = await fixture(t); let downloads = 0;
+  const options = extra => ({context: f.context, fetchLatest: async () => ({version: majorVersion, compatibility: {...next.embedded, archiveSha256: digest}}), downloadRelease: async () => { downloads++; return {...next.archive, compatibility: next.embedded}; }, ...extra});
+  const offered = new RegExp(`^Tinka ${shown.replaceAll('.', '\\.')} is available \\(${majorVersion.replaceAll('.', '\\.')}; installed ${priorVersion.replaceAll('.', '\\.')}\\)\\. This is a major update; ask the user before updating\\.\nAfter the user agrees: node .*cli\\.mjs' update --config .* now --major\n`);
+  // The rule itself: consent replaces the old refusal; every other check stays.
+  const versions = {fromVersion: priorVersion, toVersion: majorVersion, nodeVersion: '22.0.0', platform: 'linux'};
+  assert.equal(compatibilityError(next.embedded, versions), MAJOR_UPDATE_CONSENT);
+  assert.equal(compatibilityError(next.embedded, {...versions, allowMajor: true}), null);
+  assert.match(compatibilityError({...next.embedded, fromVersions: []}, {...versions, allowMajor: true}), /no explicit compatibility/);
+  assert.equal(compatibilityError({...embedded}, {fromVersion: priorVersion, toVersion: candidateVersion, nodeVersion: '22.0.0', platform: 'linux'}), null);
+  // Automatic updates never cross a major version: the stopped start only offers it.
+  await policy(f, 'auto');
+  const unattended = await withAppLock(f.app, lockToken => checkForUpdates(f.config, options({lockToken})));
+  assert.equal(unattended.replaced, false); assert.match(unattended.message, offered);
+  assert.doesNotMatch(unattended.message, /Always install|Update now:/);
+  assert.equal(downloads, 0); assert.equal((await json(path.join(f.app, 'package.json'))).version, priorVersion);
+  // Status repeats the offer; plain update now does not install it.
+  const status = await updateCommand(f.config, 'status', null, {context: f.context});
+  assert.match(status.message, /^Tinka updates: auto\. .*\nTinka .* is available .*This is a major update; ask the user before updating\.\nAfter the user agrees: .* now --major/s);
+  const plain = await withAppLock(f.app, lockToken => checkForUpdates(f.config, options({lockToken, explicit: true})));
+  assert.equal(plain.replaced, false); assert.match(plain.message, offered); assert.equal(downloads, 0);
+  await assert.rejects(updateCommand(f.config, 'check', null, options({major: true})), /--major goes with update now/);
+  // The installer enforces consent too.
+  await assert.rejects(installArchive({...next.archive, installDir: f.app, configPath: f.config.configPath, compatibility: next.embedded, fromVersion: priorVersion, pinPath: f.context.pinPath}), /major update; ask the user/);
+  assert.equal((await json(path.join(f.app, 'package.json'))).version, priorVersion);
+  assert.equal((await json(f.context.pinPath)).version, priorVersion);
+  // With the user's yes: update now --major installs it, with the usual checks.
+  const yes = await withAppLock(f.app, lockToken => updateCommand(f.config, 'now', null, options({lockToken, major: true})));
+  assert.equal(yes.replaced, true); assert.equal(downloads, 1);
+  assert.equal((await json(path.join(f.app, 'package.json'))).version, majorVersion);
+  assert.equal((await json(f.context.pinPath)).version, majorVersion);
 });
