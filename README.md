@@ -358,7 +358,10 @@ layout) and Shift-0 zooms to 100%; M shows or hides the board map. ⌥← / ⌥�
 Linux) select the previous or next Tinka in the same order an opened Tinka steps through,
 and bring it into view. With nothing selected they continue from the board's current
 Tinka: the one you last opened or stepped to inside it, stepped to on the board or
-selected on its own (remembered per board in this tab). ? or Inspector → Keyboard shortcuts shows the
+selected on its own (remembered per board in this tab). T, S and D add Text, a Sticky note or a Markdown
+Document at the pointer, N opens Quick jot, E edits the one selected Markdown
+document and ⇧⌘C / Ctrl-Shift-C copies the board's notes as Markdown.
+? or Inspector → Keyboard shortcuts shows the
 shortcut sheet.
 Editing fields, readers, iframes and dialogs keep their native keys.
 
@@ -403,7 +406,8 @@ Paste a single HTTP(S) link to make a link Tinka with a title, description and i
 when available, including public tweet metadata. Unavailable pages retain the
 original address and a recognizable fallback. This explicit paste looks up bounded
 public metadata; it never runs the page's HTML. Paste other text to make a document,
-with a readable card excerpt and its complete text in the reader. Newlines are
+with a readable card excerpt and its complete text in the reader; a leading
+Markdown `#` heading mark is dropped from its title. Newlines are
 preserved. Oversized pastes are rejected without truncating text. Paste selects the
 new cards and clears filters so they are visible; large layouts are revealed without
 changing card geometry. Each paste is one undo step. Editing fields and the reader
@@ -438,7 +442,23 @@ Reverse swaps the complete endpoints while keeping the arrow identity. Arrow tex
 cancels a gesture. Focus a decoration and press Enter for exact geometry or F2
 to edit its text. ⌘Z / Ctrl-Z undoes moving or resizing text, shapes and arrows like
 cards; their text, color, creation and removal are not part of Undo.
-Sticky and label text use plain Enter for a newline and Cmd/Ctrl+Enter to finish.
+Sticky and label text use plain Enter for a newline and Cmd/Ctrl+Enter to finish;
+Escape also finishes and keeps what you typed, while the Cancel button discards it.
+Text and Sticky blocks show a small, safe Markdown subset: **bold**, *italic*,
+`code`, `- ` or `1. ` lists, `[ ]` / `[x]` checkboxes and `# ` headings; anything
+else stays plain text.
+
+Quick add sits beside + Add: **Text (T)**, **Sticky (S)**, **Document (D)** and
+**Jot (N)**; the letters work on a Canvas board wherever board keys do and place the
+new block at the pointer. Double-click empty Canvas space to start a Text block
+there. **Document** (also in + Add) creates a Markdown file in the boards root's
+`imports/` folder and opens an editor with the source beside a live preview;
+⌘/Ctrl-Enter or Done saves it back to that file, Escape or Cancel closes it.
+Choose **Edit document** from a local Markdown item's ⋯ menu or the selection
+bar, or press **E** with it selected, to edit it the same way. **Quick jot** (N)
+is one floating line: each Enter adds a sticky below the last one, and Escape
+closes it. **⇧⌘C** / Ctrl-Shift-C, or + Add → Copy notes as Markdown, copies the
+board's text, stickies and item titles (with their Tinka links), top to bottom.
 Notes and conversation composers use the same scoped shortcut, with a platform
 hint. Failed saves preserve drafts; click-away never posts a comment. Small saved
 cards keep their size and expose hidden actions through More and selection controls.

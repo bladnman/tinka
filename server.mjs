@@ -19,6 +19,7 @@ import {resolveResource,resourceUrl} from './lib/resources.mjs';
 import {withStore} from './lib/store.mjs';
 import {createLinkPreview} from './lib/link-preview.mjs';
 import {readImportRequest} from './lib/file-import.mjs';
+import {createDocument,saveDocument} from './lib/documents.mjs';
 import {wantsReturnMark,injectReturnMark,resourcePlaces} from './lib/return-mark.mjs';
 import {createUpdateService} from './lib/update-browser.mjs';
 
@@ -179,6 +180,9 @@ export function createAppServer(config,{updates=createUpdateService(config)}={})
         finally{req.off('aborted',cancel);res.off('close',cancel);}
         return;
       }
+      if(pathname==='/api/documents'&&method==='POST'){await checkWrite(req,server,config);sendJson(res,200,await createDocument(config,await requestJson(req)));return;}
+      const documentApi=/^\/api\/documents\/([^/]+)$/.exec(pathname);
+      if(documentApi&&method==='PUT'){await checkWrite(req,server,config);sendJson(res,200,await saveDocument(config,documentApi[1],await requestJson(req)));return;}
       if(pathname==='/api/link-preview'&&method==='POST'){await checkWrite(req,server,config);const input=await requestJson(req);sendJson(res,200,await createLinkPreview(input?.url));return;}
       if(pathname==='/api/workspace/migrate'&&method==='POST'){await checkWrite(req,server,config);const input=await requestJson(req);if(!input||typeof input!=='object'||Array.isArray(input)||typeof input.dryRun!=='boolean')throw new HttpError(400,'Provide dryRun: true or false explicitly.');sendJson(res,200,await migrateLegacy(config,{dryRun:input.dryRun}));return;}
       if(pathname==='/api/operations'&&method==='POST'){await checkWrite(req,server,config);const operation=await requestJson(req);if(!operation||typeof operation!=='object'||Array.isArray(operation)||typeof operation.type!=='string')throw new HttpError(400,'Provide an operation object with type.');sendJson(res,200,await applyOperation(config,operation));return;}

@@ -86,3 +86,5 @@ dialog.whiteboard-arrow-settings { width:min(700px,calc(100vw - 24px)); max-heig
 .whiteboard-arrow-settings .whiteboard-settings-body { position:relative; contain:paint; }
 .whiteboard-arrow-settings .whiteboard-settings-actions { position:sticky; bottom:0; z-index:2; }
 .whiteboard-arrow-settings .whiteboard-settings-body { clip-path:inset(0); }
+/* Formatted Markdown body for Text and Sticky decorations (deco-format.js). */
+.deco-body{display:block;max-width:100%;white-space:normal}.deco-body ul,.deco-body ol{margin:0;padding-left:1.3em;text-align:left}.deco-heading{font-size:1.3em;font-weight:600}.deco-body code{font-family:ui-monospace,monospace;font-size:.9em}

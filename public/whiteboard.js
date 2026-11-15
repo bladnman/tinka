@@ -1,6 +1,7 @@
 import {bindForm, restoreFocus, commitShortcutLabel} from './interaction.js';
 import {escape as esc, makeDialog, showFailure} from './workspace.js';
 import {resolveEndpoint, resolveLine, decorationBounds} from './whiteboard-geometry.js';
+import {formatToHTMLString} from './deco-format.js';
 
 const sides = ['top', 'right', 'bottom', 'left'];
 const shapeNames = {rectangle:'Sticky note', rounded:'Process', diamond:'Decision', ellipse:'Start / end'};
@@ -65,7 +66,7 @@ export function decorationMarkup(d, board, origin, selected=false, overrides) {
     const silhouette = shape === 'diamond' ? `<polygon points="${w/2},0 ${w},${h/2} ${w/2},${h} 0,${h/2}"/>`
       : shape === 'ellipse' ? `<ellipse cx="${w/2}" cy="${h/2}" rx="${Math.max(1,w/2-1)}" ry="${Math.max(1,h/2-1)}"/>`
       : `<rect x="1" y="1" width="${Math.max(1,w-2)}" height="${Math.max(1,h-2)}" rx="${shape==='rounded'?Math.min(20,w/2,h/2):2}"/>`;
-    mark = `${shape?`<svg class="whiteboard-silhouette" viewBox="0 0 ${w} ${h}" preserveAspectRatio="none" aria-hidden="true">${silhouette}</svg>`:''}<span class="workspace-decoration-label" data-decoration-label>${esc(current.text||'')}</span>`;
+    mark = `${shape?`<svg class="whiteboard-silhouette" viewBox="0 0 ${w} ${h}" preserveAspectRatio="none" aria-hidden="true">${silhouette}</svg>`:''}<span class="workspace-decoration-label" data-decoration-label><span class="deco-body">${formatToHTMLString(current.text||'')}</span></span>`;
     if (selected) handles = '<button type="button" class="workspace-decoration-resize" data-decoration-resize aria-label="Resize decoration">◢</button>';
   }
   return `<div tabindex="0" role="group" aria-label="${esc(line?'Arrow':shapeNames[current.shape]||current.type)}: ${esc(current.text||'Untitled')}" class="workspace-decoration decoration-${esc(d.type)} ${current.shape?'whiteboard-shape shape-'+esc(current.shape):''} ${selected?'selected':''}" data-decoration="${esc(d.id)}" style="left:${box.x+origin.x}px;top:${box.y+origin.y}px;width:${w}px;height:${h}px;--decoration-color:${color};${decorationInk(color)}">${mark}${handles}</div>`;
@@ -478,7 +479,9 @@ export class Whiteboard {
   handleEscape(e) {
     if(e.key!=='Escape')return false;
     if(this.drag||this.pendingFrom||this.connectMode){this.cancel();return true;}
-    if(this.editor){if(e.isComposing||e.keyCode===229||this.editor.composing)return false;this.cancelEdit();return true;}
+    // Escape keeps what was typed (as in Figma or Miro): it commits and leaves edit mode.
+    // Discarding stays an explicit choice (the toolbar's cancel-edit action).
+    if(this.editor){if(e.isComposing||e.keyCode===229||this.editor.composing)return false;this.commitEdit({focus:true});return true;}
     if(!this.menu.hidden){this.closeMenu({focus:true});return true;}
     return false;
   }

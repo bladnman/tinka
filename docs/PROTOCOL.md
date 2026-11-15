@@ -189,6 +189,8 @@ File digests, names, geometry and target are part of retry identity; byte buffer
 are never stored in metadata or history. `importFiles` is internal to this route
 and cannot be submitted through the ordinary operation endpoint or CLI.
 
+POST `/api/documents` takes the same JSON fields as import metadata without `placements`, plus optional `title`, `text` (Markdown, at most 900,000 bytes), `width` and `height`, and creates one Markdown document item in the same transaction and receipt. PUT `/api/documents/ITEM_ID` with `{"text":"…"}` replaces the bytes of that item's local Markdown resource file and changes no metadata. Both use the ordinary write guards and `x-tinka-workspace` header.
+
 Imports accept 1–20 nonempty files, at most **20 MiB per file** and **50 MiB total**.
 The multipart request allows 128 KiB additional envelope overhead and metadata
 is limited to 16 KiB. Unknown fields, unsupported byte signatures, malformed

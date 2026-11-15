@@ -33,7 +33,7 @@ export function externalClipboard(workspaceId, source, metadata = {}) {
   const now = new Date().toISOString(), link = source.kind === "url";
   const fallback = link ? new URL(source.url) : null;
   const title = link ? String(metadata.title || fallback.hostname + fallback.pathname).slice(0,1000)
-    : (source.text.split(/\r?\n/).find(line => line.trim())?.trim() || "Pasted document").slice(0,120);
+    : (source.text.split(/\r?\n/).find(line => line.trim())?.trim().replace(/^#{1,6}\s+/,"").trim() || "Pasted document").slice(0,120);
   const author = String(metadata.author || "").trim(), description = String(metadata.description || "").trim();
   const summary = author && !description.includes(author) ? `${author}${description ? " · " + description : ""}` : description;
   const item = {schemaVersion:2,id:itemId,title,description:link ? summary.slice(0,2000) : "",

@@ -63,6 +63,9 @@ export class WorkspaceBoard {
     this.config = config;
     this.snapshot = snapshot;
     this.hooks = hooks;
+    // Tinka item links (the same /boards/BOARD/#items/PLACEMENT form tool results give).
+    hooks.itemLink ??= (placement, item, board = this.snapshot) => placement?.id && board?.id
+      ? `${location.origin}/boards/${encodeURIComponent(board.id)}/#items/${encodeURIComponent(placement.id)}` : null;
     this.client = new WorkspaceClient(config, snapshot.revision);
     this.history = new MovementHistory(this.client,config.workspaceId,() => this.updateHistoryControls());
     this.client.onState = () => { this.updateHistoryControls(); this.hooks.liveReady?.(); };
@@ -224,7 +227,22 @@ export class WorkspaceBoard {
     quick.className = "chrome-history";
     quick.innerHTML = '<button type="button" id="chrome-undo" class="tk-btn tk-icon" aria-label="Undo" title="Undo (⌘Z)" disabled><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M7.5 5 4 8.5 7.5 12"/><path d="M4.5 8.5H12a4 4 0 0 1 0 8H9"/></svg></button><button type="button" id="chrome-redo" class="tk-btn tk-icon" aria-label="Redo" title="Redo (⇧⌘Z)" disabled><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M12.5 5 16 8.5 12.5 12"/><path d="M15.5 8.5H8a4 4 0 0 0 0 8h3"/></svg></button>';
     actions.insertBefore(quick, $("board-info-toggle"));
-    actions.append(add);
+    // Quick add: the everyday note tools stay one click away, with their keys.
+    const tools = document.createElement("span");
+    tools.className = "chrome-quick-add";
+    tools.setAttribute("role", "group");
+    tools.setAttribute("aria-label", "Quick add");
+    tools.innerHTML = [["text","T","Text","T"],["sticky",'<svg viewBox="0 0 16 16" width="14" height="14"><path d="M2.5 2.5h11v7l-4 4h-7z" fill="#f6e6a4" stroke="currentColor"/></svg>',"Sticky","S"],["document",'<svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor"><path d="M3.5 1.5h6l3 3v10h-9z"/><path d="M5.5 7.5h5M5.5 10h5M5.5 12.5h3"/></svg>',"Document","D"],["jot",'<svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor"><path d="M3 13.5 3.6 11 11 3.6l1.4 1.4L5 12.4z"/><path d="M9 13.5h4.5"/></svg>',"Jot","N"]].map(([type,icon,label,key]) =>
+      `<button type="button" class="tk-btn" data-quick-add="${type}" title="Add ${label.toLowerCase()} (${key})" aria-keyshortcuts="${key}"><span aria-hidden="true" class="quick-add-icon">${icon}</span><span class="quick-add-label">${label}</span><kbd aria-hidden="true">${key}</kbd></button>`).join("");
+    tools.onclick = e => {
+      const button = e.target.closest("[data-quick-add]");
+      if (!button || this.boardCommandBlocked()) return;
+      const type = button.dataset.quickAdd;
+      if (type === "document") this.createDocument();
+      else if (type === "jot") this.quickJot();
+      else this.createDecoration(type);
+    };
+    actions.append(tools, add);
     const history = document.createElement("div");
     history.className = "workspace-history-actions";
     history.innerHTML = '<button type="button" id="workspace-undo" disabled>Undo</button><button type="button" id="workspace-redo" disabled>Redo</button>';
@@ -624,6 +642,19 @@ export class WorkspaceBoard {
       if (key !== "f" || held.used || this.mode !== "canvas" || this.pointerGesture || this.decorationGesture || this.boardCommandBlocked(event)) return;
       this.hooks.fit?.("smart");
     }, true);
+    document.addEventListener("pointermove", e => {
+      const viewport = $("viewport");
+      this.lastBoardPointer = {x:e.clientX,y:e.clientY,over:!!viewport?.contains(e.target)};
+    }, true);
+    // Double-click on empty Canvas space starts a Text block there.
+    document.addEventListener("dblclick", e => {
+      if (this.mode !== "canvas" || !this.snapshot?.id || e.button !== 0 || e.altKey || e.metaKey || e.ctrlKey || e.shiftKey) return;
+      if (!e.target.closest?.("#viewport") || e.target.closest("[data-decoration],[data-placement],.workspace-card,button,a,input,textarea,select,label,iframe,dialog,[contenteditable],[role=textbox],[role=dialog],[role=menu],[role=toolbar],.zoom-pill,.board-map,.board-map-stage")) return;
+      if (this.boardCommandBlocked(e) || this.pointerGesture || this.decorationGesture) return;
+      e.preventDefault();
+      getSelection?.()?.removeAllRanges?.();
+      this.createDecoration("text", {x:e.clientX,y:e.clientY});
+    });
     document.addEventListener("pointerdown", () => { this.pointerPressed = true; if (this.boxKey) this.boxKey.used = true; }, true);
     for (const type of ["pointerup","pointercancel"]) document.addEventListener(type, () => { this.pointerPressed = false; }, true);
     globalThis.window?.addEventListener("blur", releaseBoxKey);
@@ -683,6 +714,21 @@ export class WorkspaceBoard {
       else if (!command && !event.shiftKey && key === "m" && this.mode === "canvas")
         action = () => this.hooks.toggleMap?.();
       else if (!command && key === "?") action = () => this.keyboardShortcuts();
+      // E edits the one selected Markdown document.
+      else if (!command && !event.shiftKey && key === "e" && this.selectedDocument()) {
+        const id = this.selectedDocument().id;
+        action = () => this.editDocument(id);
+      }
+      // N opens Quick jot: each Enter'd line becomes a sticky.
+      else if (!command && !event.shiftKey && key === "n" && this.mode === "canvas" && this.snapshot?.id)
+        action = () => this.quickJot();
+      // Shift-⌘/Ctrl-C copies the board's notes as Markdown; plain ⌘/Ctrl-C stays Copy.
+      else if (command && event.shiftKey && key === "c" && this.snapshot?.id) action = () => this.copyNotes();
+      // T · S · D add Text, a Sticky note or a Markdown Document at the pointer.
+      else if (!command && !event.shiftKey && ["t","s","d"].includes(key) && this.mode === "canvas" && this.snapshot?.id) {
+        const point = this.lastBoardPointer && this.lastBoardPointer.over ? {x:this.lastBoardPointer.x,y:this.lastBoardPointer.y} : undefined;
+        action = key === "d" ? () => this.createDocument(point) : () => this.createDecoration(key === "t" ? "text" : "sticky", point);
+      }
       if (!action) return;
       event.preventDefault(); event.stopImmediatePropagation();
       action();
@@ -705,8 +751,12 @@ export class WorkspaceBoard {
       <dt>Hold F · Z while drawing a selection box</dt><dd>When you let go: fit what the box selected · zoom to the box itself</dd>
       <dt>Shift-1 · Shift-2 · Shift-0</dt><dd>Fit the canvas · Fit the selection · Zoom to 100%</dd>
       <dt>M</dt><dd>Show or hide the board map (click or drag in it to move there)</dd>
+      <dt>T · S · D</dt><dd>Add Text · a Sticky note · a Markdown Document at the pointer</dd>
+      <dt>E</dt><dd>Edit the selected Markdown document</dd>
+      <dt>N</dt><dd>Quick jot: type a line, Enter adds it as a sticky; Escape closes</dd>
       <dt>?</dt><dd>Show keyboard shortcuts</dd>
       <dt>⌘/Ctrl-C · X · V</dt><dd>Copy · Cut · Paste</dd>
+      <dt>Shift-⌘/Ctrl-C</dt><dd>Copy this board's notes as Markdown (text, stickies and linked item titles)</dd>
       <dt>Delete / Backspace</dt><dd>Remove selection from this board</dd>
       <dt>⌘/Ctrl-Z · Shift-⌘/Ctrl-Z</dt><dd>Undo · Redo</dd>
       <dt>Arrow keys · Shift-Arrow</dt><dd>Move selection 1 · 10 units</dd>
@@ -1324,6 +1374,11 @@ export class WorkspaceBoard {
       const id = [...this.selection][0];
       const controls = document.createElement('button'); controls.type='button'; controls.className='tk-btn tk-sm'; controls.textContent='Details…'; controls.setAttribute('aria-label','Item details'); controls.title='Item details (⌘I)';
       controls.onclick=()=>this.itemControls(id,'notes'); el.insertBefore(controls,el.querySelector('[data-bulk]'));
+      const doc = this.selectedDocument();
+      if (doc) {
+        const edit = document.createElement('button'); edit.type='button'; edit.className='tk-btn tk-sm'; edit.dataset.editDocument=''; edit.textContent='Edit document'; edit.title='Edit document (E)';
+        edit.onclick=()=>this.editDocument(doc.id); el.insertBefore(edit,controls);
+      }
     }
     this.updateHistoryControls();
     this.emitSelection();
@@ -1638,7 +1693,7 @@ export class WorkspaceBoard {
     const unavailable=["reserved","building"].includes(item.build?.state) && !placeOnly;
     const menu = document.createElement("div");
     menu.className = "tk-menu workspace-tile-menu"; menu.setAttribute("role", "menu"); menu.setAttribute("aria-label", `Actions for ${item.title}`);
-    menu.innerHTML = `<button type="button" class="tk-mi" role="menuitem" data-tile-menu="open" ${unavailable?"disabled":""}>${placeOnly ? "Open board" : "Open experiment"}<kbd class="tk-kbd" aria-hidden="true">↵</kbd></button>${handoff?`<a class="tk-mi" role="menuitem" href="${esc(handoff)}" target="_blank" rel="noopener noreferrer">Handoff</a>`:""}<button type="button" class="tk-mi" role="menuitem" data-tile-menu="notes">Notes</button><button type="button" class="tk-mi" role="menuitem" data-tile-menu="details">Details…<kbd class="tk-kbd" aria-hidden="true">⌘I</kbd></button><div class="tk-msep" role="separator"></div><button type="button" class="tk-mi" role="menuitem" data-tile-menu="star">${star ? "Unfavorite" : "Favorite"}</button><button type="button" class="tk-mi" role="menuitem" data-tile-menu="move">Move to board…</button><button type="button" class="tk-mi" role="menuitem" data-tile-menu="duplicate">Duplicate<kbd class="tk-kbd" aria-hidden="true">⌘D</kbd></button><div class="tk-msep" role="separator"></div><button type="button" class="tk-mi tk-danger" role="menuitem" data-tile-menu="remove">Remove from board…</button>`;
+    menu.innerHTML = `<button type="button" class="tk-mi" role="menuitem" data-tile-menu="open" ${unavailable?"disabled":""}>${placeOnly ? "Open board" : "Open experiment"}<kbd class="tk-kbd" aria-hidden="true">↵</kbd></button>${handoff?`<a class="tk-mi" role="menuitem" href="${esc(handoff)}" target="_blank" rel="noopener noreferrer">Handoff</a>`:""}${this.editableDocument(item)?'<button type="button" class="tk-mi" role="menuitem" data-tile-menu="edit-document">Edit document<kbd class="tk-kbd" aria-hidden="true">E</kbd></button>':""}<button type="button" class="tk-mi" role="menuitem" data-tile-menu="notes">Notes</button><button type="button" class="tk-mi" role="menuitem" data-tile-menu="details">Details…<kbd class="tk-kbd" aria-hidden="true">⌘I</kbd></button><div class="tk-msep" role="separator"></div><button type="button" class="tk-mi" role="menuitem" data-tile-menu="star">${star ? "Unfavorite" : "Favorite"}</button><button type="button" class="tk-mi" role="menuitem" data-tile-menu="move">Move to board…</button><button type="button" class="tk-mi" role="menuitem" data-tile-menu="duplicate">Duplicate<kbd class="tk-kbd" aria-hidden="true">⌘D</kbd></button><div class="tk-msep" role="separator"></div><button type="button" class="tk-mi tk-danger" role="menuitem" data-tile-menu="remove">Remove from board…</button>`;
     this.closeContext();
     document.body.append(menu); this.tilePopup = menu;this.tileMenuPlacement=id;
     anchor?.setAttribute("aria-expanded","true");
@@ -1648,6 +1703,7 @@ export class WorkspaceBoard {
       const action = e.target.closest("[data-tile-menu]")?.dataset.tileMenu; if (!action) {if(e.target.closest("a"))this.closeTileMenu();return;}
       this.closeTileMenu();
       if (action === "open") card()?.querySelector("[data-open]:not(:disabled)")?.click();
+      else if (action === "edit-document") this.editDocument(item.id);
       else if (action === "notes") this.hooks.editNote?.(`items/${id}`,card()?.querySelector("[data-item-controls]"));
       else if (action === "details") this.itemControls(id, "notes");
       else if (action === "star") card()?.querySelector("[data-star]")?.click();
@@ -2357,7 +2413,7 @@ export class WorkspaceBoard {
     const menu = document.createElement("div");
     menu.className = "workspace-add-menu"; menu.setAttribute("role", "menu");
     menu.setAttribute("aria-label", "Add to board");
-    menu.innerHTML = `<button type="button" role="menuitem" data-add="text"><span aria-hidden="true">T</span>Text</button><button type="button" role="menuitem" data-add="region"><span aria-hidden="true">▧</span>Colored region</button><button type="button" role="menuitem" data-add="sticky"><span aria-hidden="true">▣</span>Sticky note</button><button type="button" role="menuitem" data-add="rounded"><span aria-hidden="true">▢</span>Process</button><button type="button" role="menuitem" data-add="diamond"><span aria-hidden="true">◇</span>Decision</button><button type="button" role="menuitem" data-add="ellipse"><span aria-hidden="true">⬭</span>Start / end</button><button type="button" role="menuitem" data-add="arrow"><span aria-hidden="true">↗</span>Arrow</button><hr><button type="button" role="menuitem" data-add="idea"><span aria-hidden="true">◇</span>Item…</button><button type="button" role="menuitem" data-add="board"><span aria-hidden="true">▱</span>Tinka / Board…</button><hr><button type="button" role="menuitem" data-add="background">Board background…</button><button type="button" role="menuitem" data-add="order">Comparison order…</button>`;
+    menu.innerHTML = `<button type="button" role="menuitem" data-add="text"><span aria-hidden="true">T</span>Text</button><button type="button" role="menuitem" data-add="region"><span aria-hidden="true">▧</span>Colored region</button><button type="button" role="menuitem" data-add="sticky"><span aria-hidden="true">▣</span>Sticky note</button><button type="button" role="menuitem" data-add="rounded"><span aria-hidden="true">▢</span>Process</button><button type="button" role="menuitem" data-add="diamond"><span aria-hidden="true">◇</span>Decision</button><button type="button" role="menuitem" data-add="ellipse"><span aria-hidden="true">⬭</span>Start / end</button><button type="button" role="menuitem" data-add="arrow"><span aria-hidden="true">↗</span>Arrow</button><button type="button" role="menuitem" data-add="document"><span aria-hidden="true">≣</span>Document</button><hr><button type="button" role="menuitem" data-add="idea"><span aria-hidden="true">◇</span>Item…</button><button type="button" role="menuitem" data-add="board"><span aria-hidden="true">▱</span>Tinka / Board…</button><hr><button type="button" role="menuitem" data-add="copy-notes">Copy notes as Markdown <kbd aria-hidden="true">${isMacPlatform() ? "⇧⌘C" : "Ctrl-Shift-C"}</kbd></button><button type="button" role="menuitem" data-add="background">Board background…</button><button type="button" role="menuitem" data-add="order">Comparison order…</button>`;
     document.body.append(menu); this.addPopup = menu;
     const rect = anchor?.getBoundingClientRect();
     const screen = point || { x: rect.right - menu.offsetWidth, y: rect.bottom + 6 };
@@ -2367,6 +2423,8 @@ export class WorkspaceBoard {
       const type = button.dataset.add;
       this.closeAddMenu();
       if (["text", "region", "arrow", "sticky", "rounded", "diamond", "ellipse"].includes(type)) this.createDecoration(type, point);
+      else if (type === "document") this.createDocument(point);
+      else if (type === "copy-notes") this.copyNotes();
       else if (type === "board") this.newBoard();
       else if (type === "idea") itemForm(this.client, { boardId: this.snapshot.id, refresh: () => this.refresh() });
       else if (type === "background") this.backgroundForm();
@@ -2418,6 +2476,30 @@ export class WorkspaceBoard {
       element?.focus({ preventScroll: true });
       if (type !== "arrow") this.editDecoration(d.id, true);
     } catch (error) { showFailure(error); }
+  }
+  // Document creation and editing live in board-document.js (loaded on first use).
+  // point is the same screen (client) point createDecoration takes, or undefined
+  // for the viewport centre; this.canvasPoint(point) converts it to board units.
+  // A local Markdown document item (the same test as the card's documentContent).
+  editableDocument(item) { return item?.content?.kind === "markdown" && !!item.content.resource && !item.content.url; }
+  selectedDocument() {
+    if (this.selection.size !== 1) return null;
+    const p = this.snapshot.placements.find(p => p.id === [...this.selection][0]), item = this.snapshot.items[p?.itemId];
+    return this.editableDocument(item) ? item : null;
+  }
+  editDocument(itemId) {
+    return import("./board-document.js").then(m => m.editBoardDocument(this, itemId)).catch(showFailure);
+  }
+  quickJot() {
+    if (this.mode !== "canvas") this.setMode("canvas");
+    return import("./quick-jot.js").then(m => m.openQuickJot(this)).catch(showFailure);
+  }
+  copyNotes() {
+    return import("./board-notes-export.js").then(m => m.copyBoardNotes(this)).catch(showFailure);
+  }
+  createDocument(point) {
+    if (this.mode !== "canvas") this.setMode("canvas");
+    return import("./board-document.js").then(m => m.createBoardDocument(this, point)).catch(showFailure);
   }
   editDecoration(id, select = false) { return this.whiteboard.edit(id,select); }
   canvasEditing() {

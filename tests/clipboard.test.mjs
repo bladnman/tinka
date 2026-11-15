@@ -174,3 +174,16 @@ test("external pasted text uses the same atomic creation/history without a live 
   await f.op("restoreMovement",{history:undone.history});
   assert.equal((await f.snapshot()).items.find(i => i.id === pasted.result.itemIds[0]).content.text,document);
 });
+
+test("pasted text titles drop leading Markdown heading marks and keep the body exact",async () => {
+  const {externalClipboard} = await import("../public/clipboard.js");
+  const title = text => Object.values(externalClipboard("w",{kind:"text",text}).items)[0].title;
+  assert.equal(title("# Plan\n\n- one"),"Plan");
+  assert.equal(title("\n###   Deep heading"),"Deep heading");
+  assert.equal(title("#hashtag stays"),"#hashtag stays");
+  assert.equal(title("####### Seven marks stay"),"####### Seven marks stay");
+  assert.equal(title("# "),"#");
+  assert.equal(title("Plain line"),"Plain line");
+  const body = "# Plan\n- one";
+  assert.equal(Object.values(externalClipboard("w",{kind:"text",text:body}).items)[0].content.text,body);
+});
