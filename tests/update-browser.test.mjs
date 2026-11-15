@@ -7,6 +7,7 @@ import './helpers/offline.mjs';
 import assert from 'node:assert/strict';
 import {test, before, after} from 'node:test';
 import {mkdtemp, realpath, readFile, writeFile, rm, mkdir} from 'node:fs/promises';
+import {readFileSync} from 'node:fs';
 import {spawnSync} from 'node:child_process';
 import {createHash} from 'node:crypto';
 import path from 'node:path';
@@ -20,6 +21,8 @@ import {createUpdateService, installPaths} from '../lib/update-browser.mjs';
 import {createAppServer, closeAppServer} from '../server.mjs';
 
 const json = file => readFile(file, 'utf8').then(JSON.parse);
+// The update on offer is the next patch after this source version, so the fixture holds across releases.
+const NEXT = (({version}) => version.replace(/\d+$/, patch => String(Number(patch) + 1)))(JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')));
 let root, built, archive, shipped;
 before(async () => {
   root = await realpath(await mkdtemp(path.join(os.tmpdir(), 'tinka-update-browser-')));
@@ -30,7 +33,7 @@ before(async () => {
 after(() => rm(root, {recursive: true, force: true}));
 
 // An installed portable project on this source's version, with an update on offer.
-async function fixture(t, offered = '1.0.1') {
+async function fixture(t, offered = NEXT) {
   const project = await realpath(await mkdtemp(path.join(root, 'project-')));
   const app = path.join(project, 'tinka/app');
   await installArchive({...archive, installDir: app});
@@ -56,20 +59,20 @@ test('the update state is read-only, carries no local paths and is empty for a s
   const f = await fixture(t);
   const view = await f.state();
   assert.equal(view.installed, true); assert.equal(view.version, f.config.version); assert.equal(view.policy, 'notify');
-  assert.deepEqual(view.notice, {kind: 'compatible', version: '1.0.1', display: '1.0.1', major: false, reason: null, snoozed: false});
-  assert.equal(view.latest.notes, 'https://github.com/bladnman/tinka/releases/tag/v1.0.1');
+  assert.deepEqual(view.notice, {kind: 'compatible', version: NEXT, display: NEXT, major: false, reason: null, snoozed: false});
+  assert.equal(view.latest.notes, `https://github.com/bladnman/tinka/releases/tag/v${NEXT}`);
   assert.equal(view.agentCommand, 'node tinka/app/cli.mjs update --config tinka/local/config.json'); assert.equal(view.pin, true);
   assert(!JSON.stringify(view).includes(f.project), 'No absolute project path is exposed');
   const source = await createUpdateService(f.config).view();
   assert.equal(source.installed, false); assert.equal(source.notice, null);
-  await assert.rejects(createUpdateService(f.config).install({version: '1.0.1'}), {status: 409});
+  await assert.rejects(createUpdateService(f.config).install({version: NEXT}), {status: 409});
   assert.equal((await fetch(`${f.base}/api/update/install`)).status, 405, 'Install is POST-only');
 });
 
 test('installs refuse cross-site requests the way other writes do', async t => {
   const f = await fixture(t);
-  for (const headers of [{'x-tinka-workspace': 'other'}, {Origin: 'http://evil.example'}, {'Sec-Fetch-Site': 'cross-site'}]) assert.equal((await f.request('/api/update/install', {version: '1.0.1'}, headers)).status, 403);
-  const plain = await fetch(`${f.base}/api/update/install`, {method: 'POST', headers: {'x-tinka-workspace': f.config.workspaceId}, body: '{"version":"1.0.1"}'});
+  for (const headers of [{'x-tinka-workspace': 'other'}, {Origin: 'http://evil.example'}, {'Sec-Fetch-Site': 'cross-site'}]) assert.equal((await f.request('/api/update/install', {version: NEXT}, headers)).status, 403);
+  const plain = await fetch(`${f.base}/api/update/install`, {method: 'POST', headers: {'x-tinka-workspace': f.config.workspaceId}, body: JSON.stringify({version: NEXT})});
   assert.equal(plain.status, 415);
   assert.equal(f.spawned.length, 0);
 });
@@ -93,14 +96,14 @@ test('a major update installs only with consent, and only the version the user s
 
 test('a compatible update sends no consent; policy off refuses; one install at a time', async t => {
   const f = await fixture(t);
-  assert.equal((await f.request('/api/update/install', {version: '1.0.1', consent: 'major'})).status, 400);
+  assert.equal((await f.request('/api/update/install', {version: NEXT, consent: 'major'})).status, 400);
   assert.equal((await f.request('/api/update/preference', {action: 'policy', policy: 'off'})).status, 200);
   const off = await f.state();
-  assert.equal(off.policy, 'off'); assert.equal(off.notice, null); assert.equal(off.latest.version, '1.0.1');
-  assert.equal((await f.request('/api/update/install', {version: '1.0.1'})).status, 409);
+  assert.equal(off.policy, 'off'); assert.equal(off.notice, null); assert.equal(off.latest.version, NEXT);
+  assert.equal((await f.request('/api/update/install', {version: NEXT})).status, 409);
   assert.equal(f.spawned.length, 0, 'No install while updates are off');
   await f.request('/api/update/preference', {action: 'policy', policy: 'notify'});
-  const [first, second] = await Promise.all([f.request('/api/update/install', {version: '1.0.1'}), f.request('/api/update/install', {version: '1.0.1'})]);
+  const [first, second] = await Promise.all([f.request('/api/update/install', {version: NEXT}), f.request('/api/update/install', {version: NEXT})]);
   assert.deepEqual([first.status, second.status].sort(), [202, 409]);
   assert.equal(f.spawned.length, 1);
   assert.match([first, second].find(result => result.status === 409).body.error, /already running/);
@@ -113,7 +116,7 @@ test('a compatible update sends no consent; policy off refuses; one install at a
   const failed = await f.state();
   assert.equal(failed.install.state, 'failed'); assert.equal(failed.install.reason, 'Download timed out.');
   assert.equal(failed.notice.kind, 'failed'); assert.equal(failed.notice.reason, 'Download timed out.');
-  assert.equal((await f.request('/api/update/install', {version: '1.0.1'})).status, 202, 'Try again starts a new install');
+  assert.equal((await f.request('/api/update/install', {version: NEXT})).status, 202, 'Try again starts a new install');
 });
 
 test('Later and the policy are the CLI settings; review cases never install from the browser', async t => {
@@ -125,15 +128,15 @@ test('Later and the policy are the CLI settings; review cases never install from
   assert.equal(result.body.policy, 'auto'); assert.equal(result.body.notice.kind, 'deferred');
   assert.equal((await f.request('/api/update/preference', {action: 'policy', policy: 'sometimes'})).status, 400);
   await f.request('/api/update/preference', {action: 'policy', policy: 'notify'});
-  await f.offer('1.0.1', {latest: {version: '1.0.1', compatibility: {...shipped, version: '1.0.1', fromVersions: ['0.1.0']}}});
+  await f.offer(NEXT, {latest: {version: NEXT, compatibility: {...shipped, version: NEXT, fromVersions: ['0.1.0']}}});
   let view = await f.service().view();
   assert.equal(view.notice.kind, 'review'); assert.match(view.notice.reason, /no explicit compatibility/);
-  assert.equal((await f.request('/api/update/install', {version: '1.0.1'})).status, 409);
+  assert.equal((await f.request('/api/update/install', {version: NEXT})).status, 409);
   await f.offer();
   await writeFile(path.join(f.app, 'local-change.txt'), 'edited');
   view = await f.service().view();
   assert.equal(view.notice.kind, 'review'); assert.match(view.notice.reason, /local changes/);
-  assert.equal((await f.request('/api/update/install', {version: '1.0.1'})).status, 409);
+  assert.equal((await f.request('/api/update/install', {version: NEXT})).status, 409);
   assert.equal(f.spawned.length, 0);
 });
 
