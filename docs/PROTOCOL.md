@@ -604,6 +604,23 @@ start. Source checkouts skip automatic checks. The [README](../README.md#updates
 describes local state, old-receipt bootstrap, checksums, health and recovery.
 Setup without version arguments remains a pinned restore.
 
+The browser's notice uses three routes. GET `/api/update` is read-only:
+`{installed,version,display,project,pin,agentCommand,policy,checkedAt,checkFailed,latest,notice,install}`,
+where `latest` is `{version,display,major,notes}`, `notice` is
+`{kind:compatible|major|review|failed|deferred,version,display,major,reason,snoozed}`
+and `install` is `{state:running|updated|failed,from,to,display,major,startedAt,reason?}`.
+It carries no local paths except the agent command (relative in a portable project)
+and is empty for a source checkout. POST `/api/update/install` takes
+`{version, consent?}`: `version` must be the update on offer, and a major update
+needs `consent:"major"` (a compatible one takes none). It refuses with 409 when
+updates are off, an install is running, the copy is modified or compatibility needs
+review, then starts `update now [--major] --to VERSION` detached and answers 202;
+the record beside the update state (`updates.install.json`, log `updates.install.log`)
+lets the restarted server report the outcome. POST `/api/update/preference` takes
+`{action:"later"}`, `{action:"check"}` or `{action:"policy",policy}` and returns the
+new state. Both writes use the ordinary JSON, Host/Origin and `x-tinka-workspace`
+guards.
+
 ## Start a board
 
 Create a board with `node cli.mjs board create SLUG --config /absolute/config.json --title "Title"`. Its immediate folder under `boardsRoot` contains `AGENTS.md`, `board.json`, `rounds.json`, `build-state.json`, and `.state/notes.json`. Before the workspace is initialized, this is a legacy folder board: the workspace tools (`item.create`, `board.get`) cannot use it until `workspace migrate --dry-run`, then `--apply`, which keeps its ID. To fill a board with the workspace tools, create it with `tools call board.create` instead. The portable guide stays with the board. Use `board guide SLUG --config PATH` to add it to an older board without overwriting an existing guide. No installed skill is required. The app never executes a manifest or an experiment start command. Keep source and evidence in that external board folder; keep the application installation replaceable.

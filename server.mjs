@@ -20,6 +20,7 @@ import {withStore} from './lib/store.mjs';
 import {createLinkPreview} from './lib/link-preview.mjs';
 import {readImportRequest} from './lib/file-import.mjs';
 import {wantsReturnMark,injectReturnMark,resourcePlaces} from './lib/return-mark.mjs';
+import {createUpdateService} from './lib/update-browser.mjs';
 
 const appRoot=path.dirname(fileURLToPath(import.meta.url));
 const publicRoot=path.join(appRoot,'public');
@@ -111,7 +112,7 @@ async function sendFile(req,res,root,relative,{url=null}={}){
   createReadStream(file.path).on('error',()=>res.destroy()).pipe(res);
 }
 
-export function createAppServer(config){
+export function createAppServer(config,{updates=createUpdateService(config)}={}){
   const live=new Map();
   const push=createPushHub(config,{snapshot:async id=>{
     const graph=await loadGraphBoard(config,id);
@@ -143,6 +144,14 @@ export function createAppServer(config){
       if(pathname==='/api/health'&&method==='GET'){sendJson(res,200,{app:'board-room',version:VERSION,configPath:config.configPath,boardsRoot:config.boardsRoot,projectLabel:config.projectLabel,workspaceId:config.workspaceId,port:server.address().port,url:`http://127.0.0.1:${server.address().port}/`});return;}
       if(pathname==='/api/config'&&method==='GET'){sendJson(res,200,publicConfig(config));return;}
       if(pathname==='/api/tools'&&method==='GET'){sendJson(res,200,listTools());return;}
+      // This project's updates (lib/update-browser.mjs): a read-only state and two
+      // same-origin writes. An install starts `update now` detached and answers 202.
+      if(pathname==='/api/update'&&method==='GET'){sendJson(res,200,await updates.view());return;}
+      if(pathname==='/api/update/install'||pathname==='/api/update/preference'){
+        if(method!=='POST')throw new HttpError(405,'Method not allowed.');
+        await checkWrite(req,server,config);const input=await requestJson(req);
+        if(pathname==='/api/update/install')sendJson(res,202,await updates.install(input));else sendJson(res,200,await updates.preference(input));return;
+      }
       if(pathname==='/api/tools/call'&&method==='POST'){
         await checkWrite(req,server,config);const input=await requestJson(req);
         if(!input||typeof input!=='object'||Array.isArray(input)||typeof input.name!=='string'||Object.keys(input).some(key=>!['name','arguments'].includes(key)))throw new HttpError(400,'Provide {name,arguments}.');
@@ -243,13 +252,13 @@ export function createAppServer(config){
   server.pushHub=push;server.once('close',()=>push.close());
   return server;
 }
-export async function listen(config,{port=config.port,persist=false}={}){
+export async function listen(config,{port=config.port,persist=false,updates}={}){
   const automatic=persist&&config.portMode==='auto';
   const attempts=automatic?PORT_ATTEMPTS:1;
   for(let attempt=0;attempt<attempts;attempt++){
     const candidate=port+attempt*PORT_STEP;
     if(candidate>65535)break;
-    const server=createAppServer(config);
+    const server=createAppServer(config,updates?{updates}:{});
     try{
       await new Promise((resolve,reject)=>{
         const failed=error=>{server.off('listening',ready);reject(error);};

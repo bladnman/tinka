@@ -1,3 +1,4 @@
+import {writesReady} from './update-hold.js';
 import {TileNotes, positionTilePopover, bindTileMenu} from './tile-ui.js';
 import {ProjectNavigator} from './navigator.js';
 import {mountAppearance} from './appearance.js';
@@ -1387,6 +1388,7 @@ async function flushNoteEdits(){
 }
 function persistLegacyNotes(revision,body,onSaved=()=>{}){
   const attempt=saveQueue.catch(()=>{}).then(async()=>{
+    await writesReady();
     try{const payload=typeof body==='function'?body():body;const response=await fetch(`${boardApi}/notes`,{method:'PUT',headers:{'Content-Type':'application/json','X-Tinka-Workspace':workspaceId},body:payload});if(!response.ok)throw new Error('Notes not saved. Retry when the service is ready.');legacyCommittedNotes=JSON.parse(payload);legacyCommitSequence++;onSaved();if(revision===saveSequence)setSaveStatus('Notes saved on this Mac','saved');}
     catch(error){if(revision===saveSequence)setSaveStatus('Saved in this browser · retry or export notes','local');throw error;}
   });saveQueue=attempt.catch(()=>{});return attempt;

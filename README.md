@@ -548,6 +548,25 @@ probe. Failure restores the prior app/config and attempts to recover its running
 service. The project pin changes only after successful health verification; review
 and commit `tinka/project.json` yourself. No Git commit is created automatically.
 
+The browser says the same where Tinka already says "Live": on a board's floating
+status line and on Home's live line (a pill on phones). A compatible update is quiet
+grey text; its popover offers **Update now**, **Later** (24 hours, the same as
+`update later`) and **Install compatible updates automatically** (`update policy
+auto`). A major update has the accent and a dot and opens **Update to Tinka X?**,
+which starts on Later, so Enter never approves. The board Inspector's **Tinka**
+section shows the version and the policy as **Ask first** / **Automatic** / **Off**
+(notify / auto / off). Update now runs `update now --to X.Y.Z` (with `--major` after
+that yes) as a separate process: while Tinka restarts, the board stays visible,
+adding and undoing pause and changes wait, then **Tinka X is ready · Refresh**
+offers the usual Refresh. Nothing reloads by itself. The browser never installs
+when updates are Off, when the app copy has local changes or no file baseline, or
+when compatibility needs review; **Copy a request for your agent** is always there
+and is then the only route. A failed install shows its reason and Try again; the
+old app is restored as above. Commit `tinka/project.json` afterwards as usual.
+`TINKA_UPDATE_FEED=/absolute/folder` makes the updater read releases from a local
+folder of `scripts/package.mjs` outputs instead of GitHub, for offline mirrors and
+tests; every other check still applies.
+
 Existing installations receive these commands through a deliberate upgrade:
 
 ```sh

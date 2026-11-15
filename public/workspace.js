@@ -1,3 +1,4 @@
+import {writesReady} from './update-hold.js';
 import {bindForm,restoreFocus,commitShortcutLabel} from './interaction.js';
 // Small shared primitives for graph workspaces; the legacy board stays independent.
 export const escape = (value) =>
@@ -53,6 +54,7 @@ export class WorkspaceClient {
     this.pendingWrites++;
     this.onState?.();
     const pending = this.queue.catch(()=>{}).then(async()=>{
+      await writesReady();
       const body = new FormData();
       body.append("metadata",JSON.stringify({...metadata,expectedRevision:this.revision,operationId}));
       for (const file of files) body.append("files",file,file.name || "Pasted image");
@@ -77,6 +79,7 @@ export class WorkspaceClient {
     const pending = this.queue
       .catch(() => {})
       .then(async () => {
+        await writesReady();
         const appendOnly=['addComment','replyComment','addHighlight'].includes(type);
         let d;
         for(let attempt=0;attempt<2;attempt++) {

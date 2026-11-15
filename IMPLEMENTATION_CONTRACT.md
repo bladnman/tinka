@@ -272,6 +272,7 @@ GET /api/boards/:id -> {id,...boardMetadata,rounds,revisions}.
 GET /api/boards/:id/live -> existing live.js schema {revision,shellRevision,manifestRevision,concepts:{"round/id":{state,message,revision,updatedAt}}}.
 GET/PUT /api/boards/:id/notes -> existing notes map shape.
 GET /api/health -> {app:"board-room",version,projectLabel,workspaceId,port,url,configPath,boardsRoot}.
+GET /api/update -> read-only update state for the browser notice; POST /api/update/install {version,consent?:"major"} -> 202 after starting `update now [--major] --to VERSION` detached (409 when off, running, modified or needing review; 400 without consent for a major step); POST /api/update/preference {action:later|check|policy,policy?} (lib/update-browser.mjs, public/update-notice.js; see PROTOCOL "Start and update this instance").
 GET /api/resource-places?url=/resources/ROOT/PATH|/boards/ID/files/PATH -> {workspace,file,url,places:[{boardId,boardTitle,placementId?,key,itemId?,title,number,revision?,href}]}: read-only, at most 50 active placements whose item content or saved version resolves to the same real file, plus an unmigrated legacy board's own concepts.
 
 Standalone pages: /resources/* and /boards/:id/files/* HTML responses carry Vary: Sec-Fetch-Dest. Only a GET/HEAD with Sec-Fetch-Dest: document, no Range, no ?tinka=off, at most 8 MiB, not UTF-16 and without <meta name="tinka-return" content="off"> gets `<script src="/app/return-mark.js" defer></script>` inserted byte-wise before the last </body> (else appended), with Content-Length recomputed. Iframes (Tinka's previews), curl and agents receive byte-identical files; other types are never changed. public/return-mark.js returns early in any frame, on either opt-out or after Hide (sessionStorage tinka/return-hidden); it renders one closed-shadow custom element fixed at the bottom left (z-index 2147483000, hidden in print), re-attaches when a page replaces its body, follows Tinka's appearance preference, and returns to the place last opened in this browser, else the only place, else offers a chooser. No item IDs are added to resource URLs.
@@ -297,6 +298,7 @@ node cli.mjs item shot ITEM_OR_PLACEMENT --config PATH --out FILE.png [--board B
 node cli.mjs board overview BOARD --config PATH --out FILE.png [--width PIXELS] [--appearance light|dark]
 node cli.mjs serve|start|stop --config PATH
 node cli.mjs update now|check|later|status --config PATH
+node cli.mjs update now [--major] [--to X.Y.Z] --config PATH
 node cli.mjs update policy notify|auto|off --config PATH
 node cli.mjs board create SLUG --config PATH --title TEXT [--description TEXT]
 node cli.mjs board guide SLUG --config PATH
@@ -347,6 +349,17 @@ update; ask the user before updating." with `update now --major` as the one
 installing action; automatic and plain paths only notify. With --major every other
 check still applies (fromVersions, schemas, runtime, migration none, checksum,
 baseline); the installer refuses a major step unless the updater passes that consent.
+
+The browser notice (public/update-notice.js) sits on the board status line and
+Home's live line: compatible as quiet text with Update now / Later / automatic,
+major with the accent and a dot and a consent dialog focused on Later, review
+and failed states with the agent request (failed adds its reason and Try again).
+An install holds browser writes (public/update-hold.js) until the server answers
+again, then shows "Tinka X is ready · Refresh" through the existing Refresh; no
+page reloads by itself. The board Inspector's Tinka section maps Ask first /
+Automatic / Off to notify / auto / off. `update now --to X.Y.Z` installs only
+that version. TINKA_UPDATE_FEED names an absolute local release folder used
+instead of GitHub; no feed path is stored in update state.
 
 A per-app cooperating lock covers dynamic CLI implementation imports, start,
 check and replacement. Installer child commands carry a validated lock token and

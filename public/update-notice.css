@@ -1,0 +1,96 @@
+/* Tinka's own updates (update-notice.js): a chip on the board's status line and on
+   Home's live line, its popover, the major-update dialog and the Inspector section.
+   Tokens and the control family are tokens.css; nothing here restyles a board. */
+.update-chip { display: inline-flex; align-items: center; gap: 6px; height: 22px; min-height: 0; margin: 0 -4px 0 0; padding: 0 8px; border: 0; border-radius: var(--r-pill); background: transparent; color: var(--ink-2); font: 500 var(--t-xs)/1 var(--font-ui); cursor: pointer; white-space: nowrap; }
+.update-chip:hover { background: var(--hover); color: var(--ink); }
+.update-chip:focus-visible { outline: 2px solid var(--focus, var(--accent)); outline-offset: 1px; }
+.update-chip svg { width: 12px; height: 12px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+.update-chip[data-kind="major"] { background: var(--accent-soft); color: var(--accent-text); font-weight: 600; }
+.update-chip[data-kind="major"]::before { content: ''; width: 6px; height: 6px; border-radius: 50%; background: var(--accent); }
+.update-chip[data-kind="major"]:hover { background: var(--accent-soft-2); }
+.update-chip[data-kind="failed"] { color: var(--danger); }
+.update-chip[data-kind="busy"] { cursor: default; color: var(--ink-2); }
+.update-chip[data-kind="busy"]:hover { background: transparent; }
+.update-pulse { display: inline-block; width: 6px; height: 6px; border-radius: 50%; background: var(--warn); animation: update-pulse 1.5s ease-in-out infinite; flex: none; }
+@keyframes update-pulse { 50% { opacity: .25; transform: scale(.7); } }
+body .canvas-footer .status-line .update-chip { flex: none; }
+body .canvas-footer .status-line .update-sep { width: 1px; height: 12px; background: var(--line-strong); }
+/* Home: the chip sits on the masthead's live line. */
+.masthead .live .update-chip { margin-left: 4px; height: 24px; font-size: var(--t-sm); }
+.masthead .live.update-busy i { background: var(--warn); animation: update-pulse 1.5s ease-in-out infinite; }
+.masthead .live .update-refresh { height: 24px; min-height: 0; margin-left: 4px; padding: 0 10px; border: 0; border-radius: var(--r-pill); background: var(--accent); color: var(--on-accent); font: 600 var(--t-xs)/1 var(--font-ui); cursor: pointer; }
+/* Narrow boards hide the status island unless it has something to act on; an update counts. */
+@media (max-width: 1100px) { body .canvas-footer .status-line:has(.update-chip) { display: flex; } }
+/* Phones: the status island shows only Refresh; the update joins it as a pill. */
+@media (max-width: 720px) {
+  body .canvas-footer .status-line > .update-chip { display: inline-flex !important; height: 28px; margin: 0; padding: 0 12px; background: var(--surface-2); box-shadow: var(--e2); color: var(--ink); }
+  body .canvas-footer .status-line > .update-chip[data-kind="major"] { background: var(--accent-soft); color: var(--accent-text); }
+  body .canvas-footer .status-line > .update-chip[data-kind="failed"] { color: var(--danger); }
+  body .canvas-footer .status-line > .update-sep { display: none; }
+  body .canvas-footer .status-line:has(.update-chip) + .zoom-pill { margin-left: 0; }
+}
+@media (max-width: 560px) { .masthead .live .update-chip .update-long, .masthead .live .update-refresh .refresh-detail { display: none; } }
+@media (max-width: 420px) { body .canvas-footer .update-chip .update-long { display: none; } body .canvas-footer .status-line > .update-chip { padding: 0 10px; } }
+/* While Tinka restarts the board stays visible; adding and undoing wait. */
+body.tinka-updating .chrome-add, body.tinka-updating .chrome-history { opacity: .45; pointer-events: none; }
+
+/* The popover beside the chip. */
+.update-pop { position: fixed; z-index: 80; max-width: calc(100vw - 16px); }
+.update-pop-body { padding: 8px 8px 6px; }
+.update-eyebrow { margin: 0 0 6px; font: 600 var(--t-xs)/1.3 var(--font-ui); letter-spacing: .08em; text-transform: uppercase; color: var(--ink-3); }
+.update-pop h4 { margin: 0 0 4px; font: 600 19px/1.2 var(--font-display); color: var(--ink); }
+.update-copy { margin: 0 0 12px; color: var(--ink-2); font: var(--t-md)/1.5 var(--font-ui); }
+.update-row { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; }
+.update-row svg, .update-pop .tk-mi svg, .update-facts svg, .update-link svg, .update-alt svg { width: 14px; height: 14px; fill: none; stroke: currentColor; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; flex: none; }
+.update-notes { margin-left: auto; display: inline-flex; align-items: center; gap: 4px; color: var(--ink-3); font-size: var(--t-sm); text-decoration: none; }
+.update-notes:hover { color: var(--ink); }
+.update-meta { margin: 10px 0 0; color: var(--ink-3); font: var(--t-sm)/1.45 var(--font-ui); }
+.update-pop .tk-msep { margin: 10px 2px 6px; }
+.update-pop .tk-mi { padding: 0 6px; text-decoration: none; }
+.update-pop .tk-mi svg { width: 16px; height: 16px; color: var(--ink-3); }
+.update-switch { display: grid; grid-template-columns: auto 1fr; gap: 2px 10px; align-items: start; padding: 6px; border-radius: var(--r-sm); color: var(--ink); font: var(--t-md)/1.35 var(--font-ui); cursor: pointer; }
+.update-switch:hover { background: var(--hover); }
+.update-switch input { margin: 2px 0 0; accent-color: var(--accent); width: 15px; height: 15px; }
+.update-switch small { grid-column: 2; color: var(--ink-3); font-size: var(--t-sm); line-height: 1.4; }
+.update-reason { margin: 0 0 12px; padding: 8px 10px; border-radius: var(--r-sm); background: var(--surface-sunken); color: var(--ink-2); font: var(--t-sm)/1.45 var(--font-ui); overflow-wrap: anywhere; }
+.update-reason b { color: var(--ink); font-weight: 600; }
+.update-status { margin: 6px 6px 0; color: var(--ink-3); font: var(--t-sm)/1.4 var(--font-ui); }
+.update-status:empty { display: none; }
+.update-copy-text { display: block; width: 100%; box-sizing: border-box; margin: 8px 0 0; padding: 8px 10px; border: 1px solid var(--field-line); border-radius: var(--r-sm); background: var(--surface-sunken); color: var(--ink); font: var(--t-xs)/1.5 var(--font-mono, ui-monospace, monospace); resize: vertical; }
+
+/* The major-update dialog, in Home's New board dialog style, on boards too. */
+dialog.update-dialog { position: fixed; inset: 0; margin: auto; width: calc(100% - 32px); max-width: 560px; max-height: calc(100dvh - 36px); overflow: auto; padding: 30px 32px 26px; border: 0; border-radius: var(--r-xl); background: var(--surface-2); color: var(--ink); box-shadow: var(--e4); font: 14px/1.5 var(--font-ui); }
+dialog.update-dialog::backdrop { background: var(--scrim); }
+dialog.update-dialog .eyebrow { margin: 0 0 12px; color: var(--ink-3); font: 600 var(--t-xs)/1.3 var(--font-ui); letter-spacing: .08em; text-transform: uppercase; }
+dialog.update-dialog h2 { margin: 0 30px 12px 0; font: 600 28px/1.15 var(--font-display); letter-spacing: -.01em; }
+dialog.update-dialog .dialog-copy { margin: 0 0 18px; color: var(--ink-2); font-size: var(--t-md); line-height: 1.6; }
+dialog.update-dialog .close { position: absolute; top: 14px; right: 14px; width: 32px; height: 32px; padding: 0; border: 0; border-radius: var(--r-md); background: transparent; color: var(--ink-3); font-size: 22px; line-height: 1; cursor: pointer; }
+dialog.update-dialog .close:hover { background: var(--hover); color: var(--ink); }
+dialog.update-dialog .dialog-bottom { display: flex; align-items: center; justify-content: space-between; gap: 18px; margin-top: 18px; }
+dialog.update-dialog .dialog-bottom > span { max-width: 280px; color: var(--ink-3); font-size: var(--t-sm); }
+dialog.update-dialog .dialog-buttons { display: flex; gap: 8px; flex: none; }
+dialog.update-dialog .update-status { margin: 10px 0 0; text-align: right; }
+.update-facts { list-style: none; margin: 0 0 16px; padding: 0; display: grid; gap: 8px; }
+.update-facts li { display: grid; grid-template-columns: 18px 1fr; gap: 8px; color: var(--ink-2); font: var(--t-md)/1.45 var(--font-ui); }
+.update-facts li svg { margin-top: 2px; color: var(--accent-text); width: 16px; height: 16px; }
+.update-link { display: inline-flex; align-items: center; gap: 5px; color: var(--accent-text); font: 500 var(--t-md)/1 var(--font-ui); text-decoration: none; }
+.update-link:hover { text-decoration: underline; }
+dialog.update-dialog .update-alt { margin: 16px -32px -26px; padding: 12px 32px 14px; border-top: 1px solid var(--line); background: var(--bg-chrome); border-radius: 0 0 var(--r-xl) var(--r-xl); color: var(--ink-3); font: var(--t-sm)/1.45 var(--font-ui); display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
+dialog.update-dialog .update-alt button { flex: none; }
+@media (max-width: 760px) {
+  dialog.update-dialog { padding: 26px 22px 22px; }
+  dialog.update-dialog h2 { font-size: 25px; }
+  dialog.update-dialog .dialog-bottom { flex-direction: column; align-items: stretch; }
+  dialog.update-dialog .dialog-buttons { justify-content: flex-end; }
+  dialog.update-dialog .update-alt { margin: 16px -22px -22px; padding: 12px 22px 14px; }
+}
+
+/* The board Inspector's Tinka section: the version and the update policy. */
+.update-about { margin: 14px 0 6px; padding-top: 14px; border-top: 1px solid var(--line); display: grid; gap: 8px; }
+.update-about h3 { margin: 0; display: flex; justify-content: space-between; gap: 8px; font: 600 var(--t-xs)/1.3 var(--font-ui); letter-spacing: .06em; text-transform: uppercase; color: var(--ink-3); }
+.update-about h3 span { text-transform: none; letter-spacing: 0; font-weight: 400; }
+.update-about-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; color: var(--ink-2); font: var(--t-md)/1.4 var(--font-ui); }
+.update-about-row b { color: var(--ink); font-weight: 600; }
+.update-about .tk-seg > button { height: 26px; font-size: var(--t-xs); }
+.update-about small { color: var(--ink-3); font-size: var(--t-sm); line-height: 1.4; }
+.update-about small:empty { display: none; }
