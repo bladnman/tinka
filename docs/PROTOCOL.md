@@ -62,9 +62,48 @@ The independently managed app owns startup, shutdown and hot updates. Tinka supp
 
 Attach children to an existing item with `{"type":"createBoard","itemId":"opening-idea","title":"Opening details","parentBoardId":"ideas"}`. The item keeps its content while gaining a Board view. Creating a board without `parentBoardId` adds it to home. Board containment is a directed acyclic graph; references that create a cycle fail.
 
+#### HTML file version stacks
+
+Create a schema 2 item from any version of a local HTML file using the ordinary
+`createItem` operation with a named-root resource. For example, with the
+`experiments` root registered and `quiet/opening-v01.html` saved there, run:
+
+```sh
+node /absolute/app/cli.mjs workspace op --config /absolute/config.json \
+  --json '{"type":"createItem","boardId":"ideas","item":{"id":"quiet-opening","title":"Quiet opening","content":{"kind":"html","resource":{"rootId":"experiments","path":"quiet/opening-v01.html"}}}}'
+```
+
+Tinka discovers regular HTML files with the same stem in the same directory of
+that named root. Stem and extension must match exactly. Put lowercase `-v` and a
+positive safe integer in decimal digits immediately before `.html`.
+Use one filename per version number. The highest number is the default, so
+`opening-v10.html` follows `opening-v2.html` regardless of their modification
+times. Each date comes from the corresponding file's modification time. Relative
+assets continue to resolve from the HTML file under its named root.
+
+Discovery scans one directory and returns the canonical item without a stack
+if the directory exceeds 4,096 entries or the family exceeds 128 matching
+regular files. When filenames such as `opening-v02.html` and `opening-v2.html`
+share a number, Tinka uses the attached file if it is one of them and otherwise
+omits that number from the stack.
+
+Save `quiet/opening-v02.html` alongside the first file to add a new version to
+this item. Keep the original file and any assets it needs for review. Discovery
+reads the files on disk without a workspace operation. A `createItem` call with
+a new ID creates a separate item. Use `reference` to place this same item on
+another board. Manual revisions and legacy board revisions keep their existing
+authoring routes.
+
+Targeted board and item reads can add a derived
+`versionStack:{defaultId,versions:[{id,name,version,modifiedAt,content}]}` to the
+item. Entries are in ascending numeric order. `modifiedAt` is an ISO timestamp,
+and each entry's `content.resource` points to that exact file. `versionStack`
+is response data. The stored item's `content.resource` still points to the
+originally registered path.
+
 ### Organization and review
 
-`reference` adds placements for the same canonical items; notes, stars and build state are shared. `move` changes memberships without moving files. Use `sourceBoardId` plus `placementIds`, or `itemIds`; supply `targetBoardId` or `newBoard:{title,parentBoardId?,id?}`. To group selected placements inside their current board atomically, set `newBoard.parentBoardId` to `sourceBoardId`; board creation, owner placement and move/reference commit in one revision, with source geometry retained inside the new board. With no target, only board-owner items can move/reference onto home. Moving a board owner into another board removes its home membership; referencing it keeps home membership.
+`reference` adds placements for the same canonical items; notes, stars and build state are shared. `move` changes memberships without moving files. Use `sourceBoardId` plus `placementIds`, or `itemIds`; supply `targetBoardId` or `newBoard:{title,parentBoardId?,id?}`. To create a child board around selected placements, set `newBoard.parentBoardId` to `sourceBoardId`. Board creation, owner placement and move/reference commit in one revision, with source geometry retained inside the new board. With no target, only board-owner items can move/reference onto home. Moving a board owner into another board removes its home membership; referencing it keeps home membership.
 
 ```json
 {"type":"reference","sourceBoardId":"ideas","placementIds":["PLACEMENT_ID"],"targetBoardId":"shortlist"}
@@ -77,6 +116,9 @@ Attach children to an existing item with `{"type":"createBoard","itemId":"openin
 `duplicate` takes `itemId` and optional `targetBoardId` and creates an independent canonical item pointing at the same files. A board duplicate copies its arrangement while retaining references to its children. `archive` takes `boardId,placementIds,archived`; `archiveItem` takes `itemIds,archived`. `remove` detaches placements. `deleteItem` marks canonical items deleted across placements. None deletes resource files. Restore archives with `archived:false`; removal/deletion remains recoverable in metadata backups/history and the resource payload remains intact.
 
 ### Board keyboard commands
+
+Cmd/Ctrl-G groups selected Canvas objects or ungroups a single selected group.
+The selection and drawing toolbars offer the same actions.
 
 Cmd/Ctrl-D duplicates selected valid rendered Tinkas on the current board through
 one existing pastePlacements transaction. Copies have independent identities and
@@ -130,8 +172,8 @@ idempotence window; source preconditions reject an aged-out duplicate transfer.
 
 `pastePlacements` takes `targetBoardId`, `targetPosition:{x,y}` and a copy-time
 `clipboard` snapshot. Clipboard version 1 is
-`{version:1,workspaceId,placements,items,boards,reviewOrder?}`: `workspaceId` is the
-durable graph identity, `placements` is a nonempty array of unique active saved
+`{version:1,workspaceId,placements,items,boards,reviewOrder?,decorations?,groups?}`.
+`workspaceId` is the durable graph identity, `placements` is an array of unique active saved
 placements, `items` is the matching canonical-item map keyed by their original
 IDs, and `boards` contains only the child-board snapshots owned by those items.
 Optional `reviewOrder` contains every selected placement ID exactly once; absent
@@ -140,6 +182,13 @@ runtime identities are unnecessary and are not part of the clipboard envelope.
 Resource references use roots already registered in this workspace. Clipboard
 data from another durable workspace, unknown envelope fields, invalid geometry,
 missing resources/children or containment cycles reject the entire transaction.
+The optional `decorations` array stores drawn elements picked at copy time. A
+paste can have zero placements if it includes drawn elements. Optional `groups`
+hold complete selected memberships. Drawn elements receive fresh IDs, and the
+combined selection stays at the given offset. Copied containers and groups point
+to the new members. Connectors attach to copied targets, and an uncopied target
+becomes a free point at its copied position. Results add `decorationIds` when
+drawn elements were copied. Mixed Paste and Duplicate each use one receipt.
 
 Paste creates fresh canonical and placement IDs in one revision, retaining saved
 content, review, resource references, dimensions, presentation, relative x/y and
@@ -259,6 +308,16 @@ free arrow ends shifted and attached ends left to follow their targets; with the
 `placementIds` may be empty, and the history receipt restores both. Without
 `decorationIds` the operation and its result are unchanged.
 
+`duplicateOccurrences` takes `boardId,placementIds,decorationIds,dx,dy` for at
+least one active placement or drawn element on that board. It adds fresh placement
+IDs for the same canonical items at the given offset, retaining size and presentation.
+Drawn elements get fresh IDs and retain their text and style. Copied connectors
+reattach to the copies of selected targets, or keep a translated free point for
+any uncopied target. A selected container includes its contents. The whole group
+returns `{boardId,placementIds,decorationIds}` and one movement receipt; no item,
+child board, or file is copied. Canvas uses it for an Option/Alt drag, latched at
+pointerdown; Escape or release outside the canvas adds nothing.
+
 `arrangePlacements` takes `boardId` and `placements` and/or `decorations`, each a list
 of `{id,x,y}` with unique ids on that board and finite x/y within ±10000000 (at least
 one entry in all). It sets those positions in one revision, leaving sizes, z order and
@@ -297,6 +356,22 @@ later review edits survive, and undone child boards do not appear on Home.
 Receipts contain only affected placement states and arrangement preconditions;
 they do not restore canonical items, notes, stars, content or resource files.
 Normal geometry and containment-cycle validation still applies.
+
+#### Canvas groups
+
+A board can store `groups:[{id,placementIds,decorationIds}]`. Each group has at
+least two top-level objects on that board, and each member belongs to one group.
+A container can be a member and carries its children through its layout.
+Grouping changes membership only. Grouping a selection that includes existing
+groups combines their membership into one flat group.
+
+`board.group` runs `groupOccurrences {boardId,placementIds?,decorationIds?}`.
+`board.ungroup` runs `ungroupOccurrences {boardId,groupId}`. Both return
+`{boardId,groupId,placementIds,decorationIds}` with the affected member IDs
+and support the same signed Undo/Redo history. Removals that leave fewer than two
+members dissolve the group. An occurrence copy preserves grouping when it
+copies every member. Moving every member of a placement-only group to another
+board carries the group membership with the new placements.
 
 Receipts are bound to their durable workspace and authenticated using a private
 key stored lazily in workspace metadata. Public workspace/board responses and
@@ -355,7 +430,7 @@ For detailed visual comparisons, supply the actual viewport and readable placeme
 size rather than squeezing a design into a 320-wide card. Leave 40–60 board units
 between adjacent previews and check the saved layout at natural zoom.
 
-`updatePlacement` patches `x,y,width,height,z,presentation`. Presentation is local to a placement: omit it or use `{"mode":"card"}` for the original card; use `{"mode":"icon"}` for a compact icon, or `{"mode":"panel","viewport":{"width":360,"height":650}}` to show a full HTML/image design viewport, fitted without cropping. Viewport dimensions are integers from 40 to 10000; the default is 1000×720. Placement width/height include the compact caption. For a 360×650 design at natural size, use width 388 and height 704 (14-unit host insets plus the 40-unit title row). Existing saved geometry is never enlarged; its complete viewport continues to fit without cropping. Canvas starts at 100% and scrolls naturally; Grid retains panel dimensions for comparison. The tile's ⋯ menu groups Open experiment, Handoff when available, Notes and Remove from board; Details…, right-click Details… or Cmd/Ctrl-I opens the nonmodal right-side Inspector with canonical notes, feedback, Full preview / Compact card / Icon appearance choices, paper swatches and readable created/edited dates. Appearance is placement-local. The optional `presentation.paper` is a hexadecimal color (`#rgb`, `#rgba`, `#rrggbb` or `#rrggbbaa`); omission retains the default paper. When changing appearance, preserve existing `viewport` and `paper` values as appropriate: `updatePlacement` replaces the supplied presentation object. The Inspector's Move / resize… action opens the exact board-unit geometry form. Full preview uses a supplied preview image when available, with the same uncropped sizing as an HTML fallback; the primary content and canonical identity stay unchanged. The same canonical item may have a card reference elsewhere; notes, stars, revisions and reader behavior stay shared. `createItem.placement` accepts the same presentation field. `updateBoard` patches `title,description,reviewOrder,decorations,background`; `background.resource` is a named-root reference. Decorations are board-local presentation metadata. Text, region and line decorations retain `id,type,x,y,width,height,color,text`. A line may additionally set boolean `endArrow`, `flipX` and `flipY`: `endArrow:true` adds the arrowhead at its end, while the flips reverse the horizontal and vertical start/end orientation within its positive-size bounding box. A line may also set boolean `startArrow` (arrowhead at its start) and `dashed`, `route` (`straight`, `elbow` or `curved`) and `thickness` (`thin`, `medium` or `thick`); absence keeps a straight, medium, solid line. Text and region decorations may set `textSize` (`small`, `medium` or `large`) and `textAlign` (`left`, `center` or `right`); absence keeps their default size and alignment. Absent flags preserve ordinary lines. The Add menu offers Text, Colored region and Arrow, with direct on-board editing controls. Ordinary lines remain supported decoration metadata. `updateItem` changes title, description, content, preview, revisions or build metadata. An item may carry an optional short display `number` (for example `"07"`, at most 8 characters shown); migrated items keep their legacy concept number. When present it appears on the tile and continues inside: the reader title, the browser title and, for a board-owning item, the child board's top bar ("07 · Columns give way"). Tinka never invents numbers. Review is `{"type":"review","itemId":"opening-idea","patch":{"note":"Try a shorter introduction.","star":true}}`. `status --board BOARD ITEM_ID reserved|building|review|ready [MESSAGE]` also updates canonical build state; migrated `ROUND/CONCEPT` keys remain accepted.
+`updatePlacement` patches `x,y,width,height,z,presentation`. Presentation is local to a placement: omit it or use `{"mode":"card"}` for the original card; use `{"mode":"icon"}` for a compact icon, or `{"mode":"panel","viewport":{"width":360,"height":650}}` to show a full HTML/image design viewport, fitted without cropping. Viewport dimensions are integers from 40 to 10000; the default is 1000×720. Placement width/height include the compact caption. For a 360×650 design at natural size, use width 388 and height 704 (14-unit host insets plus the 40-unit title row). Existing saved geometry is never enlarged; its complete viewport continues to fit without cropping. Canvas starts at 100% and scrolls naturally; Grid retains panel dimensions for comparison. The tile's ⋯ menu groups Open experiment, Handoff when available, Notes and Remove from board; Details…, right-click Details… or Cmd/Ctrl-I opens the nonmodal right-side Inspector with canonical notes, feedback, Full preview / Compact card / Icon appearance choices, paper swatches and readable created/edited dates. Appearance is placement-local. The optional `presentation.paper` is a hexadecimal color (`#rgb`, `#rgba`, `#rrggbb` or `#rrggbbaa`); omission retains the default paper. When changing appearance, preserve existing `viewport` and `paper` values as appropriate: `updatePlacement` replaces the supplied presentation object. Canvas tiles resize at their selected edges and corners. Arrow keys resize a tile when its resize grip is focused. Exact geometry remains available through 'updatePlacement'. Full preview uses a supplied preview image when available, with the same uncropped sizing as an HTML fallback; the primary content and canonical identity stay unchanged. The same canonical item may have a card reference elsewhere; notes, stars, revisions and reader behavior stay shared. `createItem.placement` accepts the same presentation field. `updateBoard` patches `title,description,reviewOrder,decorations,background`; `background.resource` is a named-root reference. Decorations are board-local presentation metadata. Text, region and line decorations retain `id,type,x,y,width,height,color,text`. A line may additionally set boolean `endArrow`, `flipX` and `flipY`: `endArrow:true` adds the arrowhead at its end, while the flips reverse the horizontal and vertical start/end orientation within its positive-size bounding box. A line may also set boolean `startArrow` (arrowhead at its start) and `dashed`, `route` (`straight`, `elbow` or `curved`) and `thickness` (`thin`, `medium` or `thick`); absence keeps a straight, medium, solid line. Text and region decorations may set `textSize` (`small`, `medium` or `large`) and `textAlign` (`left`, `center` or `right`); absence keeps their default size and alignment. Absent flags preserve ordinary lines. The Add menu offers Text, Colored region and Arrow, with direct on-board editing controls. Ordinary lines remain supported decoration metadata. `updateItem` changes title, description, content, preview, revisions or build metadata. An item may carry an optional short display `number` (for example `"07"`, at most 8 characters shown); migrated items keep their legacy concept number. When present it appears on the tile and continues inside: the reader title, the browser title and, for a board-owning item, the child board's top bar ("07 · Columns give way"). Tinka never invents numbers. Review is `{"type":"review","itemId":"opening-idea","patch":{"note":"Try a shorter introduction.","star":true}}`. `status --board BOARD ITEM_ID reserved|building|review|ready [MESSAGE]` also updates canonical build state; migrated `ROUND/CONCEPT` keys remain accepted.
 
 A board-only item’s primary cover/title action opens its child board directly. An item with both content and children keeps the content action and an explicit Open board choice. Comparison-reader stepping remains available.
 
@@ -442,13 +517,155 @@ rectangle/rounded/diamond/ellipse and paired line from/to. Each endpoint is exac
 finite 0–1 (default .5), fallback is `{x,y}`. Attachments target active same-board
 placements or non-line decorations; new invalid references reject. Shape ports
 project onto their silhouette. board.geometry returns the shared resolver's
-coordinates and detached flags. Old lines retain box/flip semantics. Scoped
+coordinates and detached flags. Old lines retain box/flip semantics. A line can
+store a finite optional `bend` from −10000 to 10000 board units. For a curved
+route, this offsets its midpoint perpendicular to the start-to-end chord.
+Existing curved lines without `bend` retain their original path. Straight and
+elbow routes do not use it. The board renders the path, arrow label and comment
+anchors from the same resolved endpoints and route. `thickness` accepts the
+existing presets `thin`, `medium`, and `thick`, or an exact integer stroke width
+from 1 to 100 board units for a line. Numeric strokes scale with the canvas and
+use filled arrowheads sized to the available path. The endpoint coordinates and
+comment anchors follow the same route. Scoped
 createDecoration/updateDecoration/removeDecoration operations preserve peers;
 updateBoard whole arrays remain supported. Owned target moves/removals freeze the
 last resolved point before mutation while retaining target IDs. Missing targets
 are detached, not silently retargeted. Manual removal may use legacy fallback.
 Board copies remap placement attachments; decoration IDs stay local. Cross-board
 moves leave source connectors detached.
+
+Drawing colors accept a named palette value such as `"palette:blue"`, or
+a custom hexadecimal value. A palette hue resolves to its light or dark ink,
+fill or stroke, depending on whether it colors Text, a region or shape, or a
+line or border. Text-block `textFill` and `textBorder.color` also accept palette
+values. Custom hex values stay as saved. Light uses their authored hue, with
+contrast correction for native text and lines. Dark derives hue-preserving
+counterparts by surface role. Board colors, tile paper, native fill, ink and
+strokes therefore change together. Native text checks the board, overlapping
+regions and containers, and its own fill. Lines sample their visible route.
+Text targets at least 4.5:1 and strokes 3:1 against those surfaces. Where one
+foreground cannot contrast across both very light and very dark surfaces, a
+contrasting halo keeps its boundary visible. Rendered corrections never save
+over authored colors. The custom picker shows the stored value, including when
+editing in Dark. Images, background artwork and embedded HTML retain their own
+colors. Contrast sampling covers bounded native geometry, and cannot infer
+the colors inside arbitrary images or web content. Choose from named colors in the
+`decoration.create` tool schema. No workspace migration is required. Older app
+versions may reject the new named colors.
+
+A Canvas Text block is a board-local `type:"text"` decoration. Its `text` holds
+Markdown (up to 20,000 characters); it needs no canonical item, placement or
+resource file. For example, set `text` to `"## Outline\n- [ ] Sketch the opening"`
+when calling `createDecoration`. Double-click the body or focus it and press F2
+to edit in place. The editor offers formatting and Preview; Done, Escape and
+Cmd/Ctrl-Enter keep the edits, while Cancel discards them. The rendered block
+wraps at its width and scrolls when its content exceeds its height. Clicking
+a task changes only its checked marker in the stored text and is undoable.
+Select a Text block for its size control, ink swatch and alignment buttons.
+**Aa** holds typeface, fill, border and padding. The panels open away from the
+selected block when there is room. `textSize` accepts the existing `small`,
+`medium` and `large` presets
+or an integer from 10 to 144 in logical pixels. `textAlign` controls alignment
+and `color` sets the foreground. Text contrast may adapt to the surface.
+Labels on native stickies, shapes and areas accept the same numeric range.
+The canvas offers named presets and a relative adjustment control. In a
+compatible mixed selection, relative adjustments preserve size differences
+until a member reaches a limit.
+The following optional fields apply to Text blocks:
+
+- `textFace` selects `serif`, `sans` or `mono`.
+- `textFill` selects `none`, `paper`, `tint`, `strong`, a named palette fill
+  like `palette:blue` or a hexadecimal color.
+- `textBorder` is `{style:"solid"|"dashed",color?}`. Omit `color` for an
+  automatic border, pass a named palette or hexadecimal color, or use `null`
+  for no border.
+- `textPadding` sets inner padding from 0 to 64 logical pixels, as an integer.
+- `textSizing` selects `auto` or `fixed`. Omission keeps the saved height.
+
+Omitted style fields use the existing defaults on saved blocks. Use
+`decoration.create` or patch these individual fields with `decoration.update`.
+Copies retain styling and sizing mode. New Text created on Canvas starts in
+**Auto height**. The editor previews fitted height at the wrapping width, then
+saves the rendered height together with the text. Changing type size in Auto
+height fits the block in the same write. Outline resize switches to **Fixed
+height**. Change modes in the Text size popup. **More → Fit height to text**
+fits the block once while keeping its sizing mode. Attached connectors follow
+the new bounds. Agents can supply explicit logical dimensions and a sizing mode
+in one geometry patch. Store geometry is authoritative for API writes.
+Drag an edge or corner of a selected object's dotted outline to resize it.
+Hold Shift on a corner to keep the object's proportions. Selected shapes,
+stickies and Text expose the connection points directly. Those points stay
+outside the object and keep the same screen size as you zoom. Delete or Backspace
+removes selected drawings in one undoable step.
+On a colored region, **Region options → Select section contents** selects the region and
+objects completely inside it for a move or nudge. This selection lasts until
+the next selection change. The overview displays saved, read-only text.
+Named-root Markdown documents use their separate file-backed route.
+
+#### Emoji stickers
+
+A board sticker stores one Unicode emoji in a board-local Text decoration.
+Supply `sticker:true`, the emoji in `text`, ordinary geometry and color, and an
+optional integer `rotation` from −180 to 180 degrees clockwise. Omitted rotation
+is zero. For example, use `decoration.create` with a Text decoration with
+`text:"🚀"`, `sticker:true`, `color:"palette:neutral"`, `width:112` and `height:112`.
+`decoration.update` can rotate or change a sticker and keeps its ID. Undo,
+duplication, paste, grouping, and containers use the normal board operations.
+Sticker search and category browsing use an offline catalog based on Unicode
+Emoji 18.0 and English CLDR 49 annotations, with the [Unicode data notice and
+license](../public/UNICODE-EMOJI-LICENSE.txt). The operating system supplies the
+glyph, so very recent emoji may need newer system fonts to display. The board
+stores no image bytes.
+
+#### Canvas containers
+
+A container is a board-local region decoration with an optional `container`
+object. The decoration has no `shape` field. It uses `x,y` as the container's
+anchor, `color` as its tint and `text` as its optional single-line title. Its
+configuration stores the layout and ordered child references. Each child keeps
+its own identity, dimensions and appearance in the board's decoration or placement
+array. A placed Tinka still refers to the same canonical item and resource files.
+
+```json
+{"type":"createDecoration","boardId":"ideas","decoration":{"id":"evidence","type":"region","x":100,"y":120,"width":144,"height":64,"color":"#dbe5d3","text":"Evidence to check","container":{"layout":"vertical","children":["checklist","next-steps"]}}}
+```
+
+`layout` is `vertical`, `horizontal` or `grid`. `children` accepts up to 128
+ordered unique references. A string identifies a same-board Text or shaped region
+decoration. An object such as `{"placementId":"PLACEMENT_ID"}` identifies an
+active Tinka occurrence on that board. A child belongs to at most one container,
+and must be ungrouped before entering. Containers have one level. `padding` and
+`gap` are integer board units from 0 to 128, defaulting to 16 and 12. Grid
+`columns` accepts 1–8 and defaults to 2. Rows and columns fit the largest child
+in each track, with leading-edge alignment. Membership order sets reading order.
+
+The store derives the container width and height and the children's positions
+in the same operation. Move the container by changing its `x,y`. Edit a child's
+`width` or `height` to reflow the container. The browser fits Text set to Auto
+height at its saved width and includes that height in the same write.
+`decoration.update` can
+replace the complete `container` object to rearrange its members or change the
+layout. `decoration.create` accepts an optional top-level `containerId` to create
+and append a drawn child atomically. For a new container with an empty child
+list, instead supply `initialText:true` to create its blank Text block in the
+same write. The result includes `initialTextId`.
+
+`moveContainerMember` (`container.moveMember`) takes `boardId`, one
+`member:{decorationId}` or `member:{placementId}`, and the destination `containerId`.
+It can insert a loose child, reorder an existing member or move it between
+containers. The optional zero-based `index` counts children after excluding the
+moving member. Omitting it appends a new or transferred member and keeps the
+index of a member already in that container. To release an existing member, pass
+`containerId:null` with finite board `x,y` for the child's top-left position.
+Membership, both layouts and affected geometry use one movement Undo/Redo receipt.
+
+Removing a container leaves its children at their last board positions. Removing
+a child, archiving a placement or canonical item, or moving a placement to another
+board releases the corresponding membership and reflows its siblings. A restored
+archive returns as a loose occurrence. Undoable removals and moves restore the
+membership along with geometry. Copies of a container or board remap references
+to the copied occurrences. Existing decoration-only containers keep their saved
+format. An older app may reject typed placement references.
 
 Annotations live in separate threads/ID.json: stable id, boardId, optional
 itemId/anchor, author `{id,label,kind:human|agent}`, body, timestamps, replies and
@@ -817,10 +1034,12 @@ the reader or canvas selection, returning focus where appropriate.
 
 Card More and the viewport selection toolbar expose controls hidden at small
 saved sizes, including exact board-unit geometry. They do not enlarge cards on
-load. Whole-body dragging an attached connector preserves attachments; endpoint
-handles reconnect, and explicit Detach start/end/both uses current resolved points.
-Reverse swaps complete endpoint objects, keeps line identity/arrow setting, and
-recomputes its compatibility bounding flags. Active text editors are protected
+load. Whole-body dragging an attached connector preserves attachments. On a
+selected arrow, the route toolbar offers Straight, Elbow and Curve. New Canvas
+arrows start curved, and moving the diamond on a selected curve saves its
+`bend` in one undoable update. Endpoint handles reconnect to a target or release
+as free points. Reverse swaps complete endpoint objects, flips any signed bend
+to preserve the curve, and recomputes the compatibility bounding flags. Active text editors are protected
 from in-flight and subsequent board refreshes.
 
 Simple Markdown pipe tables are bounded to 16 columns and 200 rows, use existing
@@ -849,7 +1068,7 @@ votes and removals retain their existing conflict protection.
 Graph operations rejected solely for `expectedRevision` return the same 409 `code`
 and current `revision`. Browser arrangement actions that receive it (Canvas drags
 and resizes, drops into a board or onto Parent, cover lifts, port-drawn arrows,
-keyboard nudges, the Move / resize and Position & size dialogs, and movement
+keyboard nudges, tile edge and keyboard resizing, and movement
 undo/redo) resubmit the same operation and operationId once, only if every target
 still has the exact state the action started from: re-read placement geometry,
 complete decorations or attached endpoint geometry, or, for undo/redo, the

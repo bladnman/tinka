@@ -39,45 +39,77 @@ try{
   return {x:r.left+(pt.x+tx)*r.width/view.width,y:r.top+(pt.y+ty)*r.height/view.height};},id);
  const selectArrow=async id=>{await idle();const p=await onLine(id);await page.mouse.click(p.x,p.y);await page.locator('.whiteboard-arrow-bar').waitFor();};
  const bar=(action,value)=>page.locator(`.whiteboard-arrow-bar [data-whiteboard-action="${action}"]${value?`[data-value="${value}"]`:''}`);
+ const format=()=>bar('text-appearance').click();
+ const option=(action,value)=>page.locator(`.whiteboard-menu [data-whiteboard-action="${action}"]${value?`[data-value="${value}"]`:''}`);
  const stroke=id=>page.locator(`[data-decoration="${id}"] .whiteboard-line-stroke`);
 
- // Selecting an arrow shows the compact bar instead of Edit label / More.
+ // The three routes are on the arrow toolbar. Formatting keeps its own panel.
  await selectArrow('flow');
  assert.equal(await page.locator('.whiteboard-toolbar').getAttribute('aria-label'),'Arrow');
- assert.equal(await page.locator('.whiteboard-arrow-bar [role=group]').count(),6);
+ assert.deepEqual(await page.locator('.whiteboard-arrow-bar [data-whiteboard-action=route]').evaluateAll(bs=>bs.map(b=>b.getAttribute('aria-label'))),['Straight','Elbow','Curve']);
  assert.equal(await bar('route','straight').getAttribute('aria-pressed'),'true');
- assert.equal(await bar('heads','end').getAttribute('aria-pressed'),'true');
- for(const b of await page.locator('.whiteboard-arrow-bar button').all())assert.ok(await b.getAttribute('title'),'every bar control has a tooltip');
+ assert.equal(await bar('more').count(),0);
+ assert.match(await stroke('flow').getAttribute('d'),/^M[^CL]*L[^CL]*$/);
  await page.screenshot({path:path.join(evidence,'arrow-bar-light.png')});
+ await format();
+ assert.equal(await page.locator('.whiteboard-menu [data-arrow-weight]').count(),1);
+ assert.equal(await page.locator('.whiteboard-menu [data-color-swatches]').count(),0);
+ assert.equal(await option('route').count(),0);
+ assert.equal(await option('heads','end').getAttribute('aria-pressed'),'true');
+ for(const b of await page.locator('.whiteboard-arrow-bar button').all())assert.ok(await b.getAttribute('title'),'every bar control has a tooltip');
 
  // Each control saves one field and marks itself current.
- await bar('color','#4a78b0').click();assert.equal(await eventually(async()=>(await find('flow')).color,v=>v==='#4a78b0'),'#4a78b0');
- assert.equal(await eventually(()=>bar('color','#4a78b0').getAttribute('aria-pressed'),v=>v==='true'),'true');
+ await bar('drawing-color').click();
+ assert.equal(await bar('drawing-color').getAttribute('aria-label'),'Stroke color');
+ const blue=page.locator('.whiteboard-menu [data-swatch="palette:blue"]');
+ await blue.click();assert.equal(await eventually(async()=>(await find('flow')).color,v=>v==='palette:blue'),'palette:blue');
+ assert.equal(await eventually(()=>blue.getAttribute('aria-pressed'),v=>v==='true'),'true');
+ await idle();await page.screenshot({path:path.join(evidence,'arrow-stroke-palette-light.png')});
+ await format();
+ await option('heads','both').click();const heads=await eventually(()=>find('flow'),d=>d.startArrow===true);assert.equal(heads.endArrow,true);
+ assert.ok(await eventually(()=>stroke('flow').getAttribute('marker-start'),Boolean));
+ await option('heads','none').click();const none=await eventually(()=>find('flow'),d=>d.startArrow===false&&d.endArrow===false);assert.equal(none.endArrow,false);
+ assert.equal(await eventually(()=>stroke('flow').getAttribute('marker-end'),v=>v===null),null);
+ await option('heads','end').click();await eventually(()=>find('flow'),d=>d.endArrow===true);
+ await idle();await page.locator('[data-arrow-weight]').getByRole('button',{name:'Thick line'}).click();assert.equal(await eventually(async()=>(await find('flow')).thickness,v=>v==='thick'),'thick');
+ assert.equal(await eventually(()=>stroke('flow').getAttribute('stroke-width'),v=>v==='3.5'),'3.5');
+ await option('dashed','true').click();assert.equal(await eventually(async()=>(await find('flow')).dashed,v=>v===true),true);
+ assert.ok(await eventually(()=>stroke('flow').getAttribute('stroke-dasharray'),Boolean));
+ await idle();await page.keyboard.press('Escape');
  await bar('route','elbow').click();assert.equal(await eventually(async()=>(await find('flow')).route,v=>v==='elbow'),'elbow');
  assert.ok(await eventually(async()=>(await stroke('flow').getAttribute('d')).split('L').length>=4,Boolean),'elbow path bends');
- await bar('heads','both').click();const heads=await eventually(()=>find('flow'),d=>d.startArrow===true);assert.equal(heads.endArrow,true);
- assert.ok(await eventually(()=>stroke('flow').getAttribute('marker-start'),Boolean));
- await bar('heads','none').click();const none=await eventually(()=>find('flow'),d=>d.startArrow===false&&d.endArrow===false);assert.equal(none.endArrow,false);
- assert.equal(await eventually(()=>stroke('flow').getAttribute('marker-end'),v=>v===null),null);
- await bar('heads','end').click();await eventually(()=>find('flow'),d=>d.endArrow===true);
- await idle();await bar('thickness','thick').click();assert.equal(await eventually(async()=>(await find('flow')).thickness,v=>v==='thick'),'thick');
- assert.equal(await eventually(()=>stroke('flow').getAttribute('stroke-width'),v=>v==='3.5'),'3.5');
- await bar('dashed').click();assert.equal(await eventually(async()=>(await find('flow')).dashed,v=>v===true),true);
- assert.ok(await eventually(()=>stroke('flow').getAttribute('stroke-dasharray'),Boolean));
- // Keyboard: arrow keys move along the bar; Enter applies and focus stays put.
- await bar('route','elbow').focus();await page.keyboard.press('ArrowRight');
+ // Tab and Enter choose a primary route and keep it focused.
+ await idle();await bar('route','elbow').focus();await page.keyboard.press('Tab');
  assert.equal(await page.evaluate(()=>document.activeElement.dataset.value),'curved');
  await page.keyboard.press('Enter');assert.equal(await eventually(async()=>(await find('flow')).route,v=>v==='curved'),'curved');
  assert.match(await eventually(()=>stroke('flow').getAttribute('d'),v=>/C/.test(v)),/C/);
  assert.equal(await page.evaluate(()=>document.activeElement.dataset.value),'curved');
- // Reverse swaps the attached ends.
+ // A bend has live preview and saves one reversible revision.
+ await idle();
+ const bendSelector='[data-decoration=flow] [data-arrow-bend]';
+ const beforeBend=await snapshot(),initial=(await find('flow')).bend,initialPath=await stroke('flow').getAttribute('d');
+ const bendPoint=await box(bendSelector);
+ await page.mouse.move(bendPoint.cx,bendPoint.cy);await page.mouse.down();await page.mouse.move(bendPoint.cx,bendPoint.cy-65,{steps:6});
+ assert.notEqual(await stroke('flow').getAttribute('d'),initialPath);
+ assert.equal((await snapshot()).revision,beforeBend.revision);
+ await page.mouse.up();
+ assert.notEqual(await eventually(async()=>(await find('flow')).bend,v=>v!==initial),initial);
+ assert.equal((await snapshot()).revision,beforeBend.revision+1);
+ await idle();await page.keyboard.press(process.platform==='darwin'?'Meta+z':'Control+z');
+ assert.equal(await eventually(async()=>(await find('flow')).bend,v=>v===initial),initial);
+ await idle();const bendAgain=await box(bendSelector),beforeCancel=await snapshot();
+ await page.mouse.move(bendAgain.cx,bendAgain.cy);await page.mouse.down();await page.mouse.move(bendAgain.cx,bendAgain.cy+65,{steps:6});
+ await page.keyboard.press('Escape');await page.mouse.up();
+ assert.equal((await snapshot()).revision,beforeCancel.revision);
+ assert.equal(await stroke('flow').getAttribute('d'),initialPath);
+ await selectArrow('flow');
+ await page.screenshot({path:path.join(evidence,'arrow-curve-light.png')});
+ // Reverse swaps the attached ends and bend sign.
  await bar('reverse').click();const reversed=await eventually(()=>find('flow'),d=>d.from.decorationId==='build');assert.equal(reversed.to.decorationId,'plan');
+ assert.equal(reversed.bend,-initial);
  // The board shows the reversed arrow (its end now on Plan) before the next gesture.
  await page.waitForFunction(()=>{const h=document.querySelector('[data-decoration=flow] [data-endpoint=to]')?.getBoundingClientRect(),p=document.querySelector('[data-decoration=plan]').getBoundingClientRect();return h&&Math.abs(h.x+h.width/2-p.right)<4;});
- // More keeps only rare choices; the dialog is Advanced… there.
- await idle();await bar('more').click();
- assert.deepEqual(await page.locator('.whiteboard-menu button').allTextContents(),['Edit label','Detach both ends','Advanced…']);
- await page.keyboard.press('Escape');
+ assert.equal(await page.locator('dialog[open]').count(),0);
 
  // Dragging an end over a different shape highlights it and snaps to its nearest side.
  await idle();const handle=await box('[data-decoration=flow] [data-endpoint=to]'),ship=await box('[data-decoration=ship]');
@@ -114,9 +146,10 @@ try{
  await page.locator('[data-decoration=build].whiteboard-snap-target').waitFor();await page.mouse.up();
  const drawn=await eventually(async()=>(await snapshot()).decorations.find(d=>d.type==='line'&&d.id!=='flow'),Boolean);
  assert.deepEqual([drawn.from.decorationId,drawn.from.side,drawn.to.decorationId,drawn.to.side],['plan','bottom','build','left']);
+ assert.equal(drawn.route,'curved');assert.ok(Math.abs(drawn.bend)>1);
 
- // Delete from the bar.
- await selectArrow(drawn.id);await bar('remove').click();await eventually(async()=>(await snapshot()).decorations.some(d=>d.id===drawn.id),v=>!v);
+ // Delete keeps its canvas keyboard shortcut.
+ await selectArrow(drawn.id);await page.keyboard.press('Delete');await eventually(async()=>(await snapshot()).decorations.some(d=>d.id===drawn.id),v=>!v);
  assert.equal((await snapshot()).decorations.some(d=>d.id===drawn.id),false);
 
  // Dark appearance: the same bar, snapping and label editor.
@@ -129,5 +162,72 @@ try{
  await page.keyboard.press('Escape');await page.mouse.up();
  await typeLabel('ships it');await page.screenshot({path:path.join(evidence,'arrow-label-dark.png')});await page.keyboard.press('Enter');
  await page.locator('.whiteboard-label-editor').waitFor({state:'detached'});
- assert.deepEqual(errors,[]);console.log(JSON.stringify({passed:true,evidence,checks:'arrow bar color/route/heads/thickness/dashed/reverse/delete + keyboard, More trimmed, endpoint snap highlight + reattach + free drop, inline label Enter/Escape/empty, edge-handle arrow creation, light+dark screenshots'}));
+ await page.setViewportSize({width:390,height:844});await page.locator('[data-decoration=flow] [data-decoration-label]').click();
+ const narrow=await box('.whiteboard-arrow-bar');assert.ok(narrow.x>=0&&narrow.x+narrow.width<=390);
+ await page.screenshot({path:path.join(evidence,'arrow-narrow-dark.png')});
+
+ // The icon-only scrub and its keyboard path use real board units at natural zoom.
+ for (const decoration of [
+   {id:'wide',type:'line',text:'',x:20,y:410,width:260,height:1,from:{x:20,y:410},to:{x:280,y:410},color:'palette:blue',endArrow:true,route:'straight'},
+   {id:'short',type:'line',text:'',x:40,y:520,width:58,height:15,from:{x:40,y:520},to:{x:98,y:535},color:'#66528a',startArrow:true,endArrow:true,route:'elbow',thickness:28},
+ ]) await op({type:'createDecoration',decoration});
+ await op({type:'updateDecoration',decorationId:'flow',patch:{thickness:40,dashed:false}});
+ await page.setViewportSize({width:1280,height:860});await open('light');
+ assert.equal(await page.locator('#viewport').evaluate(el=>getComputedStyle(el).getPropertyValue('--canvas-zoom').trim()),'1');
+ const custom=page.getByRole('slider',{name:'Adjust arrow weight'});
+ const width=()=>stroke('wide').getAttribute('stroke-width').then(Number);
+ await selectArrow('wide');await format();await custom.waitFor();
+ const weight=page.locator('[data-arrow-weight]');
+ assert.equal(await weight.locator('[data-scrub-preset]').count(),3);
+ assert.equal(await weight.locator('input').count(),0);
+ assert.doesNotMatch(await weight.innerText(),/\d|px/);
+ assert.equal(await custom.getAttribute('aria-valuenow'),'2');
+ const beforeWeight=(await snapshot()).revision;
+ const p=await box('[data-arrow-weight] [data-scrub-value]');
+ await page.mouse.move(p.cx,p.cy);await page.mouse.down();await page.mouse.move(p.cx+36,p.cy,{steps:9});
+ assert.equal(await width(),20,'Scrubbing previews the board-unit width before release');
+ assert.equal((await snapshot()).revision,beforeWeight);
+ assert.doesNotMatch(await weight.innerText(),/\d|px/);
+ await page.mouse.up();
+ assert.equal(await eventually(async()=>(await find('wide')).thickness,v=>v===20),20);await idle();
+ assert.equal((await snapshot()).revision,beforeWeight+1);
+ assert.equal(await page.locator('[data-decoration=wide] .whiteboard-line-head').count(),1);
+ await page.screenshot({path:path.join(evidence,'arrow-weight-20.png')});
+ for(const expected of [30,40]) {
+   const beforeKey=(await snapshot()).revision;
+   await custom.focus();await page.keyboard.down('PageUp');
+   assert.equal(await width(),expected);assert.equal((await snapshot()).revision,beforeKey);
+   await page.keyboard.up('PageUp');
+   assert.equal(await eventually(async()=>(await find('wide')).thickness,v=>v===expected),expected);await idle();
+   assert.equal((await snapshot()).revision,beforeKey+1);
+ }
+ await page.keyboard.press('Escape');
+ await page.keyboard.press(process.platform==='darwin'?'Meta+z':'Control+z');
+ assert.equal(await eventually(async()=>(await find('wide')).thickness,v=>v===30),30);
+ await idle();await page.keyboard.press(process.platform==='darwin'?'Meta+Shift+z':'Control+Shift+z');
+ assert.equal(await eventually(async()=>(await find('wide')).thickness,v=>v===40),40);
+ await idle();
+ assert.equal(await stroke('flow').getAttribute('stroke-width'),'40');
+ assert.equal(await page.locator('[data-decoration=short] .whiteboard-line-head').count(),2);
+ await page.screenshot({path:path.join(evidence,'arrow-weight-40.png')});
+
+ // A mixed-weight selection keeps its widths distinct through one scrub and Undo.
+ await selectArrow('wide');
+ const shortMid=await onLine('short');
+ await page.keyboard.down('Shift');await page.mouse.click(shortMid.x,shortMid.y);await page.keyboard.up('Shift');
+ assert.equal(await page.locator('.decoration-line.selected').count(),2);
+ await format();
+ assert.equal(await custom.getAttribute('aria-valuetext'),'Mixed values');
+ const mixedBefore=(await snapshot()).revision,mixedHandle=await box('[data-arrow-weight] [data-scrub-value]');
+ await page.mouse.move(mixedHandle.cx,mixedHandle.cy);await page.mouse.down();
+ await page.mouse.move(mixedHandle.cx-20,mixedHandle.cy,{steps:7});
+ assert.equal(await width(),30);assert.equal(await stroke('short').getAttribute('stroke-width'),'18');
+ assert.equal((await snapshot()).revision,mixedBefore);
+ await page.mouse.up();
+ const widths=async()=>[(await find('wide')).thickness,(await find('short')).thickness];
+ assert.deepEqual(await eventually(widths,values=>values[0]===30&&values[1]===18),[30,18]);
+ assert.equal((await snapshot()).revision,mixedBefore+1);
+ await idle();await page.keyboard.press('Escape');await page.keyboard.press(process.platform==='darwin'?'Meta+z':'Control+z');
+ assert.deepEqual(await eventually(widths,values=>values[0]===40&&values[1]===28),[40,28]);
+ assert.deepEqual(errors,[]);console.log(JSON.stringify({passed:true,evidence,checks:'direct routes, heads and stroke, bend/Undo/Escape, endpoints, label editing, three presets and icon-only scrub reaching 20/40 at 100%, keyboard preview and atomic relative multi-arrow commit, short and curved bold arrows, light/dark/narrow'}));
 }finally{await browser?.close();if(server)await closeAppServer(server);await rm(fixture,{recursive:true,force:true,maxRetries:5,retryDelay:100});}

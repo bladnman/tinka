@@ -1,4 +1,3 @@
-import {openItemDetails} from './tile-test-helpers.mjs';
 // Arrangement actions survive an unrelated workspace revision change, while real
 // conflicts still reject visibly. Each case injects a server write exactly when the
 // action's request arrives. Isolated fixture, headless browser, port 0.
@@ -76,7 +75,7 @@ try{
     async()=>(await board(P)).placements.some(p=>p.itemId===Y.itemId&&!p.removedAt));
   await show(P);
   // 4. Create an arrow from a port. The drawn arrow stays visible until it is saved.
-  await page.locator('[data-decoration=start] [data-decoration-label]').click();await page.locator('[data-whiteboard-action=connect]').click();
+  await page.locator('[data-decoration=start] [data-decoration-label]').click();
   const startPort=page.getByRole('button',{name:'Connect Start here right',exact:true});await startPort.waitFor();
   const lines=()=>page.evaluate(()=>document.querySelectorAll('#world .decoration-line').length);
   await lost('arrow-from-port','createDecoration',async()=>{
@@ -96,14 +95,19 @@ try{
   await page.locator('[data-decoration=start] [data-decoration-label]').click();await page.keyboard.press('Escape');await page.locator('[data-decoration=start] [data-decoration-label]').click();
   const sy=(await decoration('start')).y;
   await lost('nudge-sticky','updateDecoration',()=>page.keyboard.press('ArrowDown'),async()=>(await decoration('start')).y===sy+1);
-  // 6. Move / resize dialogs: a card and a sticky.
+  // 6. Direct keyboard card resizing and sticky edge resizing.
   await page.keyboard.press('Escape');await page.keyboard.press('Escape');
-  await openItemDetails(page.locator(`[data-placement="${A.id}"] [data-item-controls]`));await page.locator('[data-context-geometry]').click();
-  await page.locator('dialog[open] input[name=x]').fill('40');
-  await lost('dialog-card','updatePlacement',()=>page.locator('dialog[open] button[type=submit]').click(),async()=>(await placement(P,A.id)).x===40);
-  await page.locator('[data-decoration=start] [data-decoration-label]').click();await page.locator('[data-whiteboard-action=more]').click();await page.locator('[data-whiteboard-action=inspect]').click();
-  await page.locator('dialog[open] input[name=x]').fill('12');
-  await lost('dialog-sticky','updateDecoration',()=>page.locator('dialog[open] button[type=submit]').click(),async()=>(await decoration('start')).x===12);
+  const grip=page.locator(`[data-placement="${A.id}"] [data-resize]`);
+  const beforeResize=(await placement(P,A.id)).width;
+  await lost('resize-card-key','updatePlacement',()=>grip.press('Shift+ArrowRight'),async()=>(await placement(P,A.id)).width===beforeResize+10);
+  await page.locator('[data-decoration=start] [data-decoration-label]').click();
+  const side=await page.locator('[data-decoration=start] [data-decoration-resize=e]').boundingBox();
+  const edge={x:side.x+side.width/2,y:side.y+side.height/4};
+  assert.equal(await page.evaluate(({x,y})=>document.elementFromPoint(x,y)?.dataset.decorationResize,edge),'e');
+  const stickyWidth=(await decoration('start')).width;
+  await lost('resize-sticky','updateDecoration',async()=>{
+    await page.mouse.move(edge.x,edge.y);await page.mouse.down();await page.mouse.move(edge.x+56,edge.y,{steps:6});await page.mouse.up();
+  },async()=>(await decoration('start')).width>stickyWidth);
   await page.keyboard.press('Escape');await page.keyboard.press('Escape');
   // 7. Undo and redo replay a fresh, uncontested movement of the card.
   await show(P);
@@ -147,13 +151,13 @@ try{
     ()=>page.keyboard.press('ArrowDown'),{expect:async()=>(await decoration('then')).x===620&&(await decoration('then')).y===320,message:'dialog'});
   await page.keyboard.press('Escape');await page.evaluate(()=>document.activeElement?.blur());
   // Record a fresh movement to undo, then let another writer change the same board.
-  await openItemDetails(page.locator(`[data-placement="${A.id}"] [data-item-controls]`));await page.locator('[data-context-geometry]').click();
-  await page.locator('dialog[open] input[name=x]').fill('80');await page.locator('dialog[open] button[type=submit]').click();
-  await until(async()=>(await placement(P,A.id)).x===80);await page.keyboard.press('Escape');await page.evaluate(()=>document.activeElement?.blur());await settle();
+  const freshWidth=(await placement(P,A.id)).width;
+  await grip.press('Shift+ArrowRight');
+  await until(async()=>(await placement(P,A.id)).width===freshWidth+10);await page.keyboard.press('Escape');await page.evaluate(()=>document.activeElement?.blur());await settle();
   await page.waitForFunction(()=>document.getElementById('workspace-undo')?.disabled===false);
   await conflict('conflict-history','restoreMovement',()=>op({type:'updatePlacement',boardId:P,placementId:A.id,patch:{x:520}}),
     ()=>page.keyboard.press('ControlOrMeta+z'),{expect:async()=>(await placement(P,A.id)).x===520,message:'toast'});
   await writeFile(path.join(evidence,'arrangement-retry-results.json'),JSON.stringify(results,null,2));
   assert.deepEqual(failures,[],failures.join('\n'));assert.deepEqual(errors,[]);
-  console.log(JSON.stringify({passed:true,evidence,checks:'move into board, cover lift, Parent drop, port arrow, card/sticky nudges, card/sticky geometry dialogs and undo/redo survive an unrelated revision; placement, decoration and history conflicts still reject'}));
+  console.log(JSON.stringify({passed:true,evidence,checks:'move into board, cover lift, Parent drop, port arrow, card/sticky nudges, direct card/sticky resize and undo/redo survive an unrelated revision; placement, decoration and history conflicts still reject'}));
 }finally{await browser?.close();if(server)await closeAppServer(server);await rm(fixture,{recursive:true,force:true,maxRetries:5,retryDelay:100});}

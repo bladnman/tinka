@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import {mkdtemp,mkdir,rm} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import path from 'node:path';
-import {legacyLineEndpoints,resolveLine,resolveEndpoint,resolveBoardGeometry} from '../public/whiteboard-geometry.js';
+import {boldArrowCaps,legacyLineEndpoints,linePath,resolveLine,resolveEndpoint,resolveBoardGeometry} from '../public/whiteboard-geometry.js';
 import {applyOperation,getBoardSnapshot,getBoardGeometry} from '../lib/workspace.mjs';
 const line={id:'line',type:'line',x:-30,y:-40,width:400,height:200,color:'#123456',text:'',endArrow:true};
 test('legacy direction, exact horizontal/vertical points and silhouette ports resolve without visual guessing',()=>{
@@ -13,6 +13,22 @@ test('legacy direction, exact horizontal/vertical points and silhouette ports re
   const shifted=resolveEndpoint({placementId:'p',side:'left'},board,{placements:new Map([['p',{x:-100}]])});assert.equal(shifted.x,-100);
   const point=resolveEndpoint({decorationId:'diamond',side:'top',offset:.25},board);assert.equal(point.x,25);assert.equal(point.y,25);
   const resolved=resolveLine({...line,from:{x:2,y:3},to:{x:2,y:3}},board);assert.deepEqual(resolved.bounds,{x:2,y:3,width:0,height:0});
+});
+test('wide line bounds include the heads on straight, short elbow and bent routes',()=>{
+  const ends={from:{x:0,y:0},to:{x:50,y:12}};
+  for (const route of ['straight','elbow','curved']) {
+    const saved={...line,...ends,route,bend:-15,startArrow:true,thickness:40};
+    const resolved=resolveLine(saved,{});
+    const path=linePath(resolved,route,saved.bend);
+    const caps=boldArrowCaps(path.points,saved.thickness,true,true,route);
+    assert.equal(caps.heads.length,2);
+    assert.ok(caps.start+caps.end < caps.length);
+    for (const head of caps.heads) for (const vertex of head.split(' ')) {
+      const [x,y]=vertex.split(',').map(Number), {bounds}=resolved;
+      assert.ok(x>=bounds.x && x<=bounds.x+bounds.width && y>=bounds.y && y<=bounds.y+bounds.height);
+    }
+    assert.deepEqual(path.d,linePath(resolveLine({...saved,thickness:'thick'},{}),route,saved.bend).d);
+  }
 });
 test('attached endpoints follow targets, copy IDs remap, and removal freezes last resolved coordinates atomically',async t=>{
   const dir=await mkdtemp(path.join(tmpdir(),'tinka-geometry-'));t.after(()=>rm(dir,{recursive:true,force:true}));const config={boardsRoot:path.join(dir,'boards')};await mkdir(config.boardsRoot);const op=(type,data={})=>applyOperation(config,{type,...data});
@@ -27,7 +43,14 @@ test('attached endpoints follow targets, copy IDs remap, and removal freezes las
   await op('move',{sourceBoardId:'source',placementIds:[placed],targetBoardId:'target'});
   const detached=(await getBoardGeometry(config,'source')).decorations.find(d=>d.id==='line');assert.equal(detached.detached,true);assert.equal(detached.to.x,450);assert.equal(detached.to.y,-30);assert.equal(detached.to.placementId,placed);
   await op('removeDecoration',{boardId:'source',decorationId:'shape'});const removed=(await getBoardGeometry(config,'source')).decorations.find(d=>d.id==='line');assert.equal(removed.from.detached,true);assert.equal(removed.from.x,0);assert.equal(removed.from.y,40);
+  const prior=(await getBoardSnapshot(config,'source')).decorations.find(d=>d.id==='line');
+  const widened=await op('updateDecoration',{boardId:'source',decorationId:'line',patch:{thickness:40}});
+  assert.equal((await getBoardSnapshot(config,'source')).decorations.find(d=>d.id==='line').thickness,40);
+  await op('restoreMovement',{history:widened.history});
+  assert.deepEqual((await getBoardSnapshot(config,'source')).decorations.find(d=>d.id==='line'),prior);
   const revision=(await getBoardSnapshot(config,'source')).revision;
+  for (const thickness of [0,101,1.5,'40',['thin']])
+    await assert.rejects(op('updateDecoration',{boardId:'source',decorationId:'line',patch:{thickness}}),{status:400});
   for(const patch of [{from:{x:1,y:2}}, {from:{placementId:'missing',side:'left'},to:{x:0,y:0}},{from:{x:Infinity,y:0},to:{x:1,y:1}},{from:{decorationId:'line',side:'left'},to:{x:0,y:0}}])await assert.rejects(op('createDecoration',{boardId:'source',decoration:{...line,id:'invalid',...patch}}),{status:400});
   assert.equal((await getBoardSnapshot(config,'source')).revision,revision);
 });

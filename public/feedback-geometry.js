@@ -61,9 +61,10 @@ function pathPoints(d){
 }
 export function linePolyline(line,board,overrides){
   if(!line||line.type!=='line')return null;
-  const resolved=resolveLine(line,board,overrides);
+  const current={...line,...patch(overrides?.decorations,line.id)};
+  const resolved=resolveLine(current,board,overrides);
   if(![resolved.from.x,resolved.from.y,resolved.to.x,resolved.to.y].every(Number.isFinite))return null;
-  const points=pathPoints(linePath(resolved,line.route||'straight').d);
+  const points=pathPoints(linePath(resolved,current.route,current.bend).d);
   return points.length>1?points:null;
 }
 function segments(points){const list=[];let total=0;for(let i=1;i<points.length;i++){const length=Math.hypot(points[i][0]-points[i-1][0],points[i][1]-points[i-1][1]);list.push({a:points[i-1],b:points[i],start:total,length});total+=length;}return {list,total};}

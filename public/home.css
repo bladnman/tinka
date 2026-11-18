@@ -146,9 +146,10 @@ dialog label{display:block;margin:16px 0 6px;color:var(--ink-2);font-size:var(--
 dialog input:not([type=checkbox]):not([type=radio]),dialog textarea{display:block;width:100%;padding:9px 11px;border:1px solid var(--field-line);border-radius:var(--r-md);background:var(--field);color:var(--ink);font-size:var(--t-md);line-height:1.5}
 dialog :is(input,textarea)::placeholder{color:var(--ink-3);opacity:1}
 dialog textarea{min-height:68px;resize:vertical}
-.prompt-label{display:flex!important;justify-content:space-between;gap:12px}
-.prompt-label span{color:var(--ink-3);font-size:var(--t-xs);font-weight:400}
-#agent-prompt{min-height:120px;background:var(--surface-sunken);font-size:var(--t-sm);line-height:1.6}
+.new-board-optional{color:var(--ink-3);font-weight:400}
+#agent-prompt{min-height:90px;background:var(--surface-sunken);font-size:var(--t-sm);line-height:1.5}
+#new-dialog #copy-status:empty{display:none}
+#new-dialog #show-board-prompt{border-color:var(--line);background:var(--surface-1);color:var(--ink-2)}
 .dialog-bottom{display:flex;align-items:center;justify-content:space-between;gap:18px;margin-top:18px}
 .dialog-bottom>span{max-width:260px;color:var(--ink-3);font-size:var(--t-sm)}
 .primary:not(.tk-btn){display:inline-flex;align-items:center;justify-content:center;gap:10px;min-height:var(--control-h);padding:0 14px;border:0;border-radius:var(--r-md);background:var(--accent);color:var(--on-accent);font:500 var(--t-md)/1 var(--font-ui);white-space:nowrap}
@@ -172,7 +173,6 @@ dialog textarea{min-height:68px;resize:vertical}
   body.home-selecting main{padding-bottom:104px}
   dialog h2{font-size:25px}
   .dialog-bottom{align-items:flex-start}
-  .prompt-label span{display:none}
 }
 @media(max-width:640px){.board-grid{grid-template-columns:minmax(0,1fr);gap:26px}.empty-card{min-height:140px}}
 @media(max-width:560px){.masthead{padding:0 10px 0 6px;gap:4px}.live #connection{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%);white-space:nowrap}.live{margin-left:0}}

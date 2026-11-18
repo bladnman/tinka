@@ -1,8 +1,11 @@
 const KEY = 'tinka/appearance';
 const system = matchMedia('(prefers-color-scheme: dark)');
 const CHOICES = [['system', 'System'], ['light', 'Light'], ['dark', 'Dark']];
-let preference = 'system';
+let preference = 'light';
 try { const value = localStorage.getItem(KEY); if (['system','light','dark'].includes(value)) preference = value; } catch {}
+const params = new URLSearchParams(location.search);
+const overviewAppearance = params.has('overview') ? params.get('appearance') : null;
+if (overviewAppearance === 'light' || overviewAppearance === 'dark') preference = overviewAppearance;
 function apply() {
   document.documentElement.dataset.appearance = preference === 'system' ? (system.matches ? 'dark' : 'light') : preference;
 }

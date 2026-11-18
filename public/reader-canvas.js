@@ -11,6 +11,39 @@ export const READER_FIT_MAX_ZOOM = 1;
 const KEEP = 80;
 const reduced = () => matchMedia('(prefers-reduced-motion: reduce)').matches;
 
+// Whether wheel movement (dx, dy) over `target` would scroll something in Tinka's content:
+// an overflowing scroll box or a scrolling page, in `target`'s frame or any frame around it up
+// to `top`. Being at the end of a scroll does not count, so a document never pans the canvas.
+const SCROLLS = /^(auto|scroll|overlay)$/;
+function viewportScrolls(doc, dx, dy) {
+  const win = doc.defaultView, root = doc.documentElement, body = doc.body;
+  if (!win || !root) return false;
+  const rs = win.getComputedStyle(root), bs = body ? win.getComputedStyle(body) : null;
+  // The page's own overflow comes from the root, or from the body when the root leaves it visible.
+  const ox = rs.overflowX !== 'visible' ? rs.overflowX : bs?.overflowX || 'visible';
+  const oy = rs.overflowY !== 'visible' ? rs.overflowY : bs?.overflowY || 'visible';
+  const el = doc.scrollingElement || root, open = value => value !== 'hidden' && value !== 'clip';
+  return !!((dy && open(oy) && el.scrollHeight > win.innerHeight + 1) || (dx && open(ox) && el.scrollWidth > win.innerWidth + 1));
+}
+export function contentScrolls(target, dx, dy, top = window) {
+  let node = target?.nodeType === 1 ? target : target?.parentElement;
+  try {
+    while (node) {
+      const doc = node.ownerDocument, win = doc.defaultView;
+      if (!win || win === top) return false;
+      const rs = win.getComputedStyle(doc.documentElement), rootVisible = rs.overflowX === 'visible' && rs.overflowY === 'visible';
+      for (let el = node; el && el !== doc.documentElement; el = el.parentElement) {
+        if (el === doc.body && rootVisible) continue; // the body's overflow is the page's (below)
+        const style = win.getComputedStyle(el);
+        if ((dy && SCROLLS.test(style.overflowY) && el.scrollHeight > el.clientHeight + 1) || (dx && SCROLLS.test(style.overflowX) && el.scrollWidth > el.clientWidth + 1)) return true;
+      }
+      if (viewportScrolls(doc, dx, dy)) return true;
+      node = win.frameElement;
+    }
+  } catch { return true; } // a frame we cannot read keeps its own wheel
+  return false;
+}
+
 export class ReaderCanvas {
   constructor(stage, plane, sheet, { onChange = () => {}, onBack = () => {}, reserveBottom = () => 0 } = {}) {
     Object.assign(this, { stage, plane, sheet, onChange, onBack, reserveBottom });
@@ -136,15 +169,21 @@ export class ReaderCanvas {
   // Holding Space over the stage lets a drag anywhere pan, even when the sheet fills it.
   setSpacePan(on) { this.shield.hidden = !on; this.stage.classList.toggle('space-pan', !!on); }
   background(target) { return target === this.stage || target === this.plane || target === this.shield; }
+  // A wheel event's movement in pixels; Shift-scroll moves sideways.
+  wheelDelta(event) {
+    const unit = event.deltaMode === 1 ? 16 : event.deltaMode === 2 ? this.stage.clientHeight : 1;
+    let dx = event.deltaX * unit, dy = event.deltaY * unit;
+    if (event.shiftKey && !dx) [dx, dy] = [dy, 0];
+    return { dx, dy };
+  }
   bind() {
     const stage = this.stage;
     stage.addEventListener('wheel', event => {
       if (event.ctrlKey || event.metaKey) { event.preventDefault(); this.zoomAtClient(wheelZoomFactor(event), event.clientX, event.clientY); return; }
-      if (!this.background(event.target)) return;
+      // The window's own edge and padding pan too; wheel over content is handled where it lands.
+      if (!this.background(event.target) && event.target !== this.sheet) return;
       event.preventDefault();
-      const unit = event.deltaMode === 1 ? 16 : event.deltaMode === 2 ? stage.clientHeight : 1;
-      let dx = event.deltaX * unit, dy = event.deltaY * unit;
-      if (event.shiftKey && !dx) [dx, dy] = [dy, 0];
+      const { dx, dy } = this.wheelDelta(event);
       this.panBy(-dx, -dy);
     }, { passive: false });
     stage.addEventListener('pointerdown', event => {

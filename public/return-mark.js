@@ -57,9 +57,9 @@
   let data = { places: [], file: '' }, best = null, closeTimer = 0;
 
   const appearance = () => {
-    let value = 'system';
-    try { value = localStorage.getItem('tinka/appearance') || 'system'; } catch {}
-    const dark = value === 'dark' || (value !== 'light' && matchMedia('(prefers-color-scheme: dark)').matches);
+    let value = 'light';
+    try { value = localStorage.getItem('tinka/appearance') || 'light'; } catch {}
+    const dark = value === 'dark' || (value === 'system' && matchMedia('(prefers-color-scheme: dark)').matches);
     host.toggleAttribute('data-dark', dark);
   };
   const recent = () => {

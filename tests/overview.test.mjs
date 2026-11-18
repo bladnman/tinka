@@ -88,7 +88,7 @@ test('board overview renders through the DevTools pipe, sizes the image to the b
   // First a default 16:10 window, then the board's own shape below the 52px title bar: (1000-48)*1.5+48+52.
   assert.deepEqual(sizes,[[1000,625],[1000,1528]]);
   assert.deepEqual(calls.find(c=>c.method==='Emulation.setEmulatedMedia').params.features,[{name:'prefers-color-scheme',value:'dark'}]);
-  assert.equal(calls.find(c=>c.method==='Page.navigate').params.url,`${f.url}boards/looks/?overview`);
+  assert.equal(calls.find(c=>c.method==='Page.navigate').params.url,`${f.url}boards/looks/?overview&appearance=dark`);
   assert(calls.filter(c=>!c.method.startsWith('Target.')).every(c=>c.sessionId==='S'));
   await assert.rejects(boardOverview(f.config,'looks',{out},{running:f.running,find:async()=>browser.file}),/already exists/);
   await assert.rejects(readFile(profile.slice('--user-data-dir='.length)),/ENOENT/);

@@ -7,6 +7,7 @@
   <link rel="stylesheet" href="/app/canvas.css">
   <link rel="stylesheet" href="/app/live.css">
   <link rel="stylesheet" href="/app/agent-prompt.css">
+  <link rel="stylesheet" href="/app/preset-scrub.css">
 <link rel="stylesheet" href="/app/workspace.css"><link rel="stylesheet" href="/app/navigator.css"><link rel="stylesheet" href="/app/appearance.css"><link rel="stylesheet" href="/app/tokens.css"><link rel="stylesheet" href="/app/calm.css"><link rel="stylesheet" href="/app/reader.css"><link rel="stylesheet" href="/app/update-notice.css"><link rel="icon" href="/app/mark.svg" type="image/svg+xml"></head>
 <body>
   <header id="canvas-header" class="canvas-header">
@@ -80,6 +81,11 @@
         <button id="reader-info-toggle" class="info-toggle tk-btn tk-icon" type="button" aria-expanded="false" aria-controls="reader-info" aria-label="Inspector" title="Inspector: this Tinka's details and actions (⌘I)"><svg viewBox="0 0 20 20" aria-hidden="true"><rect x="2.8" y="3.5" width="14.4" height="13" rx="2.2"/><path d="M12 3.5v13"/></svg></button>
       </div>
     </header>
+    <div id="reader-file-versions" role="group" aria-label="File versions" hidden>
+      <button id="reader-older-file" class="tk-btn tk-icon" type="button" aria-label="Previous version"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M12 5 7 10l5 5"/></svg></button>
+      <span class="reader-file-version-detail" role="status"><strong id="reader-file-version-name"></strong><time id="reader-file-version-modified"></time></span>
+      <button id="reader-newer-file" class="tk-btn tk-icon" type="button" aria-label="Next version"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="m8 5 5 5-5 5"/></svg></button>
+    </div>
     <div id="reader-path-pop" class="reader-path-pop" role="dialog" aria-modal="false" aria-label="Where you are" hidden></div>
     <section id="reader-info" class="reader-info calm-side calm-side-right" role="dialog" aria-modal="false" aria-labelledby="reader-info-name" hidden></section>
     <div class="reader-area">

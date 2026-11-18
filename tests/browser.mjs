@@ -63,7 +63,7 @@ try{
   assert(creationPrompt.includes(agentConfig.appPath)&&creationPrompt.includes(agentConfig.agentGuidePath)&&creationPrompt.includes(agentConfig.protocolPath));
   assert(!creationPrompt.includes('Use the tinka skill'));
   assert((await a.page.locator('#agent-prompt').inputValue()).includes('Do not add a reference board'));
-  await a.page.locator('.close').click();
+  await a.page.getByRole('button',{name:'Close new board prompt'}).click();
   // Source files can update while an older managed server is still running.
   // Its config response has no app/instruction fields; prompts must stay useful.
   await a.page.route('**/api/config',async route=>{
@@ -76,7 +76,7 @@ try{
   await a.page.locator('.new-board').first().click();
   const legacyPrompt=await a.page.locator('#agent-prompt').inputValue();
   assert(legacyPrompt.includes('.pid.json')&&!legacyPrompt.includes('undefined')&&!legacyPrompt.includes('Use the tinka skill'));
-  await a.page.locator('.close').click();
+  await a.page.getByRole('button',{name:'Close new board prompt'}).click();
   await a.page.locator('[data-remove-board="first-steps"]').click();
   assert((await a.page.locator('#agent-prompt-text').inputValue()).includes('.pid.json'));
   await a.page.keyboard.press('Escape');

@@ -12,7 +12,7 @@ html[data-appearance="dark"] :is(button,a,input,textarea,select):focus-visible{o
 html[data-appearance="dark"] button:disabled{opacity:1;color:var(--muted);cursor:default}
 html[data-appearance="dark"] button:enabled:hover:where(:not(.workspace-preview-launch):not(.preview-launch)){background:var(--hover);color:var(--ink)}
 html[data-appearance="dark"] :is(.workspace-segments button[aria-pressed="true"],.workspace-toolbar button[aria-pressed="true"]){background:var(--soft);color:var(--ink);border-color:var(--control-line)}
-html[data-appearance="dark"] .workspace-board[data-board-layout="grid"] #viewport{background:var(--canvas)}
+html[data-appearance="dark"] .workspace-board[data-board-layout="grid"] #viewport{background-color:var(--board-color,var(--canvas))}
 html[data-appearance="dark"] .reader-stage{background-color:var(--canvas);background-image:radial-gradient(var(--dot) .8px,transparent .9px)}
 html[data-appearance="dark"] :is(.reader-header,.reader-footer){background:var(--bg-chrome);border-color:var(--line)}
 html[data-appearance="dark"] :is(.board-info,.workspace-selection,.workspace-search input,.workspace-dialog,.workspace-context,.workspace-popover,.workspace-add-menu,.workspace-item-controls,.workspace-decoration-actions,.feedback-panel,.feedback-ballot,.feedback-settings,.view-controls,.size-menu,.dot-tooltip){background:var(--paper);color:var(--ink);border-color:var(--line);box-shadow:0 8px 30px rgba(0,0,0,.3)}
@@ -41,6 +41,11 @@ html[data-appearance="dark"] .workspace-card{
   --ink:var(--item-ink-dark,#ecece5);--muted:var(--item-muted-dark,#b4b5aa);
   color:var(--ink);border-color:var(--line);background:var(--item-paper,var(--paper));box-shadow:0 4px 14px rgba(0,0,0,.2);
 }
+html[data-appearance="dark"] .workspace-board .workspace-card[data-custom-paper] {
+  --item-paper:var(--item-paper-dark);
+  --ink:var(--item-ink-dark);
+  --muted:var(--item-muted-dark);
+}
 html[data-appearance="dark"] :is(.workspace-item-footer,.workspace-panel-caption,.workspace-feature-source){background:var(--item-paper,var(--paper));color:var(--ink);border-color:var(--line)}
 html[data-appearance="dark"] :is(.workspace-card-copy h3 button,.workspace-panel-title,.workspace-icon-entry,.workspace-item-footer button){color:var(--ink)}
 html[data-appearance="dark"] .workspace-card :is(.workspace-card-copy>p,.workspace-compact-meta,.workspace-card-meta,.workspace-title-art,.workspace-paper-art,.workspace-icon-entry>span){color:var(--muted)}
@@ -51,8 +56,6 @@ html[data-appearance="dark"] .workspace-build-placeholder strong{color:var(--ink
 html[data-appearance="dark"] .workspace-card .workspace-build-label{color:var(--muted)}
 html[data-appearance="dark"] .workspace-item-footer .workspace-vote-trigger[aria-pressed="true"]{background:var(--soft);color:var(--green)}
 html[data-appearance="dark"] .workspace-card button:enabled:hover:where(:not(.workspace-preview-launch)){background:color-mix(in srgb,var(--ink) 10%,transparent);color:var(--ink)}
-html[data-appearance="dark"] .workspace-paper-swatches button{background:var(--swatch);border-color:var(--control-line)}
-html[data-appearance="dark"] .workspace-paper-swatches button:hover{background:var(--swatch)}
 html[data-appearance="dark"] :is(.workspace-grid-round>header p,.workspace-eyebrow,.workspace-concept-number,.workspace-add-menu button>span){color:var(--muted)}
 
 /* Home and collection fallbacks are app surfaces; saved images/HTML stay intact. */

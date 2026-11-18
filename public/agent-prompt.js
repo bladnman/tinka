@@ -1,3 +1,5 @@
+import {bindBackdropDismiss} from './workspace.js';
+
 function boardTarget(config, board) {
   const boardUrl = new URL(`boards/${encodeURIComponent(board.id)}/`, config.url).href;
   return {
@@ -52,9 +54,10 @@ function createDialog() {
   dialog.className = 'agent-dialog';
   dialog.setAttribute('aria-labelledby', 'agent-prompt-title');
   dialog.setAttribute('aria-describedby', 'agent-prompt-description');
-  dialog.innerHTML = '<button class="agent-dialog-close" type="button" aria-label="Close agent prompt">×</button><p class="agent-dialog-eyebrow">ASK YOUR AGENT</p><h2 id="agent-prompt-title"></h2><p id="agent-prompt-description"></p><label for="agent-prompt-text">Give your agent this prompt</label><textarea id="agent-prompt-text" readonly rows="9" spellcheck="false"></textarea><div class="agent-dialog-bottom"><span id="agent-prompt-status" role="status">Your agent makes the change after you paste the prompt.</span><button id="copy-agent-prompt" type="button">Copy prompt</button></div>';
+  dialog.innerHTML = '<button class="agent-dialog-close" type="button" aria-label="Close agent prompt">×</button><h2 id="agent-prompt-title"></h2><p id="agent-prompt-description"></p><label for="agent-prompt-text">Prompt for your agent</label><textarea id="agent-prompt-text" readonly rows="5" spellcheck="false"></textarea><div class="agent-dialog-bottom"><span id="agent-prompt-status" role="status"></span><button id="copy-agent-prompt" type="button">Copy prompt</button></div>';
   document.body.append(dialog);
   dialog.querySelector('.agent-dialog-close').onclick = () => dialog.close();
+  bindBackdropDismiss(dialog);
   dialog.addEventListener('close', () => {
     const destination = returnFocus?.isConnected ? returnFocus : document.getElementById('viewport');
     destination?.focus({ preventScroll: true });
@@ -85,7 +88,7 @@ function showPrompt(title, description, text, copyLabel) {
   prompt.value = text;
   prompt.setSelectionRange(0, 0);
   prompt.scrollTop = 0;
-  dialog.querySelector('#agent-prompt-status').textContent = 'Your agent makes the change after you paste the prompt.';
+  dialog.querySelector('#agent-prompt-status').textContent = '';
   dialog.querySelector('#copy-agent-prompt').textContent = copyLabel;
   dialog.showModal();
   prompt.focus({ preventScroll: true });

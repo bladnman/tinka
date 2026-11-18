@@ -9,15 +9,16 @@ import { WorkspaceBoard } from './workspace-board.js';
 import { contentURL, enableOrganization, makeDialog } from './workspace.js';
 import { validTextAnchor } from './markdown-document.js';
 import {bindCommitShortcut,commitShortcutLabel} from './interaction.js';
-import {clampZoom, FIT_MAX_ZOOM, LARGE_BOARD_ZOOM, sameView, sliderFromZoom, zoomFromSlider, wheelZoomFactor} from './canvas-zoom.js';
+import {clampZoom, FIT_MAX_ZOOM, LARGE_BOARD_ZOOM, sameView, sliderFromZoom, zoomFromSlider, stepSliderZoom, wheelZoomFactor} from './canvas-zoom.js';
 import {BoardMap} from './board-map.js';
 import {decorationBounds} from './whiteboard-geometry.js';
-import {ReaderCanvas} from './reader-canvas.js';
+import {ReaderCanvas, contentScrolls} from './reader-canvas.js';
 import {ReaderPath} from './reader-path.js';
 import {isMacPlatform, readerCommand, stepModifierLabel} from './reader-keys.js';
 import {boardStepCommand, boardStepTarget, isSteppable} from './board-step.js';
 import {quietPointerFocus} from './pointer-focus.js';
 import {voteTotals} from './feedback.js';
+import {fileVersion, fileVersions, modifiedTime, nearbyFileVersions} from './version-stack.js';
 
 const $ = id => document.getElementById(id);
 mountAppearance($('board-info'));
@@ -136,7 +137,7 @@ async function fetchBoard() {
   if (!response.ok) throw new Error(`Board metadata unavailable (${response.status})`);
   const data = await response.json();
   if (data.schemaVersion === 2) {
-    if (!graph) graph = new WorkspaceBoard(appConfig, data, { concepts:()=>all, active:()=>active, zoom:()=>zoom, shiftOrigin:(dx,dy)=>{if(dx||dy){view.x-=dx*zoom;view.y-=dy*zoom;resting=false;shiftSavedViews(dx,dy);}}, shiftViewport:(dx,dy)=>{if(dx||dy)moveView(view.x+dx,view.y+dy);}, holdView:()=>{resting=false;}, revealPlacements:revealPlacements, revealTarget:placement=>{const fit=Math.min((viewport.clientWidth-80)/placement.width,(viewport.clientHeight-80)/placement.height,1);changeZoom(fit);const rect=world.getBoundingClientRect(),region=viewport.getBoundingClientRect();moveView(view.x+region.left+viewport.clientWidth/2-(rect.left+(placement.x+graph.origin.x+placement.width/2)*zoom),view.y+region.top+viewport.clientHeight/2-(rect.top+(placement.y+graph.origin.y+placement.height/2)*zoom));}, preview:c=>previewHref(c), layout:()=>{ if(resting)rest();else applyView(); contentChanged(); }, mode:mode=>{ if(mode==='canvas'){zoom=1;settleCushion();}else{viewport.scrollLeft=0;viewport.scrollTop=0;} requestAnimationFrame(syncMapAvailability); }, fit:(kind,area)=>runFit(kind==='smart'?smartFitTarget():kind,area), toggleMap:()=>setMapOpen(!boardMap.visible,{remember:true}), reloadReader:()=>loadRevision(), saveStatus:setSaveStatus, openOwner:()=>{const c=graph.ownerConcept();if(c)openReader(c.key);}, closeReader:()=>closeReader(), flushNotes:flushNoteEdits, liveReady:()=>{void drainLiveUpdates().catch(()=>{});}, data:acceptGraphData, editNote:(key,anchor)=>openTileNote(key,anchor), readerChanged:()=>{if(active&&dialog.open)renderReaderChrome();}, viewOnly:overview });
+    if (!graph) graph = new WorkspaceBoard(appConfig, data, { concepts:()=>all, active:()=>active, zoom:()=>zoom, shiftOrigin:(dx,dy)=>{if(dx||dy){view.x-=dx*zoom;view.y-=dy*zoom;resting=false;shiftSavedViews(dx,dy);}}, shiftViewport:(dx,dy)=>{if(dx||dy)moveView(view.x+dx,view.y+dy);}, holdView:()=>{resting=false;}, revealPlacements:revealPlacements, revealTarget:placement=>{const fit=Math.min((viewport.clientWidth-80)/placement.width,(viewport.clientHeight-80)/placement.height,1);changeZoom(fit);const rect=world.getBoundingClientRect(),region=viewport.getBoundingClientRect();moveView(view.x+region.left+viewport.clientWidth/2-(rect.left+(placement.x+graph.origin.x+placement.width/2)*zoom),view.y+region.top+viewport.clientHeight/2-(rect.top+(placement.y+graph.origin.y+placement.height/2)*zoom));}, preview:(c,version)=>previewHref(c,version,'paper',100,versionStamp(version,liveSnapshot?.items?.[c.graphItem.id])), layout:()=>{ if(resting)rest();else applyView(); contentChanged(); }, mode:mode=>{ if(mode==='canvas'){zoom=1;settleCushion();}else{viewport.scrollLeft=0;viewport.scrollTop=0;} requestAnimationFrame(syncMapAvailability); }, fit:(kind,area)=>runFit(kind==='smart'?smartFitTarget():kind,area), toggleMap:()=>setMapOpen(!boardMap.visible,{remember:true}), reloadReader:()=>loadRevision(), saveStatus:setSaveStatus, openOwner:()=>{const c=graph.ownerConcept();if(c)openReader(c.key);}, closeReader:()=>closeReader(), flushNotes:flushNoteEdits, liveReady:()=>{void drainLiveUpdates().catch(()=>{});}, data:acceptGraphData, editNote:(key,anchor)=>openTileNote(key,anchor), readerChanged:()=>{if(active&&dialog.open)renderReaderChrome();}, viewOnly:overview });
     if (overview) graph.mode = 'canvas';
     return graph.adapt(data);
   }
@@ -554,7 +555,11 @@ function parseHash(hash = location.hash) {
   if (row >= 0) return { view: 'board', round: rounds[row].id };
   let [key, revision] = raw.split('~');
   if (graph) { const alias=graph.aliasConcept(key)||graph.ownerConcept(key);if(alias){key=alias.key;revisions[key]=graph.revisionsFor(alias.graphItem);} }
-  if (all.some(concept => concept.key === key) || graph?.ownerConcept(key) || graph?.aliasConcept(key)) return { view: 'experiment', key, revision: (revisions[key] || []).some(variant => variant.id === revision) ? revision : null };
+  const concept = all.find(concept => concept.key === key) || graph?.ownerConcept(key) || graph?.aliasConcept(key);
+  if (concept) {
+    const valid = (revision === 'original' && fileVersion(concept.graphItem)) || (revisions[key] || []).some(variant => variant.id === revision);
+    return { view: 'experiment', key, revision: valid ? revision : null };
+  }
   return { view: 'board', round: null, invalid: true };
 }
 
@@ -574,7 +579,7 @@ function commitHistory(state, mode) {
 }
 
 function readerState() {
-  return { view: 'experiment', key: active.key, revision: activeVariantId === 'original' ? null : activeVariantId };
+  return { view: 'experiment', key: active.key, revision: activeVariantId === 'original' && !fileVersion(active.graphItem) ? null : activeVariantId };
 }
 
 // Back and Forward render the state in the URL; they never add entries of their own.
@@ -583,7 +588,7 @@ function route() {
   const state = parseHash();
   if (state.invalid) commitHistory({ view: 'board', round: null }, 'replace');
   routedHash = location.hash;
-  if (state.view === 'experiment') { openReader(state.key, state.revision || 'original', { history: 'replace' }); return; }
+  if (state.view === 'experiment') { openReader(state.key, state.revision, { history: 'replace' }); return; }
   if (dialog.open || active) { closeReader({ history: 'none' }); return; }
   const row = rounds.findIndex(round => round.id === state.round);
   if (row >= 0) showRow(row);
@@ -591,6 +596,16 @@ function route() {
 
 // ---- Experiment view ----
 function currentVariant() { return (revisions[active?.key] || []).find(variant => variant.id === activeVariantId) || null; }
+function readerVersionChoices() {
+  const versions = revisions[active?.key] || [];
+  if (!versions.length) return versions;
+  const item = active?.graphItem;
+  return fileVersions(item).length === versions.length
+    ? versions : [{ id: 'original', name: 'Original' }, ...versions];
+}
+function versionStamp(version, entry) {
+  return (version ? entry?.versionRevisions?.[version.id] : entry?.revision) || null;
+}
 function activeSourceKey() {
   if (!active) return null;
   const variant = currentVariant();
@@ -681,9 +696,32 @@ function setReaderMenuOpen(open, { focus = false } = {}) {
 }
 
 function renderRevisionOptions() {
-  const versions = revisions[active?.key] || [];
+  const versions = readerVersionChoices();
   $('revision-group').hidden = !versions.length;
-  $('revision-options').innerHTML = versions.length ? [{ id: 'original', name: 'Original' }, ...versions].map(variant => `<button type="button" class="tk-mi" data-revision-choice="${esc(variant.id)}" aria-pressed="${variant.id === activeVariantId}"><span>${esc(variant.name)}</span></button>`).join('') : '';
+  $('revision-options').innerHTML = versions.map(variant => `<button type="button" class="tk-mi" data-revision-choice="${esc(variant.id)}" aria-pressed="${variant.id === activeVariantId}"><span>${esc(variant.name)}</span></button>`).join('');
+}
+
+function renderFileVersionControls() {
+  const item = active?.graphItem;
+  const group = $('reader-file-versions');
+  group.hidden = !fileVersions(item).length;
+  if (group.hidden) return;
+  const version = fileVersion(item, activeVariantId);
+  const { previous, next } = nearbyFileVersions(item, activeVariantId);
+  const name = version ? `File version ${version.name}` : currentVariant()?.name || 'Original';
+  if ($('reader-file-version-name').textContent !== name) $('reader-file-version-name').textContent = name;
+  const time = $('reader-file-version-modified'), modified = modifiedTime(version?.modifiedAt);
+  const timeLabel = version ? modified ? `Modified ${modified.short}` : 'Modified time unavailable' : '';
+  if (time.textContent !== timeLabel) time.textContent = timeLabel;
+  time.hidden = !timeLabel;
+  time.dateTime = version?.modifiedAt || '';
+  time.title = modified ? `Modified ${modified.exact}` : '';
+  for (const [id, choice, end] of [['reader-older-file', previous, 'Oldest version'], ['reader-newer-file', next, 'Newest version']]) {
+    const button = $(id);
+    button.dataset.revisionChoice = choice?.id || '';
+    button.setAttribute('aria-disabled', String(!choice));
+    button.title = choice ? `Show ${choice.name}` : end;
+  }
 }
 
 function setNotesOpen(open, { focus = true } = {}) {
@@ -708,6 +746,7 @@ function syncReaderNotes() {
 
 function renderReaderHeader() {
   if (!active) return;
+  renderFileVersionControls();
   const variant = currentVariant();
   const round = rounds[active.row];
   const name = descriptor(active, variant).name;
@@ -734,9 +773,11 @@ function loadRevision({ focus = false } = {}) {
   const standalone = standaloneHref(active, variant);
   $('reader-standalone').hidden = !standalone;
   if (standalone) $('reader-standalone').href = standalone;
-  activeRevision = liveSnapshot?.concepts?.[activeSourceKey()]?.revision || null;
+  const auto = fileVersion(active.graphItem, activeVariantId);
+  activeRevision = active.graphItem ? versionStamp(auto, liveSnapshot?.items?.[active.graphItem.id]) : liveSnapshot?.concepts?.[activeSourceKey()]?.revision || null;
+  $('reader-update').textContent = auto ? `Files changed · Reload ${auto.name}` : 'New version available · Reload experiment';
   $('reader-update').hidden = true;
-  replaceFrame($('active-reader'), previewHref(active, variant, readerView.theme, readerView.type, activeRevision || 'initial', true));
+  replaceFrame($('active-reader'), previewHref(active, variant, readerView.theme, readerView.type, activeRevision || auto?.modifiedAt || 'initial', true));
   if (focus) focusTinka();
 }
 
@@ -803,7 +844,7 @@ function stepReader(offset, { focus = 'keep' } = {}) {
   const index = sequence.findIndex(concept => concept.key === active.key);
   const next = index >= 0 && sequence[index + offset];
   if (!next) return false;
-  openReader(next.key, 'original', { history: 'replace', focus });
+  openReader(next.key, null, { history: 'replace', focus });
   return true;
 }
 
@@ -822,11 +863,12 @@ async function leaveReaderTo(url) {
   location.href = url;
 }
 
-function openReader(key, revision = 'original', { history: mode = 'push', focus = 'tinka' } = {}) {
+function openReader(key, revision = null, { history: mode = 'push', focus = 'tinka' } = {}) {
   const concept = all.find(item => item.key === key) || graph?.ownerConcept(key) || graph?.aliasConcept(key);
   if (!concept) return false;
   if(graph){revisions[concept.key]=graph.revisionsFor(concept.graphItem);notes[concept.key]={...(concept.graphItem.review||{}),...(graph.pendingReview.get(concept.graphItem.id)||{})};key=concept.key;}
-  const variantId = (revisions[key] || []).some(variant => variant.id === revision) ? revision : 'original';
+  const variantId = revision === 'original' || (revisions[key] || []).some(variant => variant.id === revision)
+    ? revision : fileVersion(concept.graphItem)?.id || 'original';
   if (dialog.open && active?.key === key && activeVariantId === variantId) {
     commitHistory(readerState(), mode === 'push' ? 'none' : mode);
     applyReaderFocus(focus);
@@ -919,7 +961,7 @@ function readerPathGo(target) {
   else if (kind === 'down') goDown();
   else if (kind === 'here') focusTinka();
   else if (kind === 'expand') { readerPathExpanded = true; readerPath.open($('reader-path'), { pinned: true, focus: true }); }
-  else if (kind === 'item') { const key = target.slice(5); if (key !== active?.key) openReader(key, 'original', { history: 'replace' }); else focusTinka(); }
+  else if (kind === 'item') { const key = target.slice(5); if (key !== active?.key) openReader(key, null, { history: 'replace' }); else focusTinka(); }
   else if (kind === 'board') void leaveReaderTo(`/boards/${encodeURIComponent(a)}/${b ? `?from=${encodeURIComponent(b)}` : ''}`);
   else if (kind === 'reveal') void leaveReaderTo(`/boards/${encodeURIComponent(a)}/?reveal=${encodeURIComponent(b)}`);
 }
@@ -944,7 +986,6 @@ function readerLookup(key, url) {
   }
   return readerLookups.get(key);
 }
-let readerMoreOpen = false;
 const readerIcon = {
   tab: '<svg viewBox="0 0 20 20" aria-hidden="true"><rect x="2.5" y="4" width="15" height="12" rx="2"/><path d="M2.5 7.5h15"/></svg>',
   file: '<svg viewBox="0 0 20 20" aria-hidden="true"><path d="M5 2.5h6.5L15 6v11.5H5z"/><path d="M11.5 2.5V6H15"/></svg>',
@@ -975,7 +1016,7 @@ function renderReaderInfo() {
   const item = active.graphItem, variant = currentVariant(), kind = readerKind(active);
   const sequence = readerSequence(), index = sequence.findIndex(concept => concept.key === active.key);
   const child = graph?.childInfo(item);
-  const versions = revisions[active.key] || [];
+  const versions = readerVersionChoices();
   const description = item?.description || active.description || '';
   const where = readerWhere();
   const act = (name, label, extra = '') => `<button type="button" class="tk-btn tk-sm" data-reader-act="${name}"${extra}>${label}</button>`;
@@ -988,7 +1029,7 @@ function renderReaderInfo() {
   const rows = [];
   if (where.local) rows.push(`<div class="reader-where-place">${readerIcon.tab}<strong>In a browser tab</strong><span class="reader-where-what">Served by Tinka · needs Tinka running</span><div class="reader-where-acts"><a class="tk-btn tk-sm tk-primary" href="${esc(where.standalone)}" target="_blank" rel="noopener" data-reader-standalone>Open standalone ↗</a>${act('copy-link', 'Copy link')}</div></div>`);
   if (where.remote) rows.push(`<div class="reader-where-place">${readerIcon.tab}<strong>On the web</strong><span class="reader-where-what">Its own address · Tinka doesn't serve it</span><code class="reader-where-path">${esc(where.standalone)}</code><div class="reader-where-acts"><a class="tk-btn tk-sm tk-primary" href="${esc(where.standalone)}" target="_blank" rel="noopener noreferrer" data-reader-standalone>Open ↗</a>${act('copy-link', 'Copy link')}</div></div>`);
-  if (where.local) rows.push(`<div class="reader-where-place">${readerIcon.file}<strong>The file itself</strong><span class="reader-where-what">Plain path · no server needed · best for agents</span><code class="reader-where-path" id="reader-file-path">${where.file ? esc(where.file) : where.lookup?.done ? 'The file could not be found.' : 'Finding the file…'}</code><div class="reader-where-acts">${act('copy-path', 'Copy path', where.file ? '' : ' disabled')}</div></div>`);
+  if (where.local) rows.push(`<div class="reader-where-place">${readerIcon.file}<strong>The file itself</strong><span class="reader-where-what">Local file</span><code class="reader-where-path" id="reader-file-path">${where.file ? esc(where.file) : where.lookup?.done ? 'The file could not be found.' : 'Finding the file…'}</code><div class="reader-where-acts">${act('copy-path', 'Copy path', where.file ? '' : ' disabled')}${where.file ? act('copy-agent', 'Copy for an agent') : ''}</div></div>`);
   const here = place => place.boardId === boardId && place.key === active.key;
   let boardRows = where.places;
   if (!boardRows && graph && item) boardRows = [{ boardId, boardTitle: readerBoardTitle(), key: active.key, title: item.title, number: item.number || '', href: '' },
@@ -1002,7 +1043,6 @@ function renderReaderInfo() {
   }
   const whereSection = rows.length ? `<section class="inspector-sec reader-where" aria-labelledby="reader-where-heading"><h3 id="reader-where-heading">Where it lives</h3><div class="reader-where-card">${rows.join('')}</div></section>` : '';
 
-  // Feedback: Comments (Favorite and Notes are the header's ☆ and Notes); Vote only once someone has voted.
   let feedback = '';
   if (graph && item) {
     const comments = readerLookup(`comments:${item.id}`, `/api/feedback?itemId=${encodeURIComponent(item.id)}&limit=100`);
@@ -1012,53 +1052,30 @@ function renderReaderInfo() {
     const totals = voteTotals(item.review?.votes), voted = totals.yes + totals.no + totals.abstain > 0;
     feedback = `<section class="inspector-sec reader-feedback" aria-labelledby="reader-feedback-heading"><h3 id="reader-feedback-heading">Feedback</h3>
       <button type="button" class="tk-btn reader-feedback-row" data-reader-act="comments"><span>Comments</span>${count ? `<span class="reader-count">${count}</span>` : ''}<small>${threads ? (threads.length ? `${open} open` : 'Start a conversation') : ''}</small></button>
-      ${voted ? `<button type="button" class="tk-btn reader-feedback-row" data-reader-act="vote" aria-haspopup="dialog"><span>Votes</span><small>Yes ${totals.yes} · No ${totals.no} · Abstain ${totals.abstain}</small></button>` : ''}
-      <p class="reader-feedback-note">Favorite ☆ and Notes are in the header.</p></section>`;
+      <button type="button" class="tk-btn reader-feedback-row" data-reader-act="vote" aria-haspopup="dialog"><span>${voted ? 'Votes' : 'Vote…'}</span>${voted ? `<small>Yes ${totals.yes} · No ${totals.no} · Abstain ${totals.abstain}</small>` : ''}</button></section>`;
   }
-  const versionSection = versions.length ? `<section class="inspector-sec" aria-labelledby="reader-version-heading"><h3 id="reader-version-heading">Version</h3><div class="tk-seg reader-version-seg" role="group" aria-label="Version">${[{ id: 'original', name: 'Original' }, ...versions].map(v => `<button type="button" data-revision-choice="${esc(v.id)}" aria-pressed="${v.id === activeVariantId}">${esc(v.name)}</button>`).join('')}</div></section>` : '';
+  const versionSection = versions.length ? `<section class="inspector-sec" aria-labelledby="reader-version-heading"><h3 id="reader-version-heading">Version</h3><div class="tk-seg reader-version-seg" role="group" aria-label="Version">${versions.map(v => `<button type="button" data-revision-choice="${esc(v.id)}" aria-pressed="${v.id === activeVariantId}">${esc(v.name)}</button>`).join('')}</div></section>` : '';
 
-  // Organize: its own board, then one More menu.
   const path = graph?.boardPath?.() || [];
   const parent = path.length > 1 ? path[path.length - 2] : null;
-  const totals = item ? voteTotals(item.review?.votes) : null;
-  const mi = (name, label, sub = '', extra = '') => `<button type="button" class="tk-mi${sub ? ' reader-mi2' : ''}" role="menuitem" data-reader-act="${name}"${extra}><span>${label}</span>${sub ? `<small>${sub}</small>` : ''}</button>`;
-  const menu = [];
+  const actions = [];
   if (graph && item) {
-    if (!child) menu.push(mi('add-board', 'Add board…', 'Room for related material, one level down'));
-    menu.push(mi('edit', 'Edit details…', 'Title, number and description, everywhere it appears'));
+    actions.push(act('edit', 'Edit details…'), child ? act('down', `Its board${child.count == null ? '' : ` · ${child.count}`} ↓`) : act('add-board', 'Add board…'));
     if (active.placement) {
-      menu.push('<div class="tk-msep"></div>');
-      menu.push(mi('move', 'Move to another board…', `It leaves ${esc(readerBoardTitle())}`));
-      menu.push(mi('reference', 'Also show on another board…', 'Same item: notes, star and comments stay shared'));
-      if (parent) menu.push(mi('feature', `Feature on ${esc(parent.title)}…`, `Beside ${esc(readerBoardTitle())}, one level up`));
+      actions.push(act('move', 'Move to another board…'), act('reference', 'Also show on another board…'));
+      if (parent) actions.push(act('feature', `Feature on ${esc(parent.title)}…`));
     }
-    menu.push('<div class="tk-msep"></div>');
-    if (totals.yes + totals.no + totals.abstain === 0) menu.push(mi('vote', 'Vote…', 'Yes / No / Abstain on this item', ' aria-haspopup="dialog"'));
   }
-  if (where.file) menu.push(mi('copy-agent', 'Copy for an agent', 'Its name and file path'));
-  if (where.standalone) menu.push(mi('reload', 'Reload content', 'Load the page again from its file'));
-  menu.push(`<button type="button" class="tk-mi" role="menuitem" data-reader-act="shortcuts"><span>Keyboard shortcuts</span><span class="tk-kbd">?</span></button>`);
-  const organize = `<section class="inspector-sec" aria-labelledby="reader-organize-heading"><h3 id="reader-organize-heading">Organize</h3><div class="reader-organize">${child ? act('down', `Its board${child.count == null ? '' : ` · ${child.count}`} ↓`) : ''}<span class="reader-more-wrap"><button type="button" class="tk-btn tk-sm" data-reader-act="more" aria-haspopup="menu" aria-expanded="${readerMoreOpen}" aria-controls="reader-more">More…</button><div id="reader-more" class="tk-menu reader-more-menu${readerMoreOpen && $('reader-more')?.classList.contains('reader-more-down') ? ' reader-more-down' : ''}" role="menu" aria-label="More for this Tinka"${readerMoreOpen ? '' : ' hidden'}>${menu.join('')}</div></span></div></section>`;
+  const organize = actions.length ? `<section class="inspector-sec" aria-labelledby="reader-organize-heading"><h3 id="reader-organize-heading">Organize</h3><div class="reader-organize">${actions.join('')}</div></section>` : '';
+  const help = `<section class="inspector-sec" aria-labelledby="reader-help-heading"><h3 id="reader-help-heading">Help</h3><div class="reader-organize">${where.standalone ? act('reload', 'Reload content') : ''}${act('shortcuts', 'Keyboard shortcuts <kbd class="tk-kbd">?</kbd>')}</div></section>`;
 
   $('reader-info-body').innerHTML = `<div class="inspector-title"><h2 id="reader-info-name">${esc(descriptor(active, variant).name)}</h2><p>${esc(kind)} · on ${esc(readerBoardTitle())}${index >= 0 ? ` · ${index + 1} of ${sequence.length}` : ''}</p></div>
     ${description ? `<p class="inspector-desc">${esc(description)}</p>` : ''}
-    ${whereSection}${feedback}${versionSection}${organize}`;
+    ${whereSection}${feedback}${versionSection}${organize}${help}`;
   if (focusKey) readerInfo.querySelector(focusKey)?.focus({ preventScroll: true });
 }
-function setReaderMoreOpen(open, { focus = false } = {}) {
-  readerMoreOpen = open;
-  const menu = $('reader-more'), button = readerInfo.querySelector('[data-reader-act="more"]');
-  if (!menu || !button) return;
-  menu.hidden = !open;
-  button.setAttribute('aria-expanded', String(open));
-  // It opens upward from the bottom of the Inspector; downward when there is no room above.
-  menu.classList.remove('reader-more-down');
-  if (open && menu.getBoundingClientRect().top < readerInfo.getBoundingClientRect().top + 8) menu.classList.add('reader-more-down');
-  if (open) menu.querySelector('.tk-mi')?.focus({ preventScroll: true });
-  else if (focus) button.focus({ preventScroll: true });
-}
 function setReaderInfoOpen(open, { focus = false } = {}) {
-  if (open) { readerLookups.clear(); readerMoreOpen = false; renderReaderInfo(); }
+  if (open) { readerLookups.clear(); renderReaderInfo(); }
   readerInfo.hidden = !open;
   $('reader-info-toggle').setAttribute('aria-expanded', String(open));
   if (open && focus) readerInfo.querySelector('[data-reader-act="close"]')?.focus({ preventScroll: true });
@@ -1077,16 +1094,14 @@ readerInfo.addEventListener('click', event => {
   if (go && active) {
     const target = go.dataset.readerGo;
     if (target === 'here') { setReaderInfoOpen(false); focusTinka(); }
-    else if (target.startsWith('item:')) { const [key, revision] = target.slice(5).split('~'); setReaderInfoOpen(false); openReader(key, revision || 'original'); }
+    else if (target.startsWith('item:')) { const [key, revision] = target.slice(5).split('~'); setReaderInfoOpen(false); openReader(key, revision); }
     else void leaveReaderTo(target);
     return;
   }
   const button = event.target.closest('[data-reader-act]');
   if (!button || !active) return;
   const item = active.graphItem, name = button.dataset.readerAct;
-  if (name !== 'more' && button.closest('#reader-more')) setReaderMoreOpen(false);
   if (name === 'close') setReaderInfoOpen(false, { focus: true });
-  else if (name === 'more') setReaderMoreOpen(!readerMoreOpen);
   else if (name === 'down') goDown();
   else if (name === 'add-board') graph?.addChildren(item);
   else if (name === 'reload') loadRevision();
@@ -1094,18 +1109,10 @@ readerInfo.addEventListener('click', event => {
   else if (name === 'copy-path') { const { file } = readerWhere(); if (file) void readerCopy(file, 'Copied the file path. It works without Tinka running.'); }
   else if (name === 'copy-agent') { const { file } = readerWhere(); if (file) void readerCopy(`${descriptor(active, currentVariant()).name}: ${file}`, 'Copied its name and file path for an agent.'); }
   else if (name === 'comments') { setReaderInfoOpen(false); graph?.feedback.open({ itemId: item.id, mode: 'reader', host: dialog.querySelector('.reader-area'), returnFocus: $('reader-info-toggle') }); }
-  else if (name === 'vote') graph?.feedback.openVote({ itemId: item.id, anchor: button.closest('#reader-more') ? readerInfo.querySelector('[data-reader-act="more"]') : button, returnFocus: $('reader-info-toggle') });
+  else if (name === 'vote') graph?.feedback.openVote({ itemId: item.id, anchor: button, returnFocus: $('reader-info-toggle') });
   else if (name === 'edit') graph?.editItem(item);
   else if (['move', 'reference', 'feature'].includes(name) && active.placement) void graph?.organize(name, active.placement.id).catch(error => setSaveStatus(error.message, 'error'));
   else if (name === 'shortcuts') readerShortcuts();
-});
-readerInfo.addEventListener('keydown', event => {
-  const menu = $('reader-more');
-  if (!menu || menu.hidden || !menu.contains(document.activeElement) || !['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(event.key)) return;
-  const items = [...menu.querySelectorAll('.tk-mi')], at = items.indexOf(document.activeElement);
-  event.preventDefault();
-  const next = event.key === 'Home' ? 0 : event.key === 'End' ? items.length - 1 : (at + (event.key === 'ArrowDown' ? 1 : -1) + items.length) % items.length;
-  items[next]?.focus();
 });
 
 function readerShortcuts() {
@@ -1131,7 +1138,7 @@ function readerEditable(target) {
 // Tinka (not the content, a panel or a menu) has focus.
 function readerTinkaFocus(target) {
   if (!target?.closest || !dialog.contains(target) || target === $('active-reader')) return false;
-  return !target.closest('#reader-path-pop,#reader-zoom-menu,#reader-info,#notes-panel,.feedback-panel,.feedback-ballot,.project-navigator,.tk-seg');
+  return !target.closest('#reader-file-versions,#reader-path-pop,#reader-zoom-menu,#reader-info,#notes-panel,.feedback-panel,.feedback-ballot,.project-navigator,.tk-seg');
 }
 function readerBlocked() { return !dialog.open || !!document.querySelector('dialog.workspace-dialog[open]'); }
 function runReaderCommand(command, { fromFrame = false } = {}) {
@@ -1165,6 +1172,8 @@ document.addEventListener('keydown', event => {
 document.addEventListener('keyup', event => { if (event.key === ' ') readerCanvas.setSpacePan(false); }, true);
 // Same-origin content (Tinka's own item, media and board files, and frames inside them)
 // forwards the step/up/down chords and ⌘/Ctrl-scroll or pinch; independent pages cannot.
+// Plain scrolling the content has no use for (an image, a page that fits) pans Tinka's canvas,
+// as it does over the background; anything that scrolls, or handles the wheel itself, keeps it.
 const FORWARDED = Symbol('tinka-reader-forward');
 function framePoint(win, x, y) {
   try {
@@ -1194,6 +1203,13 @@ function forwardFrame(frame) {
     const point = framePoint(win, event.clientX, event.clientY);
     readerCanvas.zoomAtClient(wheelZoomFactor(event), point.x, point.y);
   }, { passive: false, capture: true });
+  win.addEventListener('wheel', event => {
+    if (event.ctrlKey || event.metaKey || event.defaultPrevented || readerBlocked()) return;
+    const { dx, dy } = readerCanvas.wheelDelta(event);
+    if ((!dx && !dy) || contentScrolls(event.target, dx, dy, window)) return;
+    event.preventDefault();
+    readerCanvas.panBy(-dx, -dy);
+  }, { passive: false });
   let gestureScale = 1;
   win.addEventListener('gesturestart', event => { if (readerBlocked()) return; event.preventDefault(); gestureScale = 1; });
   win.addEventListener('gesturechange', event => {
@@ -1281,7 +1297,6 @@ function handleEscape(event) {
   if(graph?.feedback?.consumeEscape(keyEvent))return true;
   if (readerPath.isOpen) { readerPath.close({ focus: true }); return true; }
   if (!$('reader-zoom-menu').hidden) { setReaderMenuOpen(false, { focus: true }); return true; }
-  if (!readerInfo.hidden && readerMoreOpen) { setReaderMoreOpen(false, { focus: true }); return true; }
   if (!readerInfo.hidden) { setReaderInfoOpen(false, { focus: true }); return true; }
   if (projectNavigator?.isOpen && projectNavigator.hostEl) { projectNavigator.hide(); return true; }
   if (notesOpen && $('notes-panel').contains(document.activeElement)) { setNotesOpen(false); return true; }
@@ -1453,15 +1468,17 @@ function applyBoardSnapshotNow(snapshot) {
     const concepts = Object.fromEntries(all.map(c=>[c.key, {...(c.graphItem.build||{state:'ready'}), ...(snapshot.items?.[c.graphItem.id]||{})}]));
     liveSnapshot = {...snapshot,concepts};
     for (const concept of all) {
-      const revision = concepts[concept.key]?.revision;
+      const version = graph.displayedFileVersion(concept);
+      const revision = versionStamp(version, concepts[concept.key]);
       if (!revision) continue;
-      const card = [...world.querySelectorAll('.workspace-card')].find(c => c.dataset.key === concept.key);
-      if (loadedPreviews.has(concept.key) && loadedPreviews.get(concept.key) !== revision) {
+      const id = version?.id || null, loaded = loadedPreviews.get(concept.key);
+      if (loaded?.id === id && loaded.revision !== revision) {
+        const card = world.querySelector(`.workspace-card[data-key="${CSS.escape(concept.key)}"]`);
         const frame = card?.querySelector('.workspace-live-preview iframe');
         if (frame) {
           const source=new URL(frame.src,location.href);
           if(source.pathname==='/app/media.html'&&['panel','card'].includes(source.searchParams.get('mode'))&&source.searchParams.get('kind')==='markdown'){source.searchParams.set('v',revision);replaceFrame(frame,source.href);}
-          else replaceFrame(frame, previewHref(concept, null, 'paper', 100, revision));
+          else replaceFrame(frame, previewHref(concept, version, 'paper', 100, revision));
         }
         const pdf = card?.querySelector('.workspace-pdf-preview');
         if (pdf) {
@@ -1476,9 +1493,13 @@ function applyBoardSnapshotNow(snapshot) {
           image.src = source.href;
         }
       }
-      loadedPreviews.set(concept.key, revision);
+      loadedPreviews.set(concept.key, {id, revision});
     }
-    const entry=concepts[active?.key]; if(active&&entry?.revision){ if(!activeRevision)activeRevision=entry.revision; $('reader-update').hidden=activeRevision===entry.revision; }
+    if (active?.graphItem) {
+      const stamp = versionStamp(fileVersion(active.graphItem, activeVariantId), snapshot.items?.[active.graphItem.id]);
+      if (!activeRevision) activeRevision = stamp;
+      $('reader-update').hidden = !stamp || activeRevision === stamp;
+    }
     $('live-status').textContent=`Live · ${all.length} ${all.length===1?'item':'items'}`; if(active)updateReaderNavigation(); return;
   }
   liveSnapshot = snapshot;
@@ -1522,8 +1543,17 @@ function applyBoardSnapshotNow(snapshot) {
 }
 
 function acceptGraphData(fresh) {
-  const activeKey=active?.key; board=fresh;rounds=fresh.rounds;revisions=fresh.revisions||{};notes=fresh.graphNotes||{};readRound();currentRound=Math.min(currentRound,Math.max(0,rounds.length-1));buildCanvas();
-  if(activeKey){active=all.find(c=>c.key===activeKey)||active;renderRevisionOptions();renderReaderHeader();updateReaderNavigation();refreshReaderAnnotations({itemId:active.graphItem?.id});}
+  const activeKey = active?.key, wasFile = fileVersion(active?.graphItem, activeVariantId);
+  board=fresh;rounds=fresh.rounds;revisions=fresh.revisions||{};notes=fresh.graphNotes||{};readRound();currentRound=Math.min(currentRound,Math.max(0,rounds.length-1));buildCanvas();
+  if (activeKey) {
+    active = all.find(c => c.key === activeKey) || graph.ownerConcept(activeKey) || graph.aliasConcept(activeKey) || active;
+    revisions[active.key] = graph.revisionsFor(active.graphItem);
+    if (wasFile && !fileVersion(active.graphItem, activeVariantId)) {
+      openReader(active.key, null, { history: 'replace', focus: 'keep' });
+      return;
+    }
+    renderRevisionOptions();renderReaderHeader();updateReaderNavigation();refreshReaderAnnotations({itemId:active.graphItem?.id});
+  }
 }
 
 let pendingLiveSnapshot=null,liveManifestPending=false,liveDraining=false;
@@ -1613,7 +1643,6 @@ document.addEventListener('pointerdown', event => {
   if (remove && event.button === 0) { event.preventDefault(); remove.focus({ preventScroll: true }); }
   if (!$('reader-zoom-menu').hidden && !event.target.closest('.reader-footer .zoom-menu-wrap')) setReaderMenuOpen(false);
   if (readerPath.isOpen && !event.target.closest('#reader-path-pop, #reader-path, #reader-count')) readerPath.close({ focus: false });
-  if (readerMoreOpen && !event.target.closest('.reader-more-wrap')) setReaderMoreOpen(false);
   if (!readerInfo.hidden && !event.target.closest('#reader-info, #reader-info-toggle, .workspace-dialog, .feedback-ballot')) setReaderInfoOpen(false);
 });
 document.addEventListener('pointerdown', event => {
@@ -1622,6 +1651,8 @@ document.addEventListener('pointerdown', event => {
 }, true);
 let pendingDocumentOpen = 0;
 document.addEventListener('click', event => {
+  const fileStep = event.target.closest('#world [data-file-version-step]');
+  if (fileStep && graph) { graph.stepFileVersion(fileStep); return; }
   const open = event.target.closest('[data-open]');
   const star = event.target.closest('[data-star]');
   const remove = event.target.closest('[data-remove-experiment]');
@@ -1645,7 +1676,7 @@ document.addEventListener('click', event => {
     const concept = graph && (all.find(item => item.key === open.dataset.open) || graph.aliasConcept(open.dataset.open));
     if (concept?.graphItem.childBoardId && !concept.graphItem.content)
       graph.navigate(concept.graphItem.childBoardId, concept.placement?.id);
-    else openReader(open.dataset.open, open.dataset.revision);
+    else openReader(open.dataset.open, open.dataset.revision || (concept && graph.displayedFileVersion(concept)?.id));
   }
   if (star?.dataset.star) {
     const key = star.dataset.star;
@@ -1680,7 +1711,17 @@ document.addEventListener('keydown', event => {
   if (!$('board-info').hidden) { event.preventDefault(); setInfoOpen(false, { focus: true }); }
 }, true);
 
-slider.addEventListener('input', () => {if(graph)graph.revealedPlacement=null;changeZoom(zoomFromSlider(slider.value));});
+function bindZoomSlider(input, apply) {
+  input.addEventListener('input',()=>apply(zoomFromSlider(input.value)));
+  input.addEventListener('keydown',event=>{
+    const direction={ArrowLeft:-1,ArrowDown:-1,ArrowRight:1,ArrowUp:1}[event.key];
+    if(!direction||event.ctrlKey||event.metaKey||event.altKey)return;
+    event.preventDefault();
+    event.stopPropagation();
+    apply(stepSliderZoom(input.value,direction));
+  });
+}
+bindZoomSlider(slider,value=>{if(graph)graph.revealedPlacement=null;changeZoom(value);});
 $('fit').onclick = event => runFit(event.altKey ? 'board' : smartFitTarget());
 $('view-back').onclick = goBack;
 $('board-info-toggle').onclick = () => setInfoOpen($('board-info').hidden, { focus: true });
@@ -1747,7 +1788,7 @@ function mapShapes() {
   if (!all.length) return { items, decorations, bounds: null };
   const x = Math.min(...all.map(r => r.x)), y = Math.min(...all.map(r => r.y));
   const bounds = { x, y, width: Math.max(1, Math.max(...all.map(r => r.x + Math.max(0, r.width))) - x), height: Math.max(1, Math.max(...all.map(r => r.y + Math.max(0, r.height))) - y) };
-  return { items, decorations, bounds };
+  return { items, decorations, bounds, backgroundColor:graph.snapshot.background?.color };
 }
 function centerOn(wx, wy, { glide = false } = {}) {
   if (graph) graph.revealedPlacement = null;
@@ -1963,6 +2004,8 @@ function syncViewChrome() {
   viewport.style.setProperty('--pattern-y', `${Math.round(oy)}px`);
   syncFitControls();
   boardMap?.syncFrame();
+  graph?.whiteboard?.positionToolbar();
+  graph?.positionArrangeMenu();
 }
 // Up: ‹ board in the header (a link, so it can also open the board in a new tab).
 $('close-reader').addEventListener('click', event => {
@@ -1983,7 +2026,7 @@ $('reader-info-toggle').onclick = () => setReaderInfoOpen(readerInfo.hidden, { f
 $('reader-zoom-toggle').onclick = () => setReaderMenuOpen($('reader-zoom-menu').hidden);
 $('reader-zoom-minus').onclick = () => readerCanvas.zoomTo(readerCanvas.view.zoom / 1.25);
 $('reader-zoom-plus').onclick = () => readerCanvas.zoomTo(readerCanvas.view.zoom * 1.25);
-$('reader-zoom-slider').addEventListener('input', () => readerCanvas.zoomTo(zoomFromSlider($('reader-zoom-slider').value)));
+bindZoomSlider($('reader-zoom-slider'),value=>readerCanvas.zoomTo(value));
 $('reader-fit').onclick = () => readerCanvas.fit();
 $('reader-view-back').onclick = () => readerCanvas.back();
 $('reader-zoom-menu').addEventListener('click', event => {
@@ -2008,7 +2051,7 @@ $('reader-zoom-menu').addEventListener('keydown', event => {
 // A version can be chosen from the % menu or the Inspector.
 dialog.addEventListener('click', event => {
   const choice = event.target.closest('[data-revision-choice]');
-  if (choice && active) { setReaderMenuOpen(false); openReader(active.key, choice.dataset.revisionChoice, { focus: 'keep' }); if (!readerInfo.hidden) renderReaderInfo(); }
+  if (choice?.dataset.revisionChoice && choice.getAttribute('aria-disabled') !== 'true' && active) { setReaderMenuOpen(false); openReader(active.key, choice.dataset.revisionChoice, { focus: 'keep' }); if (!readerInfo.hidden) renderReaderInfo(); }
 });
 dialog.addEventListener('cancel', event => { event.preventDefault(); });
 // A native close (not through closeReader) still returns to the board. The close event arrives
@@ -2091,13 +2134,15 @@ let pan = null;
 let pinch = null;
 viewport.addEventListener('pointerdown', event => {
   if (graph?.mode === 'grid') return;
-  if (graph && (event.pointerType !== 'touch' || (event.target.closest('button') && !event.target.closest('.workspace-preview-launch')))) return;
+  const tool = !!graph?.panTool;
+  if (graph && !tool && (event.pointerType !== 'touch' || (event.target.closest('button') && !event.target.closest('.workspace-preview-launch')))) return;
   if (event.pointerType === 'mouse' && event.button !== 0) return;
-  if (event.target.closest('textarea,input,select,a,button')) return;
+  if (!tool && event.target.closest('textarea,input,select,a,button')) return;
   stopGlide();
-  pointers.set(event.pointerId, { x: event.clientX, y: event.clientY, canPan: !graph || !event.target.closest('.workspace-card') });
+  const canPan = tool || !graph || !event.target.closest('.workspace-card');
+  pointers.set(event.pointerId, { x: event.clientX, y: event.clientY, canPan });
   if (pointers.size === 1) {
-    pan = graph && event.target.closest('.workspace-card') ? null : { id: event.pointerId, x: event.clientX, y: event.clientY, left: view.x, top: view.y, active: false };
+    pan = canPan ? { id: event.pointerId, x: event.clientX, y: event.clientY, left: view.x, top: view.y, active: false } : null;
     pinch = null;
   } else if (pointers.size === 2) {
     const [a, b] = [...pointers.values()];
@@ -2139,6 +2184,11 @@ function endPointer(event) {
 }
 viewport.addEventListener('pointerup', endPointer);
 viewport.addEventListener('pointercancel', endPointer);
+viewport.addEventListener('click',event=>{
+  if (!graph?.panTool) return;
+  event.preventDefault();
+  event.stopImmediatePropagation();
+},true);
 // A note field with more to scroll keeps its own wheel scrolling.
 function scrollsItself(target, dy) {
   const field = target.closest?.('textarea,.workspace-card-copy');
@@ -2262,7 +2312,7 @@ async function openBoardView() {
     currentRound = concept?.row || 0;
     renderNav();
     jump(concept.key);
-    openReader(requested.key, requested.revision || 'original', { history: 'replace' });
+    openReader(requested.key, requested.revision, { history: 'replace' });
   } else {
     if (requested.invalid) commitHistory({ view: 'board', round: null }, 'replace');
     const index = rounds.findIndex(round => round.id === requested.round);

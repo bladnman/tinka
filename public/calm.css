@@ -45,6 +45,25 @@ body { font-family: var(--font-ui); }
   --pattern-minor: color-mix(in srgb, var(--grid-minor) calc(var(--pattern-fade, 1) * 100%), transparent);
   --pattern-majorline: color-mix(in srgb, var(--grid-major) calc(var(--pattern-fade, 1) * 100%), transparent);
 }
+.workspace-board #viewport {
+  --board-color:var(--board-color-light,var(--bg-canvas));
+  --board-ring:var(--board-ring-light,var(--accent-ring));
+  background-color:var(--board-color);
+}
+html[data-appearance="dark"] .workspace-board #viewport {
+  --board-color:var(--board-color-dark,var(--bg-canvas));
+  --board-ring:var(--board-ring-dark,var(--accent-ring));
+}
+#viewport[style*="--board-pattern-light:"] {
+  --dot:color-mix(in srgb,var(--board-pattern-light) 11%,transparent);
+  --grid-minor:color-mix(in srgb,var(--board-pattern-light) 7%,transparent);
+  --grid-major:color-mix(in srgb,var(--board-pattern-light) 12%,transparent);
+}
+html[data-appearance="dark"] #viewport[style*="--board-pattern-dark:"] {
+  --dot:color-mix(in srgb,var(--board-pattern-dark) 11%,transparent);
+  --grid-minor:color-mix(in srgb,var(--board-pattern-dark) 7%,transparent);
+  --grid-major:color-mix(in srgb,var(--board-pattern-dark) 12%,transparent);
+}
 #viewport[data-canvas-pattern] { background-position: var(--pattern-x, 0) var(--pattern-y, 0); }
 /* Dots are a quiet guide: small and well under half the token's ink, so the board reads as paper. */
 #viewport[data-canvas-pattern="dots"] { background-image: radial-gradient(circle, color-mix(in srgb, var(--pattern-ink) 55%, transparent) .8px, transparent 1.05px); background-size: var(--pattern-step, 22px) var(--pattern-step, 22px); }
@@ -186,10 +205,6 @@ body:not(.workspace-board) #board-info > .appearance-control .tk-seg { width: 10
 #workspace-item-controls .tk-seg > button { flex: 1; color: var(--ink-2); }
 #workspace-item-controls .tk-seg > button svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 1.6; }
 #workspace-item-controls .tk-seg > button[aria-pressed="true"] { color: var(--ink); background: var(--surface-2); box-shadow: var(--e1); }
-#workspace-item-controls .workspace-paper-swatches { display: flex; gap: 8px; }
-#workspace-item-controls .workspace-paper-swatches button { width: 26px; height: 26px; min-height: 0; padding: 0; border: 0; border-radius: 50%; background: var(--swatch); box-shadow: inset 0 0 0 1px var(--line-strong); outline: 0; cursor: pointer; }
-#workspace-item-controls .workspace-paper-swatches button[aria-pressed="true"] { box-shadow: inset 0 0 0 1px var(--line-strong), 0 0 0 2px var(--bg-chrome), 0 0 0 4px var(--accent-ring); }
-#workspace-item-controls .workspace-paper-swatches button:focus-visible { outline: 2px solid var(--accent-ring); outline-offset: 4px; }
 .inspector-props { display: grid; grid-template-columns: 92px 1fr; gap: 6px 10px; margin: 0; font-size: var(--t-sm); }
 .inspector-props dt { color: var(--ink-3); }
 .inspector-props dd { margin: 0; color: var(--ink); }
@@ -216,7 +231,7 @@ body .workspace-add-menu button > span { width: 18px; color: var(--ink-3); text-
   transition: box-shadow .16s var(--ease);
 }
 #world .workspace-card:hover { box-shadow: var(--e2); }
-#world .workspace-card.selected, #world .workspace-card.inspected { outline: 2px solid var(--accent-ring); outline-offset: 2px; }
+#world .workspace-card.selected, #world .workspace-card.inspected { outline: 2px solid var(--board-ring,var(--accent-ring)); outline-offset: 2px; }
 #world .workspace-card.inspected:not(.selected) { outline-style: dashed; }
 #world .workspace-card.workspace-dragging, #world .workspace-card[data-dragging] { box-shadow: var(--e3); }
 #world .workspace-card-preview { background-color: var(--surface-sunken); }
@@ -394,16 +409,16 @@ body dialog::backdrop { background: var(--scrim); }
 }
 
 /* Regions: a soft tint with the label inside, never a heavy slab over the work. */
-#world .decoration-region:not(.whiteboard-shape) {
-  background: color-mix(in srgb, var(--decoration-color, var(--sage)) 20%, transparent);
+#world .decoration-region:not(.whiteboard-shape, .whiteboard-container) {
+  background: color-mix(in srgb, var(--decoration-color, var(--sage)) var(--decoration-opacity,20%), transparent);
   border: 0; border-radius: var(--r-xl);
-  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--decoration-color, var(--sage)) 42%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--decoration-stroke,var(--sage)) 64%, transparent);
 }
-#world .workspace-decoration.decoration-region:not(.whiteboard-shape) > .workspace-decoration-label { padding: 14px 18px; color: var(--ink-2); font: 600 15px/1.3 var(--font-ui); font-style: normal; letter-spacing: .01em; }
+#world .workspace-decoration.decoration-region:not(.whiteboard-shape) > .workspace-decoration-label { padding: 14px 18px; color: var(--decoration-region-label); font: 600 15px/1.3 var(--font-ui); font-style: normal; letter-spacing: .01em; }
 
 /* Text documents read as part of the tile in either theme. */
 #world .workspace-document-preview { background: var(--surface-1); color: var(--ink-2); }
-#world .workspace-card[style*="--item-paper:#"] .workspace-document-preview { background: var(--item-paper); color: var(--ink); }
+#world .workspace-card[data-custom-paper] .workspace-document-preview { background: var(--item-paper); color: var(--ink); }
 
 /* ---------- Touch targets ----------
    Every chrome control keeps a 44px hit area. The visible control stays a

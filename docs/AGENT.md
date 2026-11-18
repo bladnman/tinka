@@ -156,6 +156,22 @@ where the question is asked.
 See [the protocol](PROTOCOL.md#items-resources-and-children) for payloads; legacy
 (schema 1) boards use [Start a board](PROTOCOL.md#start-a-board).
 
+### Keep successive HTML versions on one Tinka
+
+Name the first version `opening-v01.html` in a registered resource folder. Add
+it once with `item.create` and use the returned Tinka link. Keep the same stem
+and directory for each version, with lowercase `-v` followed by the version
+number just before `.html`.
+
+When feedback calls for changes, save `opening-v02.html` beside `opening-v01.html`
+and keep both files and any assets they need. The existing item discovers the
+new file. Reply to the feedback with what changed and share the same Tinka link.
+Use the version controls on the tile or in the reader to compare the files. The
+default is the highest version number, and **Modified** in the reader shows the
+file's last modification time. To show the same work on another board, use
+`reference` so both placements share the stack and review history. See the
+[creation example](PROTOCOL.md#html-file-version-stacks).
+
 ## Discover tools and selected work
 
 The immediately readable tool catalog is [`../lib/tools.json`](../lib/tools.json).

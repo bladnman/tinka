@@ -227,7 +227,7 @@ export class CommentPins {
   arm(on = !this.armed) {
     if (on && this.board.mode !== 'canvas') this.board.setMode('canvas');
     this.armed = on;this.viewport?.classList.toggle('comment-armed', on);
-    document.querySelector('[data-edit-tool="comment"]')?.setAttribute('aria-pressed', String(on));
+    this.board.syncEditTools?.();
     if (!on) this.hover(null);
     else toast('Click the board, a card or a drawn element to comment. Escape cancels.');
   }
@@ -239,7 +239,7 @@ export class CommentPins {
     }
     if (drawn) {
       const d = (this.snapshot.decorations || []).find(d => d.id === drawn.dataset.decoration);if (!d) return null;
-      const kind = d.type === 'line' ? 'Arrow' : d.type === 'text' ? 'Text' : d.shape === 'rectangle' && /f6e6a4/i.test(d.color || '') ? 'Sticky' : d.shape ? 'Shape' : 'Area';
+      const kind = d.sticker ? 'Sticker' : d.type === 'line' ? 'Arrow' : d.type === 'text' ? 'Text' : d.container ? 'Container' : d.shape === 'rectangle' ? 'Sticky' : d.shape ? 'Shape' : 'Area';
       const words = String(d.text || '').replace(/\s+/g, ' ').trim().slice(0, 40);
       return {element:drawn, ref:{decorationId:d.id}, label:words ? `${kind} · ${words}` : kind};
     }

@@ -43,7 +43,13 @@ try{
   browser=await chromium.launch({headless:true,...(process.env.CHROMIUM_EXECUTABLE?{executablePath:process.env.CHROMIUM_EXECUTABLE}:{})});
   const page=await browser.newPage({viewport:{width:1440,height:960},colorScheme:'dark'});page.on('pageerror',e=>errors.push(e.message));
   await page.goto(base+'/');await page.locator('.board-card').first().waitFor();
+  assert.equal(await page.locator('html').getAttribute('data-appearance'),'light');
+  const homeAppearance=page.getByRole('combobox',{name:'Appearance'});
+  assert.equal(await homeAppearance.inputValue(),'light');
+  await homeAppearance.selectOption('dark');
+  await page.reload();await page.locator('.board-card').first().waitFor();
   assert.equal(await page.locator('html').getAttribute('data-appearance'),'dark');
+  assert.equal(await homeAppearance.inputValue(),'dark');
   await page.screenshot({path:path.join(evidence,'home-dark.png')});
   // Preview launch buttons cover the artwork. Their hover backgrounds must
   // remain translucent in both appearances, including the legacy viewer.
@@ -62,7 +68,7 @@ try{
     assert.ok(legacyAlpha<.1,`${appearance} legacy preview hover obscures artwork: alpha ${legacyAlpha}`);
     await legacy.locator('..').evaluate(el=>el.remove());
   }
-  await page.evaluate(()=>localStorage.removeItem('tinka/appearance'));
+  await page.evaluate(()=>localStorage.setItem('tinka/appearance','dark'));
   await page.goto(base+'/boards/round/');await page.locator('.workspace-card').first().waitFor();
   await page.locator('#fit').click();
   const check=async(selector,background,min=4.5,label=selector)=>{

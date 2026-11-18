@@ -66,8 +66,8 @@ async function checkWrite(req,server,config){
   const current=await loadConfig(config.configPath).catch(()=>{throw new HttpError(403,'Workspace configuration changed. Restart this instance.');});
   if(req.headers['x-tinka-workspace']!==config.workspaceId||current.workspaceId!==config.workspaceId||current.workspaceRoot!==config.workspaceRoot)throw new HttpError(403,'Workspace changed. Reload before saving.');
 }
-async function loadGraphBoard(config,id){
-  const board=await getBoardSnapshot(config,id);
+async function loadGraphBoard(config,id,options){
+  const board=await getBoardSnapshot(config,id,options);
   if(board)return board;
   // A deleted migrated board still has its original payload folder. It must
   // not reappear as a legacy board merely because its owner was tombstoned.
@@ -124,7 +124,7 @@ async function sendFile(req,res,root,relative,{url=null}={}){
 export function createAppServer(config,{updates=createUpdateService(config)}={}){
   const live=new Map();
   const push=createPushHub(config,{snapshot:async id=>{
-    const graph=await loadGraphBoard(config,id);
+    const graph=await loadGraphBoard(config,id,{versionStacks:false});
     return (graph?createWorkspaceLiveState(config,id,{cacheMs:0}):createLiveState(config,id,{cacheMs:0}))();
   }});
   const inbox=createInboxWaiter(config,{onPresence:value=>push.presence(value)});
@@ -149,7 +149,7 @@ export function createAppServer(config,{updates=createUpdateService(config)}={})
         checkWriteOrigin(req,server);
         const current=await loadConfig(config.configPath);
         if(url.searchParams.get('workspace')!==config.workspaceId||current.workspaceId!==config.workspaceId||current.workspaceRoot!==config.workspaceRoot)throw new HttpError(403,'Workspace changed. Reload this page.');
-        const board=url.searchParams.get('board');if(board){if(!await loadGraphBoard(config,board))await boardDirectory(config.boardsRoot,board);}
+        const board=url.searchParams.get('board');if(board){if(!await loadGraphBoard(config,board,{versionStacks:false}))await boardDirectory(config.boardsRoot,board);}
         push.subscribe(req,res,board);return;
       }
       if(pathname==='/api/health'&&method==='GET'){sendJson(res,200,{app:'board-room',version:VERSION,configPath:config.configPath,boardsRoot:config.boardsRoot,projectLabel:config.projectLabel,workspaceId:config.workspaceId,port:server.address().port,url:`http://127.0.0.1:${server.address().port}/`});return;}
@@ -208,7 +208,7 @@ export function createAppServer(config,{updates=createUpdateService(config)}={})
       // Covers load from a document-like frame path; the older API path stays an alias.
       const thumbnail=/^\/(?:api\/items\/([^/]+)\/cover-thumbnail|frames\/items\/([^/]+)\/cover\.html)$/.exec(pathname);
       if(thumbnail&&method==='GET'){
-        const item=await getItemSnapshot(config,decodeSegment(thumbnail[1]||thumbnail[2]));
+        const item=await getItemSnapshot(config,decodeSegment(thumbnail[1]||thumbnail[2]),{versionStacks:false});
         if(item?.deletedAt||item?.archivedAt)throw new HttpError(404,'Item not found.');
         if(!item?.content?.resource||item.content.kind!=='html'||item.content.url)throw new HttpError(404,'Local HTML preview not found.');
         const file=await resolveResource(config,item.content.resource);
@@ -236,7 +236,7 @@ export function createAppServer(config,{updates=createUpdateService(config)}={})
         const id=decodeSegment(api[1]);
         const resource=api[2];
         if(resource==='notes'){
-          const graph=await loadGraphBoard(config,id);
+          const graph=await loadGraphBoard(config,id,{versionStacks:false});
           if(method==='GET'){
             if(graph){const notes=graph.legacy?.boardId?await readNotes((await loadBoard(config,id)).root):{};for(const item of Object.values(graph.items))if(item.legacy?.key)notes[item.legacy.key]=item.review;sendJson(res,200,notes);return;}
             const board=await loadBoard(config,id);sendJson(res,200,await readNotes(board.root));return;
@@ -250,7 +250,7 @@ export function createAppServer(config,{updates=createUpdateService(config)}={})
             sendJson(res,200,{saved:true});return;
           }
         }else if(method==='GET'){
-          const graph=await loadGraphBoard(config,id);
+          const graph=await loadGraphBoard(config,id,{versionStacks:resource!=='live'});
           if(graph){if(resource==='live'){const key=`workspace:${id}`;if(!live.has(key))live.set(key,createWorkspaceLiveState(config,id));sendJson(res,200,await live.get(key)());return;}sendJson(res,200,graph);return;}
           if(resource==='live'){
             if(!live.has(id))live.set(id,createLiveState(config,id));
@@ -263,7 +263,7 @@ export function createAppServer(config,{updates=createUpdateService(config)}={})
       if(method!=='GET'&&method!=='HEAD')throw new HttpError(405,'Method not allowed.');
       if(pathname==='/'){await sendFile(req,res,publicRoot,'home.html');return;}
       const boardPage=/^\/boards\/([^/]+)\/?$/.exec(pathname);
-      if(boardPage){const id=decodeSegment(boardPage[1]);if(!await loadGraphBoard(config,id))await boardDirectory(config.boardsRoot,id);await sendFile(req,res,publicRoot,'board.html');return;}
+      if(boardPage){const id=decodeSegment(boardPage[1]);if(!await loadGraphBoard(config,id,{versionStacks:false}))await boardDirectory(config.boardsRoot,id);await sendFile(req,res,publicRoot,'board.html');return;}
       if(pathname.startsWith('/app/')){await sendFile(req,res,publicRoot,safeRelative(pathname.slice('/app/'.length)));return;}
       const resourceFile=/^\/resources\/([^/]+)\/(.+)$/.exec(pathname);
       if(resourceFile){const resource=await resolveResource(config,{rootId:decodeSegment(resourceFile[1]),path:safeRelative(resourceFile[2])});await sendFile(req,res,resource.rootPath,path.relative(resource.rootPath,resource.path).split(path.sep).join('/'),{url});return;}

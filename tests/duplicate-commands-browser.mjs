@@ -168,7 +168,9 @@ try {
   await select([ids[1]]);await zero(()=>page.keyboard.press('Enter'),async()=>{await page.locator('#reader-dialog[open]').waitFor();assert.equal(await page.locator('#reader-name').textContent(),'Reading two');});
   // The active prototype owns its keys, including the text-editing case.
   const input=page.locator('#active-reader').contentFrame().locator('.item-full-frame').contentFrame().getByRole('textbox',{name:'Prototype input'});
-  await input.focus();await zero(async()=>{for(const key of ['Meta+d','Meta+a','/','Shift+1','?'])await page.keyboard.press(key);},async()=>assert.equal(await page.locator('dialog.workspace-dialog[open]').count(),0));
+  // Claim the prototype as a person does. The reader deliberately takes focus
+  // back from a script-focused frame until the user interacts with it.
+  await input.click();await zero(async()=>{for(const key of ['Meta+d','Meta+a','/','Shift+1','?'])await page.keyboard.press(key);},async()=>assert.equal(await page.locator('dialog.workspace-dialog[open]').count(),0));
   await page.locator('#close-reader').click();await page.locator('#viewport').focus();await page.locator('#board-info-toggle').click();await page.locator('#workspace-search').fill('');await page.keyboard.press('Escape');await page.locator('#viewport').focus();
   await page.locator('#zoom-slider').evaluate((el,value)=>{el.value=String(value);el.dispatchEvent(new Event('input',{bubbles:true}));},sliderFromZoom(.05));const zoomBefore=await page.locator('#zoom-slider').inputValue();
   await zero(()=>page.keyboard.press('Shift+1'),async()=>assert.notEqual(await page.locator('#zoom-slider').inputValue(),zoomBefore));

@@ -46,9 +46,13 @@ try {
  await openItemDetails(imageCard.locator('[data-item-controls]'));await page.locator('#workspace-item-controls').waitFor({state:'visible'});
  await page.locator('#workspace-item-controls [data-context-close]').click();
  // Direct Add form shares the backend default; no client-side compact override.
- await page.locator('#board-info-toggle').click();
- await page.evaluate(async()=>{const {itemForm,WorkspaceClient}=await import('/app/workspace.js');const config=await fetch('/api/config').then(r=>r.json());const snapshot=await fetch('/api/boards/comparison').then(r=>r.json());itemForm(new WorkspaceClient(config,snapshot.revision),{boardId:'comparison',refresh:async()=>{}});});
- const form=page.getByRole('dialog',{name:'Add an idea'});await form.locator('[name=title]').fill('Created through Add');await form.locator('[name=kind]').selectOption('html');await form.locator('details').evaluate(el=>el.open=true);await form.locator('[name=rootId]').fill('assets');await form.locator('[name=path]').fill('design.html');await form.getByRole('button',{name:'Add idea',exact:true}).click();await form.waitFor({state:'hidden'});
+ await page.locator('#workspace-add').click();
+ await page.getByRole('menuitem',{name:'Item…',exact:true}).click();
+ const form=page.getByRole('dialog',{name:'Add an idea'});await form.locator('[name=title]').fill('Created through Add');
+ assert.equal(await form.locator('[name=rootId]').isVisible(),false);
+ await form.getByRole('button',{name:'Content',exact:true}).click();
+ await form.getByRole('radio',{name:'HTML',exact:true}).check();
+ await form.locator('[name=rootId]').fill('assets');await form.locator('[name=path]').fill('design.html');await form.getByRole('button',{name:'Add idea',exact:true}).click();await form.waitFor({state:'hidden'});
  const added=(await getBoardSnapshot(config,'comparison'));const uiItem=Object.values(added.items).find(i=>i.title==='Created through Add');assert.ok(uiItem);assert.equal(added.placements.find(p=>p.itemId===uiItem.id).presentation.mode,'panel');
  if(!await page.locator('#board-info [data-appearance-set="light"]').isVisible())await page.locator('#board-info-toggle').click();await page.locator('#board-info [data-appearance-set="light"]').click();await page.locator('#board-info-toggle').click();await page.screenshot({path:path.join(evidence,'cards-desktop-light.png')});
  await page.setViewportSize({width:390,height:844});await page.goto(base+`/boards/comparison/?reveal=${building.placementIds[0]}`);await buildingCard.waitFor();await page.waitForTimeout(200);await page.screenshot({path:path.join(evidence,'cards-narrow-building.png')});

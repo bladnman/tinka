@@ -33,11 +33,15 @@ function spacing(box, others, axis, threshold) {
 
 /**
  * Snap a moving box. Returns {dx, dy, guides} where guides are segments in board
- * units: {x1,y1,x2,y2,kind:"align"|"space"}. `resize` snaps only the right and
- * bottom edges (the box grows from its top-left corner).
+ * units: {x1,y1,x2,y2,kind:"align"|"space"}. `resize:true` snaps right and
+ * bottom. A direction such as "nw" instead snaps only the moving edges.
  */
 export function snapBox(box, others, threshold, {resize = false} = {}) {
-  const movingX = resize ? [box.x + box.width] : lines(box), movingY = resize ? [box.y + box.height] : rows(box);
+  const direction = resize === true ? "se" : resize;
+  const west = direction && direction.includes("w"), north = direction && direction.includes("n");
+  const edgeX = b => west ? [b.x] : direction.includes("e") ? [b.x + b.width] : [];
+  const edgeY = b => north ? [b.y] : direction.includes("s") ? [b.y + b.height] : [];
+  const movingX = resize ? edgeX(box) : lines(box), movingY = resize ? edgeY(box) : rows(box);
   let dx = nearest(movingX, others.flatMap(lines), threshold), dy = nearest(movingY, others.flatMap(rows), threshold);
   let spaceX = null, spaceY = null;
   if (!resize) {
@@ -46,16 +50,18 @@ export function snapBox(box, others, threshold, {resize = false} = {}) {
     if (spaceY && (dy === null || Math.abs(spaceY.d) < Math.abs(dy))) dy = spaceY.d; else spaceY = null;
   }
   dx ??= 0; dy ??= 0;
-  const snapped = resize ? {...box, width:box.width + dx, height:box.height + dy} : {...box, x:box.x + dx, y:box.y + dy};
+  const snapped = resize
+    ? {x:box.x+(west?dx:0),y:box.y+(north?dy:0),width:box.width+(west?-dx:dx),height:box.height+(north?-dy:dy)}
+    : {...box, x:box.x + dx, y:box.y + dy};
   const guides = [];
   const near = (a, b) => Math.abs(a - b) < 0.5;
-  if (dx || !resize) for (const x of resize ? [snapped.x + snapped.width] : lines(snapped)) {
+  if (dx || !resize) for (const x of resize ? edgeX(snapped) : lines(snapped)) {
     const hits = others.filter(o => lines(o).some(v => near(v, x)));
     if (!hits.length || spaceX) continue;
     const ys = [snapped.y, snapped.y + snapped.height, ...hits.flatMap(o => [o.y, o.y + o.height])];
     guides.push({x1:x, y1:Math.min(...ys), x2:x, y2:Math.max(...ys), kind:"align"});
   }
-  if (dy || !resize) for (const y of resize ? [snapped.y + snapped.height] : rows(snapped)) {
+  if (dy || !resize) for (const y of resize ? edgeY(snapped) : rows(snapped)) {
     const hits = others.filter(o => rows(o).some(v => near(v, y)));
     if (!hits.length || spaceY) continue;
     const xs = [snapped.x, snapped.x + snapped.width, ...hits.flatMap(o => [o.x, o.x + o.width])];

@@ -1,5 +1,7 @@
 import {pdfSupported,pdfPreviewURL} from './file-import.js';
 import {escape as esc,resourceURL,remoteURL} from './workspace.js';
+import {appearanceThemes,boardColorVariables,canvasBackdrop,paperVariables,readableColor,renderDrawingColor} from './theme-colors.js';
+import {regionPaper} from './board-paint.js';
 
 const frameAvailability = new WeakMap();
 // Cover thumbnails run in an opaque-origin sandbox, so their load event cannot
@@ -64,19 +66,19 @@ export function miniatureFits(layout) {
   return sizes[Math.floor(sizes.length / 2)] >= 34;
 }
 
-// Authored paper keeps readable ink in the miniature, in either appearance.
-function paperTone(paper) {
-  let hex = String(paper || '').replace('#', '');
-  if (!/^(?:[0-9a-f]{3,4}|[0-9a-f]{6}|[0-9a-f]{8})$/i.test(hex)) return '';
-  if (hex.length < 5) hex = [...hex].map(c => c + c).join('');
-  const [r, g, b] = [0, 2, 4].map(i => parseInt(hex.slice(i, i + 2), 16) / 255).map(c => c <= .04045 ? c / 12.92 : ((c + .055) / 1.055) ** 2.4);
-  return .2126 * r + .7152 * g + .0722 * b > .3 ? ' mini-paper-light' : ' mini-paper-dark';
-}
 function miniatureMarkup(cover, boardId) {
-  const {width:W, height:H, regions = [], tiles = []} = cover.layout;
+  const {width:W, height:H, regions = [], tiles = [], backgroundColor} = cover.layout;
+  const boardVariables = Object.entries(boardColorVariables(backgroundColor)).map(([key,value])=>`${key}:${value};`).join("");
   const pct = (v, total) => `${Math.round(v / total * 10000) / 100}%`;
   const box = r => `left:${pct(r.x, W)};top:${pct(r.y, H)};width:${pct(r.width, W)};height:${pct(r.height, H)};`;
-  const regionMarkup = regions.map(r => `<span class="mini-region${r.shape && r.shape !== 'rectangle' ? ' mini-region-' + esc(r.shape) : ''}" style="${box(r)}${r.color ? `--mini-region:${esc(r.color)};` : ''}">${r.text ? `<span>${esc(r.text)}</span>` : ''}</span>`).join('');
+  const regionMarkup = regions.map(r => {
+    const variables = appearanceThemes.map(theme => {
+      const {fill, opacity} = regionPaper(r, theme);
+      const stroke = readableColor(renderDrawingColor(r.color, "stroke", theme) ?? "#78866c", [canvasBackdrop(backgroundColor,theme)], 3).color;
+      return `--mini-region-${theme}:${fill};--mini-opacity-${theme}:${opacity*100}%;--mini-edge-${theme}:${stroke};`;
+    }).join("");
+    return `<span class="mini-region${r.shape && r.shape !== 'rectangle' ? ' mini-region-' + esc(r.shape) : ''}" style="${box(r)}${variables}">${r.text ? `<span>${esc(r.text)}</span>` : ''}</span>`;
+  }).join('');
   // DOM order follows review order (so reordering moves tiles, keeping frames); z sets stacking.
   const rank = new Map([...tiles].sort((a, b) => (a.z || 0) - (b.z || 0)).map((t, i) => [t.id, i + 1]));
   const tileMarkup = tiles.map(t => {
@@ -85,9 +87,9 @@ function miniatureMarkup(cover, boardId) {
       ? `<img src="${esc(preview.resource ? `${resourceURL(preview.resource)}?v=${encodeURIComponent(preview.revision || '')}` : remoteURL(preview.url))}" referrerpolicy="no-referrer" data-preview-source="${esc(source)}" alt="" loading="lazy">`
       : preview?.kind === 'html'
       ? `<iframe data-mini-src="${esc(frameURL(t.itemId, preview.revision))}" data-preview-source="${esc(source)}" data-cover-pending title="${esc(t.title)} thumbnail" width="${preview.viewport.width}" height="${preview.viewport.height}" style="width:${preview.viewport.width}px;height:${preview.viewport.height}px" sandbox="allow-scripts" loading="lazy" tabindex="-1" inert></iframe>` : '';
-    return `<div class="workspace-cover-tile mini-tile mini-${esc(t.mode)}${t.board ? ' mini-board' : ''}${t.state ? ' mini-pending' : ''}${t.paper ? paperTone(t.paper) : ''}" data-cover-tile="${esc(t.id)}" data-cover-item="${esc(t.itemId)}" style="${box(t)}z-index:${rank.get(t.id)};${t.paper ? `--mini-paper:${esc(t.paper)};` : ''}"${preview?.kind === 'html' ? ` data-preview-width="${preview.viewport.width}" data-preview-height="${preview.viewport.height}"` : ''}><span class="workspace-cover-fallback mini-label">${coverIcon(t.type)}<strong>${esc(t.title)}</strong></span>${t.star ? '<span class="mini-star" aria-hidden="true"></span>' : ''}${media}</div>`;
+    return `<div class="workspace-cover-tile mini-tile mini-${esc(t.mode)}${t.board ? ' mini-board' : ''}${t.state ? ' mini-pending' : ''}" data-cover-tile="${esc(t.id)}" data-cover-item="${esc(t.itemId)}" style="${box(t)}z-index:${rank.get(t.id)};${paperVariables(t.paper,theme=>canvasBackdrop(backgroundColor,theme))}"${preview?.kind === 'html' ? ` data-preview-width="${preview.viewport.width}" data-preview-height="${preview.viewport.height}"` : ''}><span class="workspace-cover-fallback mini-label">${coverIcon(t.type)}<strong>${esc(t.title)}</strong></span>${t.star ? '<span class="mini-star" aria-hidden="true"></span>' : ''}${media}</div>`;
   }).join('');
-  return `<div class="board-collage board-miniature" data-cover-board="${esc(boardId)}" data-cover-count="${tiles.length}" aria-hidden="true" style="--mini-ratio:${W / H};"><div class="mini-plane">${regionMarkup}${tileMarkup}</div><span class="workspace-cover-count">${cover.count} ${cover.count === 1 ? 'item' : 'items'}</span></div>`;
+  return `<div class="board-collage board-miniature" data-cover-board="${esc(boardId)}" data-cover-count="${tiles.length}" aria-hidden="true" style="--mini-ratio:${W / H};${boardVariables}"><div class="mini-plane">${regionMarkup}${tileMarkup}</div><span class="workspace-cover-count">${cover.count} ${cover.count === 1 ? 'item' : 'items'}</span></div>`;
 }
 
 export function coverMarkup(cover, boardId) {

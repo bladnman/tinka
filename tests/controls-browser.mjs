@@ -20,12 +20,25 @@ try{
  const snap=()=>getBoardSnapshot(config,board.boardId),savedNote=async()=>(await snap()).items[item.itemId].review.note;
  // A small saved card hides its tile toolbar; selection keeps every action reachable.
  await tile.locator('[data-placement-select]').click();await page.getByRole('button',{name:'Item details',exact:true}).click();
- for(const selector of ['select','star','comments','vote','connect','geometry'])assert.equal(await page.locator(`[data-context-${selector}]`).isVisible(),true);
+ for(const selector of ['select','star','comments','vote','connect'])assert.equal(await page.locator(`[data-context-${selector}]`).isVisible(),true);
+ assert.equal(await page.locator('[data-context-geometry]').count(),0);
  const note=page.locator('#workspace-item-controls textarea');await note.fill('');const clearAck=page.waitForResponse(r=>r.url().endsWith('/api/operations')&&r.request().postDataJSON()?.type==='review'&&r.status()===200);await page.keyboard.press('Meta+Enter');await(await clearAck).json();await page.waitForFunction(async({boardId,itemId})=>(await(await fetch(`/api/boards/${boardId}`)).json()).items[itemId].review.note==='', {boardId:board.boardId,itemId:item.itemId});assert.equal(await savedNote(),'');
  await note.fill('First');await page.keyboard.press('Enter');await page.keyboard.type('Second');assert.equal(await note.inputValue(),'First\nSecond');const multilineAck=page.waitForResponse(r=>r.url().endsWith('/api/operations')&&r.request().postDataJSON()?.type==='review'&&r.status()===200);await page.keyboard.press('Control+Enter');await(await multilineAck).json();await page.waitForFunction(async({boardId,itemId})=>(await(await fetch(`/api/boards/${boardId}`)).json()).items[itemId].review.note==='First\nSecond', {boardId:board.boardId,itemId:item.itemId});
- await page.locator('[data-context-geometry]').click();await page.locator('dialog [name=x]').fill('25');await page.locator('dialog [name=width]').fill('150');await page.locator('dialog [type=submit]').click();await page.locator('dialog.workspace-dialog').waitFor({state:'detached'});const placed=(await snap()).placements.find(p=>p.itemId===item.itemId);assert.equal(placed.width,150);assert.equal(placed.height,130);assert.equal(placed.x,25);
+ await page.locator('[data-context-close]').click();
+ const edge=tile.locator('[data-resize-edge=w]'),r=await edge.boundingBox(),x=r.x+r.width/2,y=r.y+r.height/2;
+ assert.equal(await page.evaluate(({x,y})=>document.elementFromPoint(x,y)?.dataset.resizeEdge,{x,y}),'w');
+ const zoom=await tile.evaluate(el=>parseFloat(getComputedStyle(el).getPropertyValue('--canvas-zoom')));
+ const resizeAck=()=>page.waitForResponse(r=>r.url().endsWith('/api/operations')&&r.request().postDataJSON()?.type==='updatePlacement'&&r.status()===200);
+ const resized=resizeAck(), modifier=process.platform==='darwin'?'Meta':'Control';
+ await page.mouse.move(x,y);await page.mouse.down();await page.keyboard.down(modifier);await page.mouse.move(x-20*zoom,y,{steps:5});await page.mouse.up();await page.keyboard.up(modifier);await resized;
+ const placed=() => snap().then(board=>board.placements.find(p=>p.itemId===item.itemId));
+ assert.deepEqual([(await placed()).x,(await placed()).width,(await placed()).height],[-20,150,130]);
+ await page.waitForFunction(()=>!document.getElementById('workspace-paste')?.disabled);
+ const keyed=resizeAck();await tile.locator('[data-resize]').press('Shift+ArrowDown');await keyed;
+ assert.equal((await placed()).height,140);
+ assert.equal(await page.locator('dialog.workspace-dialog[open]').count(),0);
  // Save rejection leaves the local draft and does not open a modal over the next control.
  await page.route('**/api/operations',async route=>{const body=route.request().postDataJSON();if(body.type==='review')return route.fulfill({status:503,contentType:'application/json',body:'{"error":"Fixture offline"}'});return route.continue();});
  await page.getByRole('button',{name:'Item details',exact:true}).click();await page.locator('#workspace-item-controls textarea').fill('Recover this draft');await page.keyboard.press('Meta+Enter');await page.locator('#workspace-toast').filter({hasText:'remain'}).waitFor();await page.locator('#workspace-item-controls [data-context-select]').focus();assert.equal(await page.evaluate(()=>document.activeElement.hasAttribute('data-context-select')),true);assert.equal(await page.locator('dialog.workspace-dialog').count(),0);assert.equal(await page.locator('#workspace-item-controls textarea').inputValue(),'Recover this draft');assert.equal(await savedNote(),'First\nSecond');
- assert.deepEqual(errors,[]);console.log(JSON.stringify({passed:5,checks:['small-card actions in viewport','valid-empty canonical note clear','multiline explicit note flush','exact geometry fallback','failed note retains draft and focus without modal']}));
+ assert.deepEqual(errors,[]);console.log(JSON.stringify({passed:5,checks:['small-card actions in viewport','valid-empty canonical note clear','multiline explicit note flush','direct edge and keyboard resize','failed note retains draft and focus without modal']}));
 }finally{await browser?.close();if(server)await closeAppServer(server);await rm(root,{recursive:true,force:true});}

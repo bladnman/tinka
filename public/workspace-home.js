@@ -9,6 +9,7 @@ import {
   resourceURL,
   destinationDialog,
   makeDialog,
+  newBoardDialog,
   enableOrganization,
   toast,
   showFailure,
@@ -366,18 +367,12 @@ export class WorkspaceHome {
   legacyCard(b) {
     return `<article data-home-board="${esc(b.id)}" class="board-card board-card-legacy"><a class="board-link" href="/boards/${encodeURIComponent(b.id)}/"><div class="board-art" aria-hidden="true">${FALLBACK_ART}<span class="art-label">Legacy board · compare as before</span></div>${boardInfo(b, { description: b.description || "Existing rounds, revisions and feedback remain available.", counts: legacyCounts(b) })}</a><div class="board-actions"><button type="button" class="tk-btn tk-sm" data-convert-legacy>Convert to organize…</button></div></article>`;
   }
-  create() {
-    makeDialog(
-      "Create a board",
-      '<label>Title<input name="title" required maxlength="1000" placeholder="A place for the next idea"></label><button type="submit" class="workspace-primary">Create board</button>',
-      async (f) => {
-        await this.client.write("createBoard", {
-          title: f.get("title").trim(),
-        });
-        await this.refresh();
-        toast("Board created.");
-      },
-    );
+  create(opener) {
+    const invoker = opener.classList.contains("empty-card") ? ".new-board.empty-card" : ".new-board:not(.empty-card)";
+    newBoardDialog(this.client, {
+      opener: () => opener.isConnected ? opener : document.querySelector(invoker),
+      refresh: () => this.refresh(),
+    });
   }
   async bulk(type) {
     const ids = [...this.selected];

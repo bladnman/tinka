@@ -52,11 +52,15 @@ export class MovementHistory {
     if (operationId && this.state.seen.includes(operationId)) return;
     if (operationId) this.state.seen = [...this.state.seen,operationId].slice(-100);
     if (this.grouping) { this.grouping.push(history); return; }
-    const count = data.placementIds?.length || data.clipboard?.placements?.length || data.files?.length || 1;
-    const action = type === "reference" && data.featureOnParent ? (count > 1 ? `Show ${count} items on parent` : "Show item on parent") : type === "duplicate" ? (count > 1 ? `Duplicate ${count} items` : "Duplicate item") : type === "remove" ? (count > 1 ? `Remove ${count} items` : "Remove item") : type === "importFiles" ? (count > 1 ? `Import ${count} files` : "Import file") : type === "pastePlacements" ? (count > 1 ? `Paste ${count} items` : "Paste item") : type === "createDecoration" ? (data.decoration?.type === "line" ? "Add arrow" : data.decoration?.type === "text" ? "Add text" : "Add shape") :
+    const clipboardCount = (data.clipboard?.placements?.length || 0) + (data.clipboard?.decorations?.length || 0);
+    const count = data.placementIds?.length || clipboardCount || data.files?.length || 1;
+    const copied = (data.placementIds?.length || 0) + (data.decorationIds?.length || 0);
+    const action = type === "duplicateOccurrences" ? (copied > 1 ? `Place ${copied} copies` : "Place a copy") : type === "reference" && data.featureOnParent ? (count > 1 ? `Show ${count} items on parent` : "Show item on parent") : type === "duplicate" ? (count > 1 ? `Duplicate ${count} items` : "Duplicate item") : type === "remove" ? (count > 1 ? `Remove ${count} items` : "Remove item") : type === "importFiles" ? (count > 1 ? `Import ${count} files` : "Import file") : type === "pastePlacements" ? (count > 1 ? `Paste ${count} items` : "Paste item") : type === "createDecoration" ? (data.decoration?.sticker ? "Add sticker" : data.decoration?.container ? "Add container" : data.decoration?.type === "line" ? "Add arrow" : data.decoration?.type === "text" ? "Add text" : "Add shape") :
       type === "removeDecoration" ? "Delete drawn element" : type === "updateBoard" ? "Edit drawn elements" :
+      type === "groupOccurrences" ? "Group" : type === "ungroupOccurrences" ? "Ungroup" :
+      type === "moveContainerMember" ? (data.containerId ? "Arrange in container" : "Remove from container") :
       type === "remove" && data.decorationIds?.length ? `Remove ${(data.placementIds?.length || 0) + data.decorationIds.length} items` :
-      type === "updateDecoration" ? (["x","y","width","height","from","to"].some(key => key in (data.patch || {})) ? "Move or resize" : "text" in (data.patch || {}) ? "Edit text" : "Change style") : type === "arrangePlacements" ? "Arrange" : type === "updatePlacement" && ("width" in (data.patch || {}) || "height" in (data.patch || {}))
+      type === "updateDecoration" ? ("rotation" in (data.patch || {}) ? "Rotate sticker" : ["x","y","width","height","from","to"].some(key => key in (data.patch || {})) ? "Move or resize" : "text" in (data.patch || {}) ? "Edit text" : "Change style") : type === "arrangePlacements" ? "Arrange" : type === "updatePlacement" && ("width" in (data.patch || {}) || "height" in (data.patch || {}))
       ? "Resize item" : count > 1 ? `Move ${count} items` : "Move item";
     this.state.undo.push({history,label:action});
     this.state.redo = [];

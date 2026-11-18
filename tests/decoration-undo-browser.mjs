@@ -82,7 +82,8 @@ try{
 
   await run('A colour change and a delete each undo and redo',async(page,id)=>{
     await select(page,'s1');
-    const swatch=page.locator('.whiteboard-toolbar [data-whiteboard-action="color"]:not([aria-pressed="true"])').first();
+    await page.locator('.whiteboard-toolbar [data-whiteboard-action="text-appearance"]').click();
+    const swatch=page.locator('.whiteboard-menu [data-whiteboard-action="color"]:not([aria-pressed="true"])').first();
     const color=await swatch.getAttribute('data-value');await swatch.click();
     assert.ok(await until(async()=>(await deco(id,'s1')).color===color),'colour saved');
     await page.keyboard.press('Escape');await page.mouse.click(1100,820);
@@ -98,7 +99,8 @@ try{
 
   await run('A multi-select colour change is one step',async(page,id)=>{
     await select(page,'s1');await page.keyboard.down('Shift');await select(page,'s2');await page.keyboard.up('Shift');
-    const swatch=page.locator('.whiteboard-toolbar [data-whiteboard-action="color"]:not([aria-pressed="true"])').first();
+    await page.locator('.whiteboard-toolbar [data-whiteboard-action="text-appearance"]').click();
+    const swatch=page.locator('.whiteboard-menu [data-whiteboard-action="color"]:not([aria-pressed="true"])').first();
     const color=await swatch.getAttribute('data-value');await swatch.click();
     assert.ok(await until(async()=>(await deco(id,'s1')).color===color&&(await deco(id,'s2')).color===color),'both recoloured');
     await page.keyboard.press('Escape');await page.mouse.click(1100,820);

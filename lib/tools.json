@@ -1126,8 +1126,9 @@
                       "maximum": 100000
                     },
                     "color": {
+                      "description": "Theme-relative drawing hue (for example palette:blue) or custom hexadecimal color. Text uses ink, regions use fill, and lines use stroke.",
                       "type": "string",
-                      "pattern": "^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{4}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})$"
+                      "pattern": "^(?:#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{4}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})|palette:(?:neutral|slate|sage|green|teal|cyan|blue|indigo|violet|plum|rose|red|clay|amber|gold))$"
                     },
                     "text": {
                       "type": "string",
@@ -1157,18 +1158,105 @@
                         "curved"
                       ]
                     },
+                    "bend": {
+                      "description": "Signed perpendicular curve offset in board units. Omit to retain the existing curve routing.",
+                      "type": "number",
+                      "minimum": -10000,
+                      "maximum": 10000
+                    },
                     "thickness": {
-                      "enum": [
-                        "thin",
-                        "medium",
-                        "thick"
+                      "description": "Stroke weight. Use thin, medium or thick, or an exact integer width in board units.",
+                      "oneOf": [
+                        {
+                          "enum": ["thin", "medium", "thick"]
+                        },
+                        {
+                          "type": "integer",
+                          "minimum": 1,
+                          "maximum": 100
+                        }
                       ]
                     },
                     "textSize": {
+                      "description": "Label size for Text and regions, including shapes and stickies. Use a preset or 10–144 logical pixels.",
+                      "oneOf": [
+                        {
+                          "enum": [
+                            "small",
+                            "medium",
+                            "large"
+                          ]
+                        },
+                        {
+                          "type": "integer",
+                          "minimum": 10,
+                          "maximum": 144
+                        }
+                      ]
+                    },
+                    "textFace": {
+                      "description": "Font family for a Text block.",
                       "enum": [
-                        "small",
-                        "medium",
-                        "large"
+                        "serif",
+                        "sans",
+                        "mono"
+                      ]
+                    },
+                    "textFill": {
+                      "description": "Background for a Text block. Use a palette:name hue for paired light/dark colors or hex for an authored fill.",
+                      "oneOf": [
+                        {
+                          "enum": [
+                            "none",
+                            "paper",
+                            "tint",
+                            "strong"
+                          ]
+                        },
+                        {
+                          "type": "string",
+                          "pattern": "^(?:#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{4}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})|palette:(?:neutral|slate|sage|green|teal|cyan|blue|indigo|violet|plum|rose|red|clay|amber|gold))$"
+                        }
+                      ]
+                    },
+                    "textBorder": {
+                      "description": "Border for a Text block. Null removes the border. With no color, the border follows the theme.",
+                      "oneOf": [
+                        {
+                          "type": "null"
+                        },
+                        {
+                          "type": "object",
+                          "properties": {
+                            "style": {
+                              "enum": [
+                                "solid",
+                                "dashed"
+                              ]
+                            },
+                            "color": {
+                              "type": "string",
+                              "pattern": "^(?:#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{4}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})|palette:(?:neutral|slate|sage|green|teal|cyan|blue|indigo|violet|plum|rose|red|clay|amber|gold))$"
+                            }
+                          },
+                          "required": [
+                            "style"
+                          ],
+                          "additionalProperties": false
+                        }
+                      ]
+                    },
+                    "textPadding": {
+                      "description": "Inner padding of a Text block in logical pixels.",
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 64
+                    },
+                    "textSizing": {
+                      "description": "Sizing mode for a Text block. The Canvas fits height as text or type styling changes in auto mode. Omit to keep fixed geometry.",
+                      "enum": [
+                        "auto",
+                        "fixed"
                       ]
                     },
                     "textAlign": {
@@ -1423,6 +1511,76 @@
                           "additionalProperties": false
                         }
                       ]
+                    },
+                    "container": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "description": "Region-only auto-layout. Children are ordered same-board occurrences: Text/shape decoration IDs or objects with a placementId. Defaults: padding 16, gap 12, grid columns 2.",
+                      "properties": {
+                        "layout": {
+                          "enum": [
+                            "vertical",
+                            "horizontal",
+                            "grid"
+                          ]
+                        },
+                        "children": {
+                          "type": "array",
+                          "maxItems": 128,
+                          "items": {
+                            "oneOf": [
+                              {
+                                "type": "string",
+                                "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_-]{0,127}$",
+                                "maxLength": 128
+                              },
+                              {
+                                "type": "object",
+                                "additionalProperties": false,
+                                "properties": {
+                                  "placementId": {
+                                    "type": "string",
+                                    "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_-]{0,127}$",
+                                    "maxLength": 128
+                                  }
+                                },
+                                "required": [
+                                  "placementId"
+                                ]
+                              }
+                            ]
+                          }
+                        },
+                        "padding": {
+                          "type": "integer",
+                          "minimum": 0,
+                          "maximum": 128
+                        },
+                        "gap": {
+                          "type": "integer",
+                          "minimum": 0,
+                          "maximum": 128
+                        },
+                        "columns": {
+                          "type": "integer",
+                          "minimum": 1,
+                          "maximum": 8
+                        }
+                      },
+                      "required": [
+                        "layout",
+                        "children"
+                      ]
+                    },
+                    "sticker": {
+                      "const": true,
+                      "description": "Display a Text decoration containing exactly one emoji as a sticker."
+                    },
+                    "rotation": {
+                      "type": "integer",
+                      "minimum": -180,
+                      "maximum": 180,
+                      "description": "Clockwise emoji sticker rotation in degrees."
                     }
                   },
                   "required": [
@@ -1653,6 +1811,92 @@
         ]
       },
       "operation": "translatePlacements",
+      "mutating": true
+    },
+    {
+      "name": "board.group",
+      "description": "Group two or more placements or top-level drawings on one Canvas. Saves membership and leaves members in place.",
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "expectedRevision": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "operationId": {
+            "type": "string",
+            "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_-]{0,127}$",
+            "maxLength": 128
+          },
+          "boardId": {
+            "type": "string",
+            "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_-]{0,127}$",
+            "maxLength": 128
+          },
+          "placementIds": {
+            "type": "array",
+            "maxItems": 10000,
+            "uniqueItems": true,
+            "items": {
+              "type": "string",
+              "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_-]{0,127}$",
+              "maxLength": 128
+            },
+            "description": "Board placement IDs."
+          },
+          "decorationIds": {
+            "type": "array",
+            "maxItems": 10000,
+            "uniqueItems": true,
+            "items": {
+              "type": "string",
+              "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_-]{0,127}$",
+              "maxLength": 128
+            },
+            "description": "Board decoration IDs, including whole containers."
+          }
+        },
+        "required": [
+          "boardId"
+        ]
+      },
+      "operation": "groupOccurrences",
+      "mutating": true
+    },
+    {
+      "name": "board.ungroup",
+      "description": "Remove one Canvas group's membership while keeping its objects in place.",
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "expectedRevision": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "operationId": {
+            "type": "string",
+            "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_-]{0,127}$",
+            "maxLength": 128
+          },
+          "boardId": {
+            "type": "string",
+            "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_-]{0,127}$",
+            "maxLength": 128
+          },
+          "groupId": {
+            "type": "string",
+            "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_-]{0,127}$",
+            "maxLength": 128
+          }
+        },
+        "required": [
+          "boardId",
+          "groupId"
+        ]
+      },
+      "operation": "ungroupOccurrences",
       "mutating": true
     },
     {
@@ -2195,8 +2439,9 @@
                 "maximum": 100000
               },
               "color": {
+                "description": "Theme-relative drawing hue (for example palette:blue) or custom hexadecimal color. Text uses ink, regions use fill, and lines use stroke.",
                 "type": "string",
-                "pattern": "^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{4}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})$"
+                "pattern": "^(?:#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{4}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})|palette:(?:neutral|slate|sage|green|teal|cyan|blue|indigo|violet|plum|rose|red|clay|amber|gold))$"
               },
               "text": {
                 "type": "string",
@@ -2226,18 +2471,105 @@
                   "curved"
                 ]
               },
+              "bend": {
+                "description": "Signed perpendicular curve offset in board units. Omit to retain the existing curve routing.",
+                "type": "number",
+                "minimum": -10000,
+                "maximum": 10000
+              },
               "thickness": {
-                "enum": [
-                  "thin",
-                  "medium",
-                  "thick"
+                "description": "Stroke weight. Use thin, medium or thick, or an exact integer width in board units.",
+                "oneOf": [
+                  {
+                    "enum": ["thin", "medium", "thick"]
+                  },
+                  {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 100
+                  }
                 ]
               },
               "textSize": {
+                "description": "Label size for Text and regions, including shapes and stickies. Use a preset or 10–144 logical pixels.",
+                "oneOf": [
+                  {
+                    "enum": [
+                      "small",
+                      "medium",
+                      "large"
+                    ]
+                  },
+                  {
+                    "type": "integer",
+                    "minimum": 10,
+                    "maximum": 144
+                  }
+                ]
+              },
+              "textFace": {
+                "description": "Font family for a Text block.",
                 "enum": [
-                  "small",
-                  "medium",
-                  "large"
+                  "serif",
+                  "sans",
+                  "mono"
+                ]
+              },
+              "textFill": {
+                "description": "Background for a Text block. Use a palette:name hue for paired light/dark colors or hex for an authored fill.",
+                "oneOf": [
+                  {
+                    "enum": [
+                      "none",
+                      "paper",
+                      "tint",
+                      "strong"
+                    ]
+                  },
+                  {
+                    "type": "string",
+                    "pattern": "^(?:#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{4}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})|palette:(?:neutral|slate|sage|green|teal|cyan|blue|indigo|violet|plum|rose|red|clay|amber|gold))$"
+                  }
+                ]
+              },
+              "textBorder": {
+                "description": "Border for a Text block. Null removes the border. With no color, the border follows the theme.",
+                "oneOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "style": {
+                        "enum": [
+                          "solid",
+                          "dashed"
+                        ]
+                      },
+                      "color": {
+                        "type": "string",
+                        "pattern": "^(?:#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{4}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})|palette:(?:neutral|slate|sage|green|teal|cyan|blue|indigo|violet|plum|rose|red|clay|amber|gold))$"
+                      }
+                    },
+                    "required": [
+                      "style"
+                    ],
+                    "additionalProperties": false
+                  }
+                ]
+              },
+              "textPadding": {
+                "description": "Inner padding of a Text block in logical pixels.",
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 64
+              },
+              "textSizing": {
+                "description": "Sizing mode for a Text block. The Canvas fits height as text or type styling changes in auto mode. Omit to keep fixed geometry.",
+                "enum": [
+                  "auto",
+                  "fixed"
                 ]
               },
               "textAlign": {
@@ -2492,6 +2824,76 @@
                     "additionalProperties": false
                   }
                 ]
+              },
+              "container": {
+                "type": "object",
+                "additionalProperties": false,
+                "description": "Region-only auto-layout. Children are ordered same-board occurrences: Text/shape decoration IDs or objects with a placementId. Defaults: padding 16, gap 12, grid columns 2.",
+                "properties": {
+                  "layout": {
+                    "enum": [
+                      "vertical",
+                      "horizontal",
+                      "grid"
+                    ]
+                  },
+                  "children": {
+                    "type": "array",
+                    "maxItems": 128,
+                    "items": {
+                      "oneOf": [
+                        {
+                          "type": "string",
+                          "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_-]{0,127}$",
+                          "maxLength": 128
+                        },
+                        {
+                          "type": "object",
+                          "additionalProperties": false,
+                          "properties": {
+                            "placementId": {
+                              "type": "string",
+                              "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_-]{0,127}$",
+                              "maxLength": 128
+                            }
+                          },
+                          "required": [
+                            "placementId"
+                          ]
+                        }
+                      ]
+                    }
+                  },
+                  "padding": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 128
+                  },
+                  "gap": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 128
+                  },
+                  "columns": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 8
+                  }
+                },
+                "required": [
+                  "layout",
+                  "children"
+                ]
+              },
+              "sticker": {
+                "const": true,
+                "description": "Display a Text decoration containing exactly one emoji as a sticker."
+              },
+              "rotation": {
+                "type": "integer",
+                "minimum": -180,
+                "maximum": 180,
+                "description": "Clockwise emoji sticker rotation in degrees."
               }
             },
             "required": [
@@ -2504,6 +2906,16 @@
               "text"
             ],
             "description": "Board-local text, region/shape or line. from/to must occur together on lines. Attached targets must be same-board active placements or non-line decorations; fallback is used only if target later detaches. Omitted region shape preserves existing colored-area behavior."
+          },
+          "containerId": {
+            "type": "string",
+            "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_-]{0,127}$",
+            "maxLength": 128,
+            "description": "Optionally add the new Text or shape directly to an existing same-board container."
+          },
+          "initialText": {
+            "const": true,
+            "description": "Create an initial blank Text block in a new empty container, in the same operation."
           }
         },
         "required": [
@@ -2533,6 +2945,23 @@
             "to": {
               "placementId": "screenshot-placement",
               "side": "left"
+            }
+          }
+        },
+        {
+          "boardId": "release-review",
+          "decoration": {
+            "id": "review-checklist",
+            "type": "region",
+            "x": 100,
+            "y": 100,
+            "width": 144,
+            "height": 64,
+            "color": "#dbe5d3",
+            "text": "Evidence to check",
+            "container": {
+              "layout": "vertical",
+              "children": []
             }
           }
         }
@@ -2595,8 +3024,9 @@
                 "maximum": 100000
               },
               "color": {
+                "description": "Theme-relative drawing hue (for example palette:blue) or custom hexadecimal color. Text uses ink, regions use fill, and lines use stroke.",
                 "type": "string",
-                "pattern": "^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{4}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})$"
+                "pattern": "^(?:#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{4}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})|palette:(?:neutral|slate|sage|green|teal|cyan|blue|indigo|violet|plum|rose|red|clay|amber|gold))$"
               },
               "text": {
                 "type": "string",
@@ -2626,18 +3056,105 @@
                   "curved"
                 ]
               },
+              "bend": {
+                "description": "Signed perpendicular curve offset in board units. Omit to retain the existing curve routing.",
+                "type": "number",
+                "minimum": -10000,
+                "maximum": 10000
+              },
               "thickness": {
-                "enum": [
-                  "thin",
-                  "medium",
-                  "thick"
+                "description": "Stroke weight. Use thin, medium or thick, or an exact integer width in board units.",
+                "oneOf": [
+                  {
+                    "enum": ["thin", "medium", "thick"]
+                  },
+                  {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 100
+                  }
                 ]
               },
               "textSize": {
+                "description": "Label size for Text and regions, including shapes and stickies. Use a preset or 10–144 logical pixels.",
+                "oneOf": [
+                  {
+                    "enum": [
+                      "small",
+                      "medium",
+                      "large"
+                    ]
+                  },
+                  {
+                    "type": "integer",
+                    "minimum": 10,
+                    "maximum": 144
+                  }
+                ]
+              },
+              "textFace": {
+                "description": "Font family for a Text block.",
                 "enum": [
-                  "small",
-                  "medium",
-                  "large"
+                  "serif",
+                  "sans",
+                  "mono"
+                ]
+              },
+              "textFill": {
+                "description": "Background for a Text block. Use a palette:name hue for paired light/dark colors or hex for an authored fill.",
+                "oneOf": [
+                  {
+                    "enum": [
+                      "none",
+                      "paper",
+                      "tint",
+                      "strong"
+                    ]
+                  },
+                  {
+                    "type": "string",
+                    "pattern": "^(?:#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{4}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})|palette:(?:neutral|slate|sage|green|teal|cyan|blue|indigo|violet|plum|rose|red|clay|amber|gold))$"
+                  }
+                ]
+              },
+              "textBorder": {
+                "description": "Border for a Text block. Null removes the border. With no color, the border follows the theme.",
+                "oneOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "style": {
+                        "enum": [
+                          "solid",
+                          "dashed"
+                        ]
+                      },
+                      "color": {
+                        "type": "string",
+                        "pattern": "^(?:#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{4}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})|palette:(?:neutral|slate|sage|green|teal|cyan|blue|indigo|violet|plum|rose|red|clay|amber|gold))$"
+                      }
+                    },
+                    "required": [
+                      "style"
+                    ],
+                    "additionalProperties": false
+                  }
+                ]
+              },
+              "textPadding": {
+                "description": "Inner padding of a Text block in logical pixels.",
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 64
+              },
+              "textSizing": {
+                "description": "Sizing mode for a Text block. The Canvas fits height as text or type styling changes in auto mode. Omit to keep fixed geometry.",
+                "enum": [
+                  "auto",
+                  "fixed"
                 ]
               },
               "textAlign": {
@@ -2892,6 +3409,76 @@
                     "additionalProperties": false
                   }
                 ]
+              },
+              "container": {
+                "type": "object",
+                "additionalProperties": false,
+                "description": "Region-only auto-layout. Children are ordered same-board occurrences: Text/shape decoration IDs or objects with a placementId. Defaults: padding 16, gap 12, grid columns 2.",
+                "properties": {
+                  "layout": {
+                    "enum": [
+                      "vertical",
+                      "horizontal",
+                      "grid"
+                    ]
+                  },
+                  "children": {
+                    "type": "array",
+                    "maxItems": 128,
+                    "items": {
+                      "oneOf": [
+                        {
+                          "type": "string",
+                          "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_-]{0,127}$",
+                          "maxLength": 128
+                        },
+                        {
+                          "type": "object",
+                          "additionalProperties": false,
+                          "properties": {
+                            "placementId": {
+                              "type": "string",
+                              "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_-]{0,127}$",
+                              "maxLength": 128
+                            }
+                          },
+                          "required": [
+                            "placementId"
+                          ]
+                        }
+                      ]
+                    }
+                  },
+                  "padding": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 128
+                  },
+                  "gap": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 128
+                  },
+                  "columns": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 8
+                  }
+                },
+                "required": [
+                  "layout",
+                  "children"
+                ]
+              },
+              "sticker": {
+                "const": true,
+                "description": "Display a Text decoration containing exactly one emoji as a sticker."
+              },
+              "rotation": {
+                "type": "integer",
+                "minimum": -180,
+                "maximum": 180,
+                "description": "Clockwise emoji sticker rotation in degrees."
               }
             },
             "required": [],
@@ -2906,6 +3493,97 @@
       },
       "operation": "updateDecoration",
       "mutating": true
+    },
+    {
+      "name": "container.moveMember",
+      "description": "Move one Text block, shape, or Tinka into a same-board container, between containers, or within its ordered layout. Use a null containerId and board x/y to release a member.",
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "expectedRevision": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "operationId": {
+            "type": "string",
+            "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_-]{0,127}$",
+            "maxLength": 128
+          },
+          "boardId": {
+            "type": "string",
+            "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_-]{0,127}$",
+            "maxLength": 128
+          },
+          "member": {
+            "oneOf": [
+              {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "decorationId": {
+                    "type": "string",
+                    "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_-]{0,127}$",
+                    "maxLength": 128
+                  }
+                },
+                "required": [
+                  "decorationId"
+                ]
+              },
+              {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "placementId": {
+                    "type": "string",
+                    "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_-]{0,127}$",
+                    "maxLength": 128
+                  }
+                },
+                "required": [
+                  "placementId"
+                ]
+              }
+            ]
+          },
+          "containerId": {
+            "oneOf": [
+              {
+                "type": "string",
+                "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_-]{0,127}$",
+                "maxLength": 128
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "index": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 127,
+            "description": "Insertion index after excluding the moved member."
+          },
+          "x": {
+            "type": "number",
+            "minimum": -10000000,
+            "maximum": 10000000
+          },
+          "y": {
+            "type": "number",
+            "minimum": -10000000,
+            "maximum": 10000000
+          }
+        },
+        "required": [
+          "boardId",
+          "member",
+          "containerId"
+        ]
+      },
+      "mutating": true,
+      "operation": "moveContainerMember"
     },
     {
       "name": "decoration.remove",

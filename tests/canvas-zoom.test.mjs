@@ -1,6 +1,15 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {MIN_ZOOM,MAX_ZOOM,FIT_MAX_ZOOM,clampZoom,sliderFromZoom,zoomFromSlider,wheelZoomFactor,SLIDER_STEPS} from '../public/canvas-zoom.js';
+import {MIN_ZOOM,MAX_ZOOM,FIT_MAX_ZOOM,clampZoom,sliderFromZoom,zoomFromSlider,stepSliderZoom,wheelZoomFactor,SLIDER_STEPS} from '../public/canvas-zoom.js';
+
+test('keyboard zoom skips duplicate logarithmic ticks and stops at the limits',()=>{
+  for(const [base,previous,next] of [[1,.99,1.01],[2,1.95,2.05]]){
+    assert.equal(stepSliderZoom(sliderFromZoom(base),-1),previous);
+    assert.equal(stepSliderZoom(sliderFromZoom(base),1),next);
+  }
+  assert.equal(stepSliderZoom(0,-1),MIN_ZOOM);
+  assert.equal(stepSliderZoom(SLIDER_STEPS,1),MAX_ZOOM);
+});
 
 test('canvas zoom range reaches well past the old 125% ceiling and below 5%', () => {
   assert.equal(MAX_ZOOM, 10);assert.equal(MIN_ZOOM, .02);assert.equal(FIT_MAX_ZOOM, 1.25);

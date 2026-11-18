@@ -5,7 +5,7 @@
 
 const STYLE_ID = "quick-jot-style";
 const GAP = 16, MAX_COLS = 4, JOT_W = 180, JOT_H = 140, MARGIN = 24;
-const STICKY = { type: "region", shape: "rectangle", color: "#f6e6a4" };
+const STICKY = { type: "region", shape: "rectangle", color: "palette:gold" };
 let open = null;
 
 function injectStyle() {

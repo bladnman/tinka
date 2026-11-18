@@ -42,7 +42,8 @@ try{
  // Exact-geometry drags hold ⌘/Ctrl, which turns smart-guide snapping off.
  const snapOff=process.platform==='darwin'?'Meta':'Control';
  const drag=async(locator,dx,dy,{cancel=false}={})=>{await idle();const p=await centre(locator);await page.mouse.move(p.x,p.y);await page.mouse.down();await page.keyboard.down(snapOff);await page.mouse.move(p.x+dx,p.y+dy,{steps:5});if(cancel)await page.keyboard.press('Escape');await page.mouse.up();await page.keyboard.up(snapOff);};
- const inspect=async id=>{await page.locator(`[data-decoration="${id}"] [data-decoration-label]`).click();await page.locator('[data-whiteboard-action=more]').click();await page.locator('[data-whiteboard-action=inspect]').click();};
+ const endpointHandle=async(id,end)=>{await idle();await page.locator(`[data-decoration="${id}"] [data-decoration-label]`).click();return page.locator(`[data-decoration="${id}"] [data-endpoint="${end}"]`);};
+ const dragTo=async(handle,x,y)=>{const p=await centre(handle);await page.mouse.move(p.x,p.y);await page.mouse.down();await page.mouse.move(x,y,{steps:6});await page.mouse.up();};
  await page.evaluate(()=>window.keptFrame=document.querySelector('.workspace-live-preview iframe'));
  // Real repeated double-click editing keeps stable DOM and exact multiline text.
  const originalSticky=(await find('sticky')).text;
@@ -66,8 +67,10 @@ try{
  const lineDuring=await page.locator('[data-decoration=to-card]').boundingBox();assert.ok(lineDuring.width>lineBefore.width+40);
  await page.mouse.up();for(let i=0;i<60&&(await snapshot()).placements.find(p=>p.id===item.placementId).x!==625;i++)await page.waitForTimeout(50);assert.equal((await snapshot()).placements.find(p=>p.id===item.placementId).x,625);
  await page.waitForFunction(()=>!document.querySelector('.workspace-dragging'));await page.waitForTimeout(200);
- await inspect('to-card');
- await page.locator('[name=toSide]').selectOption('right');await page.locator('dialog.workspace-dialog button[type=submit]').click();await page.locator('dialog.workspace-dialog').waitFor({state:'detached'});
+ const cardEnd=await endpointHandle('to-card','to'),cardBounds=await card.boundingBox();
+ await dragTo(cardEnd,cardBounds.x+cardBounds.width-12,cardBounds.y+cardBounds.height/2);
+ assert.equal(await eventually(async()=>(await find('to-card')).to.side,v=>v==='right'),'right');
+ await idle();
  const resize=card.locator('[data-resize]'),resizePoint=await centre(resize);lineBefore=await page.locator('[data-decoration=to-card]').boundingBox();
  await page.mouse.move(resizePoint.x,resizePoint.y);await page.mouse.down();await page.mouse.move(resizePoint.x+40,resizePoint.y+30,{steps:4});
  assert.ok((await page.locator('[data-decoration=to-card]').boundingBox()).width>lineBefore.width+35);await page.mouse.up();await page.waitForTimeout(100);
@@ -75,13 +78,14 @@ try{
  assert.equal(await page.evaluate(()=>window.keptFrame===document.querySelector('.workspace-live-preview iframe')),true);
  // Shape resizing uses the same temporary override path.
  await idle();
- await page.locator('[data-decoration=process] [data-decoration-label]').click();const shapeResize=page.locator('[data-decoration=process] [data-decoration-resize]');
+ await page.locator('[data-decoration=process] [data-decoration-label]').click();const shapeResize=page.locator('[data-decoration=process] [data-decoration-resize=se]');
  await drag(shapeResize,20,15);assert.equal(await eventually(async()=>(await find('process')).width,v=>v===260),260);
- // Geometry inspector exposes logical units and exact attached endpoints.
- await inspect('attached');
- await page.locator('dialog.workspace-dialog').waitFor();assert.match(await page.locator('dialog.workspace-dialog').textContent(),/logical board units/);assert.match(await page.locator('dialog.workspace-dialog').textContent(),/attached/i);
- await page.locator('[name=toTarget]').selectOption('free');await page.locator('[name=toX]').fill('-40');await page.locator('[name=toY]').fill('130');await page.locator('dialog.workspace-dialog button[type=submit]').click();
- await page.locator('dialog.workspace-dialog').waitFor({state:'detached'});assert.deepEqual((await find('attached')).to,{x:-40,y:130});
+ // Delete on a focused endpoint detaches it in place.
+ const toHandle=await endpointHandle('attached','to');
+ await toHandle.focus();
+ await page.keyboard.press('Delete');
+ assert.deepEqual(await eventually(async()=>(await find('attached')).to,p=>Number.isFinite(p.x)),{x:280,y:90});
+ assert.equal(await page.locator('dialog[open]').count(),0);
  // Reattach with visible grab points, preserving the untouched start.
  await page.locator('[data-decoration=attached] [data-decoration-label]').click();
  const handle=page.locator('[data-decoration=attached] [data-endpoint=to]'),h=await centre(handle);
@@ -89,21 +93,24 @@ try{
  const port=page.getByRole('button',{name:'Connect Ready? left',exact:true});await port.waitFor();const end=await centre(port);await page.mouse.move(end.x,end.y,{steps:5});await page.mouse.up();
  await page.waitForFunction(()=>!document.querySelector('dialog[open]'));await page.waitForTimeout(100);
  assert.equal((await find('attached')).to.decorationId,'decision');
- // An endpoint can cross both axes into an exact free point, then reattach via keyboard form.
+ // Move an endpoint across both axes, then reconnect it to the original edge.
  await page.locator('[data-decoration=attached] [data-decoration-label]').click();const fromHandle=page.locator('[data-decoration=attached] [data-endpoint=from]');
  await drag(fromHandle,-365,-188);const crossed=await eventually(async()=>(await find('attached')).from,from=>Number.isFinite(from?.x)&&from.x<0);assert.ok(Number.isFinite(crossed.x)&&crossed.x<0&&crossed.y<0);
- await inspect('attached');await page.locator('[name=fromTarget]').selectOption('d:process');await page.locator('[name=fromSide]').selectOption('right');await page.locator('dialog.workspace-dialog button[type=submit]').click();await page.locator('dialog.workspace-dialog').waitFor({state:'detached'});assert.equal((await find('attached')).from.decorationId,'process');
+ await idle();const processBounds=await processShape.boundingBox();
+ await dragTo(fromHandle,processBounds.x+processBounds.width-12,processBounds.y+processBounds.height/2);
+ const reattached=await eventually(async()=>(await find('attached')).from,p=>p.decorationId==='process');
+ assert.deepEqual([reattached.decorationId,reattached.side],['process','right']);
  // Cancel leaves persisted geometry/revision alone, and sticky body drags as an object.
  const saved=await snapshot();await drag(page.locator('[data-decoration=sticky]'),45,20,{cancel:true});assert.equal((await snapshot()).revision,saved.revision);
  await drag(page.locator('[data-decoration=sticky]'),45,20);assert.equal(await eventually(async()=>(await find('sticky')).x,v=>v===65),65);
  // A port-to-port gesture creates one scoped attached arrow.
- await page.locator('[data-decoration=process] [data-decoration-label]').click();await page.locator('[data-whiteboard-action=connect]').click();const startPort=page.getByRole('button',{name:'Connect Prepare release bottom',exact:true});await startPort.waitFor();const start=await centre(startPort);
+ await page.locator('[data-decoration=process] [data-decoration-label]').click();const startPort=page.getByRole('button',{name:'Connect Prepare release bottom',exact:true});await startPort.waitFor();const start=await centre(startPort);
  await page.mouse.move(start.x,start.y);await page.mouse.down();await page.mouse.move(start.x,start.y+10,{steps:2});const stickyPort=page.getByRole('button',{name:'Connect Keep the source and review together top',exact:true});
  const endpoint=await page.locator('[data-port]').evaluateAll(elements=>{const el=elements.find(e=>JSON.parse(e.dataset.port).decorationId==='sticky'&&JSON.parse(e.dataset.port).side==='top');const r=el.getBoundingClientRect();return {x:r.x+r.width/2,y:r.y+r.height/2};});
  await page.mouse.move(endpoint.x,endpoint.y,{steps:6});await page.mouse.up();await page.waitForTimeout(100);
  assert.ok((await snapshot()).decorations.some(d=>d.type==='line'&&d.from?.decorationId==='process'&&d.to?.decorationId==='sticky'));
  // Tapping ports is the keyboard/touch alternative to a drag gesture.
- await page.locator('[data-decoration=process] [data-decoration-label]').click();await page.locator('[data-whiteboard-action=connect]').click();await page.getByRole('button',{name:'Connect Prepare release top',exact:true}).click();
+ await page.locator('[data-decoration=process] [data-decoration-label]').click();await page.getByRole('button',{name:'Connect Prepare release top',exact:true}).click();
  assert.ok(await page.locator('[data-port]').count()>4);await page.getByRole('button',{name:'Connect Keep the source and review together right',exact:true}).click();assert.ok(await eventually(async()=>(await snapshot()).decorations.some(d=>d.from?.decorationId==='process'&&d.from.side==='top'&&d.to?.decorationId==='sticky'&&d.to.side==='right'),Boolean));
  const region=await page.locator('[data-decoration=area]').boundingBox(),regionRevision=(await snapshot()).revision;
  await page.mouse.move(region.x+50,region.y+70);await page.mouse.down();await page.mouse.move(region.x+180,region.y+140,{steps:4});await page.locator('#workspace-marquee').waitFor();await page.keyboard.press('Escape');await page.mouse.up();assert.equal((await snapshot()).revision,regionRevision);
@@ -111,10 +118,12 @@ try{
  // Human Add menu creates the compact flowchart preset, using scoped metadata.
  await page.locator('#board-info-toggle').click();await page.locator('#workspace-add').click();await page.locator('[data-add=ellipse]').click();
  await page.locator('.whiteboard-editor textarea').waitFor();await page.keyboard.press('Escape');assert.ok(await eventually(async()=>(await snapshot()).decorations.some(d=>d.shape==='ellipse'&&d.type==='region'),Boolean));
- // Narrow inspector remains reachable; target removal reports detached fallback.
- await page.setViewportSize({width:390,height:844});await page.locator('[data-decoration=sticky]').scrollIntoViewIfNeeded();await inspect('sticky');
- await page.keyboard.press('Escape');await page.locator('[data-decoration=sticky]').focus();await page.keyboard.press('Enter');await page.locator('dialog.workspace-dialog').waitFor();
- const bounds=await page.locator('dialog.workspace-dialog').boundingBox();assert.ok(bounds.x>=0&&bounds.x+bounds.width<=391);await page.screenshot({path:path.join(evidence,'whiteboard-narrow.png')});await page.keyboard.press('Escape');
+ // Keyboard-reachable actions fit at a narrow width and ordinary objects resize at their outline.
+ await page.setViewportSize({width:390,height:844});await page.locator('[data-decoration=sticky]').scrollIntoViewIfNeeded();
+ await page.locator('[data-decoration=sticky]').focus();await page.keyboard.press('Enter');
+ const menu=page.locator('.whiteboard-menu');await menu.waitFor();
+ assert.equal(await menu.getByText("Position & size", {exact:false}).count(),0);
+ const bounds=await menu.boundingBox();assert.ok(bounds.x>=0&&bounds.x+bounds.width<=391);await page.screenshot({path:path.join(evidence,'whiteboard-narrow.png')});await page.keyboard.press('Escape');
  await op({type:'removeDecoration',decorationId:'decision'});await page.reload();await page.locator('.whiteboard-detached').first().waitFor();assert.equal(await page.evaluate(()=>document.querySelector('.whiteboard-detached')?.textContent),'Detached');
- assert.deepEqual(errors,[]);console.log(JSON.stringify({passed:true,evidence,checks:'shape/card movement + resize with transient attached redraw, mounted preview identity, exact geometry/free endpoint, reattach, cancellation, sticky whole body, region marquee, port creation, Add preset, keyboard + 390 inspector, detached fallback'}));
+ assert.deepEqual(errors,[]);console.log(JSON.stringify({passed:true,evidence,checks:'shape/card movement + resize with transient attached redraw, mounted preview identity, keyboard endpoint detach and direct reattach, cancellation, sticky whole body, region marquee, port creation, Add preset, keyboard actions at 390, detached fallback'}));
 }finally{await browser?.close();if(server)await closeAppServer(server);await rm(fixture,{recursive:true,force:true,maxRetries:5,retryDelay:100});}

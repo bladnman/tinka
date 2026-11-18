@@ -17,6 +17,17 @@ export function zoomFromSlider(position) {
   const unit = percent < 10 ? .1 : percent < 150 ? 1 : 5;
   return clampZoom(Math.round(Math.round(percent / unit) * unit * 10) / 1000);
 }
+// Adjacent logarithmic stops can round to the same percentage. Keyboard steps
+// skip those repeats so the control always moves until it reaches a limit.
+export function stepSliderZoom(position, direction) {
+  const start=zoomFromSlider(position);
+  if(direction!==1&&direction!==-1)return start;
+  for(let tick=Number(position)+direction;tick>=0&&tick<=SLIDER_STEPS;tick+=direction){
+    const zoom=zoomFromSlider(tick);
+    if(zoom!==start)return zoom;
+  }
+  return start;
+}
 // A Control/⌘-wheel step as a zoom ratio. Chromium and Edge report a trackpad
 // pinch as Control-wheel with deltaY = -100·ln(scale), so this follows the fingers
 // exactly; a mouse wheel notch is capped at the same 1.35× step as before.

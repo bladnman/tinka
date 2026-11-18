@@ -107,7 +107,7 @@ In a new project this also starts the workspace. The older
 workspace exists; before that it makes a legacy board folder, which the workspace
 tools cannot use until `workspace migrate --dry-run`, then `--apply`.
 
-Or copy [`examples/first-steps`](examples/first-steps) into the external boards root for two small, runnable experiments. The home page's **+ New board** button produces a copyable agent prompt containing this instance's label, URL, and paths.
+Or copy [`examples/first-steps`](examples/first-steps) into the external boards root for two small, runnable experiments. **+ New board** asks for a name and creates an empty board. On legacy Home, it prepares a prompt for your agent from the board name and optional idea.
 
 New workspaces and boards start empty. Reference boards and starter experiments are optional. Legacy boards retain their copyable removal prompts. In schema 2 workspaces, removal changes metadata and keeps resource files.
 
@@ -117,9 +117,9 @@ On a schema-2 nested board, select representative items and choose **Show on
 parent…** to place the same work beside its round on a parent board. The source
 items, notes and stars remain shared; the original placements stay in place.
 Position and resize the parent placements independently, and open their source
-link to return to the round. Tinka's Appearance control (a System / Light / Dark
-segmented control in the Inspectors) changes Tinka's surfaces without recoloring
-the work inside previews.
+link to return to the round. Tinka starts in Light when this browser has no
+saved appearance. The System / Light / Dark choice changes Tinka's surfaces
+and named drawing colors. Embedded previews keep their own appearance.
 The installed [agent guide](docs/AGENT.md#make-the-work-visible) explains how to
 build boards that show their work at a useful scale.
 
@@ -206,7 +206,8 @@ current title — and **what** on the right: Find (⌘K), Undo/Redo, the Inspect
 the single primary **+ Add** (Text, Colored region, Arrow, shapes, items and
 boards). The Inspector opens on demand at the right edge: with nothing chosen it
 starts with the board itself (its name, counts and description), then View
-(Layout: Grid/Canvas; Background), Filter, Edit, Feedback (Comments, Export
+(Layout, canvas pattern, board color and background image), Filter, Edit
+(including comparison order), Feedback (Comments, Export
 notes), Appearance, Help (how to use this board, Keyboard shortcuts) and Tinka; a tile's ⋯ menu groups Open experiment, Handoff when available, Notes and
 Remove from board; Details… (or ⌘/Ctrl-I with one tile selected) shows that item's notes, feedback, appearance and paper, created/edited
 dates and actions. Click-away or Escape closes any temporary panel or menu. Zoom
@@ -220,7 +221,9 @@ An opened Tinka is one level down and keeps the board's frame: the same header
 same pill at the lower right (−, the % menu, +, Back after a fit, and Fit). Its
 content sits on a canvas of its own: ⌘/Ctrl-scroll or pinch zooms it about the
 pointer, also over Tinka's own local content, and the page never zooms; drag the
-background, or hold Space and drag, to pan. Fit (F or ⇧1) shows the whole window
+background, or hold Space and drag, to pan. Scrolling pans over the background, and
+over content with nothing to scroll, such as an image zoomed in to fill the view;
+documents and pages that scroll keep scrolling themselves. Fit (F or ⇧1) shows the whole window
 again, never past 100%, and Back returns to the view before it. Canvas zoom
 magnifies; Window and Type size reflow. The % menu also holds what the old View
 panel did: Window (Fit, Compact, Standard, Wide or a custom size dragged from the
@@ -231,10 +234,10 @@ running) and Copy link. *The file itself* shows the full absolute path with **Co
 path**, which works with no server and is what an agent needs. A remote item shows
 its own address instead. *On boards* lists every board and placement that uses the
 same file, including other items that point at it; choose one to go there. Below are
-Comments with their count, Votes once someone has voted, Version, Its board · N, one
-**More…** menu (Add board…, Edit details…, Move to another board…, Also show on
-another board…, Feature on ‹parent›…, Vote…, Copy for an agent, Reload content and
-Keyboard shortcuts) and Appearance. Favorite (☆) and Notes are in the header. Its
+Feedback with Comments and Vote, Version, and Organize actions for editing details,
+opening or adding a child board, moving, adding references and featuring on a parent.
+Copy for an agent sits beside the local path. Reload and Keyboard shortcuts are
+under Help. Favorite (☆) and Notes are in the header. Its
 content belongs to the agent that made it, so adding, dragging, resizing and
 backgrounds stay on boards; the editable place for a Tinka is its own board, one
 level down.
@@ -320,8 +323,10 @@ per board; on a phone it starts closed. Fits leave room for an open map. Drag a 
 a click opens its preview, while notes, links and buttons keep their normal
 behavior. Drag onto the interior of a board card to move the item inside it;
 the destination outline and “Move into…” hint confirm the target. Its automatic
-cover updates after the move. Escape cancels a drag. Move / resize and the
-selection toolbar’s Move… action provide keyboard and touch alternatives.
+cover updates after the move. Escape cancels a drag. Drag an edge or corner of a
+selected tile to resize it. With the tile’s resize grip focused, arrow keys resize
+it and Shift changes the increment to ten board units. To choose a destination
+without dragging, use **Move…** in the selection toolbar.
 To bring an item back out, drag it onto the Parent link in the header; the hint
 names that destination. A parent is available when the entry path or a unique
 containing board identifies it. On a collection cover, hold a visible child tile
@@ -346,6 +351,23 @@ green ring and check, and one floating selection bar at the bottom acts on them.
 The toolbar, selection circle and resize controls keep their separate actions.
 Right-click a native card for a short menu: Open, Details…, Favorite, Move to
 board…, Duplicate and Remove from board.
+
+On Canvas, select two or more Tinkas, drawings or containers, then choose
+**Group** or press **⌘G / Ctrl-G**. A group saves which objects belong together
+and leaves their positions and appearance as they were. Select any member to
+select the whole group. Drag or nudge it together, or Option/Alt-drag to place
+a second group. Choose **Ungroup** or press the same shortcut again to keep the
+objects in place as separate selections. Both actions support Undo and Redo.
+Select a container itself to group it with other objects. Its children follow
+the container's layout.
+
+Hold **Option** (**Alt** on Windows or Linux) as you start dragging a card or
+drawn element to place a copy on the same canvas. Drag a selected member to copy
+the whole selection in one Undo step. A card copy has its own position and size
+and shares the same Tinka, name and source file. Deleting the copy leaves those
+and the other cards in place. A copied Text block has its own editable text.
+The preview follows the object, using a still of loaded local HTML when available.
+Press Escape during the drag to cancel.
 
 Use ⌘D / Ctrl-D to duplicate the visible selection without changing the clipboard.
 The independent copies retain arrangement, dimensions, appearance and feedback,
@@ -383,9 +405,11 @@ movement history. Text fields keep their own undo, and replay is available after
 gestures and writes finish. A conflicting arrangement is never overwritten; review the
 latest board before retrying. New successful movement clears the redo branch.
 
-Select Tinkas and use ⌘C / Ctrl-C, then ⌘V / Ctrl-V on the same board or another
-board in this workspace. Copies keep their relative arrangement, size, appearance,
-notes and stars. They have independent identities but use the same resource files.
+Select Tinkas or drawn elements and use ⌘C / Ctrl-C, then ⌘V / Ctrl-V on the same
+board or another board in this workspace. Copies keep their relative arrangement,
+size, appearance, groups and container contents. A copied arrow stays attached to
+the copies of its selected targets. Tinka copies have independent identities and
+keep their names, notes, stars and resource references.
 A copied board keeps its layout and references its existing children. Originals
 stay in place. The Inspector also offers Copy selection and a Paste shortcut reminder.
 The clipboard carries the selection itself, including across tabs; unrelated text
@@ -432,16 +456,43 @@ content examples, shared references, conflicts and migration rollback.
 
 ## Draw, read and discuss
 
+Choose **Sticker** for board favorites and emoji categories. Search across the
+whole catalog by name or keyword, then click a result or drag it onto the canvas.
+Use **Skin tones** in People & Body, or include the tone in your search.
+Pasting one emoji onto the canvas also makes a sticker.
+Drag a corner to resize it, or drag the circular handle to rotate it. Hold Shift
+to rotate in 15-degree steps. The rotation handle also accepts arrow keys.
+
+Select native Text, Sticky notes or shapes and choose **Make container**, or use
+**+ Add → Container** to start typing in a blank Text block inside a new container.
+Use **Stack**, **Row** or **Grid** in the selected container's toolbar. **More**
+holds gap, padding, and grid columns. Gap and padding preview the layout as you
+drag the adjustment control. The grid offers its column counts directly. Drag a native block, shape or Tinka card
+into a container and release at the insertion marker. Drag it to another slot,
+another container, or the open canvas. Drag a container's exposed background to
+move it with its children. Removing a container leaves its children in place.
+Text set to Auto height fits at its saved width and reflows the layout.
+Containers hold one level.
+
 + Add includes Sticky note, Process (rounded box), Decision (diamond)
-and Start / end (ellipse) alongside text, colored regions and arrows. Select an object to move, resize, recolor or
-edit its text. Drag between the connection ports on cards and shapes to attach
-an arrow; its endpoints follow the targets during movement and resizing. Drag an
-endpoint to reconnect it or leave a free point. The exact-geometry control uses
-logical board units and shows free, attached or detached endpoints. Dragging an attached arrow’s body keeps its attachments. Use endpoint handles
-to reconnect, or More → Detach start/end/both to make resolved endpoints free.
-Reverse swaps the complete endpoints while keeping the arrow identity. Arrow text appears at its midpoint. Escape
-cancels a gesture. Focus a decoration and press Enter for exact geometry or F2
-to edit its text. ⌘Z / Ctrl-Z undoes every change to text, stickies, shapes, regions
+and Start / end (ellipse) alongside text, colored regions and arrows. Drag any
+side or corner of a selected drawing's dotted outline to resize it. Hold Shift
+on a corner to keep its proportions. Select a shape or sticky and drag from its
+edge connection point to attach an arrow. New
+connections start with a gentle curve. Select an arrow to choose **Straight**,
+**Elbow** or **Curve** from its toolbar. The stroke color dot opens its palette.
+In **Line options**, pick
+Thin, Medium or Thick, or drag **↔** to preview a custom width. With **↔**
+focused, use the arrow keys to adjust it. Scrubbing several arrows adjusts
+each from its own width. Exact widths from 1 to 100 board units
+are available through the decoration tools. Drag the diamond on a curve to shape
+its bend. Drag a round endpoint onto a target to connect it or onto empty
+canvas to leave it free. An attached endpoint follows its target. With an
+endpoint focused, the arrow keys move it and Delete detaches it in place.
+**Reverse direction** swaps the endpoints. Double-click the line or its label
+to edit the text at the middle of the arrow. Escape cancels a drag. Focus a
+drawing and press F2 to edit its text or Enter for its actions.
+⌘Z / Ctrl-Z undoes every change to text, stickies, shapes, regions
 and arrows in one step each, like cards: adding, moving, resizing, restyling,
 editing the text and deleting them, including a mixed Delete or ⌘/Ctrl-D of cards
 with drawn elements and a change applied to several at once.
@@ -451,13 +502,14 @@ Text and Sticky blocks show a small, safe Markdown subset: **bold**, *italic*,
 `code`, `- ` or `1. ` lists, `[ ]` / `[x]` checkboxes and `# ` headings; anything
 else stays plain text.
 
-The **edit tools** are a small floating palette on Canvas boards: **Text (T)**,
-**Sticky (S)**, **Document (D)**, **Quick jot (N)** and More to add (the rest of
-+ Add). Press **A** or the pencil in the bottom bar to show or hide it (remembered in
-this browser); the letters work wherever board keys do, shown or not, and place the
-new block at the pointer. Double-click empty Canvas space to start a Text block
-there. **Document** creates a Markdown file in the boards root's `imports/` folder
-and starts editing it in place on its card.
+The floating **Canvas tools** keep Pointer, Pan, drawing and Comment together.
+**V** selects Pointer and **H** selects Pan. Drag with Pan to move the view,
+including over a card or drawing. Escape returns to Pointer. Press **A** or
+the bottom-bar tools button to show or hide the rail. This browser remembers
+the choice. **Text (T)** and **Sticky (S)** work at the board pointer, including
+when the rail is hidden. Double-click empty Canvas space to start Text there.
+The header **+ Add** offers other shapes, documents and imports. **D** creates a
+Markdown file in the boards root's `imports/` folder and edits it on its card.
 
 Local Markdown documents are edited where they are shown, on their card or in the
 reader: choose **Edit** on the card's hover toolbar, **Edit document** in its ⋯ menu
@@ -474,15 +526,28 @@ tile, with checklists, strikethrough, nested formatting, and live highlights and
 comments. After a save, highlights and comments follow their exact quoted text when
 it can be placed without guessing; edited quotes and ties stay for review.
 
-Select an arrow, sticky, text or shape for a contextual bar with its own
-options; with several selected, a choice applies to all of them. On Canvas
+Text blocks offer size, ink and alignment on their contextual bar. Pick S, M or
+L for text and label sizes, or drag the adjustment control. The control also
+accepts the arrow keys and announces the current size. New Text uses
+**Auto height** and grows as you type or change the font size at its current
+wrapping width. Resizing its outline turns Auto height off. Toggle it beside
+the size choices. **Aa** opens typeface, fill, border and padding. **More → Fit height to
+text** fits a fixed block once. Delete or Backspace removes selected drawings,
+and Undo restores them. Stickies start with a paper color dot and text size.
+Shapes, regions and containers show their fill color in the same place. Tile
+paper and board color use the same palette from their Inspectors. Native colors
+adapt together when switching between Light and Dark, including custom board
+colors, paper, text and arrows. Tinka preserves the saved values and the colors
+inside artwork and embedded pages. With several
+selected, a shared choice applies
+to all of them. On Canvas
 a selection box also takes drawn elements, so cards and drawn elements move, copy
 and delete together as one group. Dragging or resizing snaps edges and centres to
 nearby objects with thin guides (hold ⌘, or Ctrl off macOS, to turn snapping off),
 and with two or more selected, **Arrange** aligns, distributes or tidies them into
 a grid in one Undo step. **Quick jot** (N) is one floating line: each Enter adds a
 sticky to a tidy grid in a clear area, and Escape closes it. **⇧⌘C** /
-Ctrl-Shift-C, or + Add → Copy notes as Markdown, copies the board's text, stickies
+Ctrl-Shift-C, or **Copy notes as Markdown** in the Inspector's Feedback section, copies the board's text, stickies
 and item titles (with their Tinka links), top to bottom.
 Notes and conversation composers use the same scoped shortcut, with a platform
 hint. Failed saves preserve drafts; click-away never posts a comment. Small saved

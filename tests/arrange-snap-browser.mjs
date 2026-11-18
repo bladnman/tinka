@@ -88,7 +88,17 @@ try{
   await run('Arrange aligns a mixed selection left, and one Undo restores it',async(page,id)=>{
     const before=await geo(id);
     await page.mouse.click(1240,450);await page.keyboard.press(`${MOD}+a`);
-    await page.locator('#workspace-selection [data-arrange-open]').click();
+    const arrange=page.locator('#workspace-selection [data-arrange-open]');
+    await arrange.click();
+    const panel=page.getByRole('dialog',{name:'Arrange',exact:true});
+    assert.equal(await panel.getByRole('button').count(),9);
+    assert.equal(await arrange.getAttribute('aria-expanded'),'true');
+    await page.keyboard.press('ArrowRight');
+    assert.equal(await panel.getByRole('button',{name:'Align centres'}).evaluate(button=>button===document.activeElement),true);
+    await page.keyboard.press('Escape');
+    await panel.waitFor({state:'detached'});
+    assert.equal(await arrange.evaluate(button=>button===document.activeElement),true);
+    await arrange.click();
     if(evidence)await page.screenshot({path:path.join(evidence,'arrange-menu.png')});
     await page.locator('.arrange-menu [data-arrange="align-left"]').click();
     const g=await until(async()=>{const g=await geo(id);return g.B[0]===0&&g;});

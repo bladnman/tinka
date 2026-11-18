@@ -609,7 +609,7 @@ try {
   );
   await page.locator("[data-placement-select]").first().click();
   await page.getByRole("button", { name: "Move…", exact: true }).click();
-  await page.locator("[name=target]").selectOption(board.id);
+  await page.locator(`[name=target][value="${board.id}"]`).check();
   await page.getByRole("button", { name: "Move items", exact: true }).click();
   await page.waitForFunction(
     () => document.querySelectorAll(".workspace-card").length === 0,
@@ -629,7 +629,7 @@ try {
     await page.keyboard.press("Space");
   }
   await page.getByRole("button", { name: "Move…", exact: true }).click();
-  await page.locator("[name=target]").selectOption(second.boardId);
+  await page.locator(`[name=target][value="${second.boardId}"]`).check();
   await page.getByRole("button", { name: "Move items", exact: true }).click();
   await page.waitForFunction(
     () =>
@@ -1279,7 +1279,8 @@ try {
   await page.locator("#workspace-item-controls [data-note]").fill("Stable mounted notes");
   await page.waitForFunction(() => document.getElementById("save-status").textContent === "Item notes saved on this Mac");
   await identity("star and note preserve mounted previews");
-  await page.locator('[data-paper="#e4ebdc"]').click();
+  await page.locator("#workspace-item-controls").getByRole("button",{name:"Paper color",exact:true}).click();
+  await page.locator('[data-swatch="#e4ebdc"]').click();
   await page.waitForFunction(() => document.querySelector(".workspace-card").style.getPropertyValue("--item-paper") === "#e4ebdc");
   await identity("paper appearance preserves mounted previews");
   await page.keyboard.press("Escape");

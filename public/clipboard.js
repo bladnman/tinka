@@ -3,6 +3,13 @@
 export const CLIPBOARD_MIME = "application/x-tinka-placements+json";
 export const CLIPBOARD_PREFIX = "TINKA_CLIPBOARD_V1\n";
 export const clipboardBytes = value => new TextEncoder().encode(JSON.stringify(value)).length;
+export function clipboardBounds({placements, decorations = []}) {
+  const entries = [...placements, ...decorations];
+  const x = Math.min(...entries.map(entry => entry.x));
+  const y = Math.min(...entries.map(entry => entry.y));
+  return {x, y, width:Math.max(...entries.map(entry => entry.x + entry.width)) - x,
+    height:Math.max(...entries.map(entry => entry.y + entry.height)) - y};
+}
 export function clipboardURL(value) {
   try {
     const url = new URL(value);
@@ -19,7 +26,10 @@ export function readClipboard(data, workspaceId) {
     catch { throw new Error("This Tinka clipboard could not be read. Copy the selection again."); }
     if (clipboard?.version !== 1 || clipboard.workspaceId !== workspaceId)
       throw new Error("These Tinkas belong to a different workspace or clipboard version.");
-    if (!Array.isArray(clipboard.placements) || !clipboard.placements.length || !clipboard.items || !clipboard.boards)
+    const {placements, decorations = [], groups = []} = clipboard;
+    if (!Array.isArray(placements) || !Array.isArray(decorations) || !Array.isArray(groups) ||
+        (!placements.length && !decorations.length) || !clipboard.items || !clipboard.boards ||
+        (Object.hasOwn(clipboard,"cut") && (decorations.length || groups.length)))
       throw new Error("This Tinka clipboard is incomplete. Copy the selection again.");
     return {kind:Object.hasOwn(clipboard,"cut") ? "cut" : "tinkas",clipboard};
   }

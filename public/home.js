@@ -5,9 +5,15 @@ import {watchChanges} from './live.js';
 import { openRemovalPrompt, openCoverPrompt } from './agent-prompt.js';
 import { WorkspaceHome, homeView, sortHomeBoards, matchesHome, boardInfo, legacyCounts, FALLBACK_ART } from './workspace-home.js';
 import { startLiveDates, installDateTooltip } from './relative-dates.js';
+import { bindBackdropDismiss } from './workspace.js';
 const $=id=>document.getElementById(id);
 let graphHome=null;
+let finishHomeSetup;
+const homeReady=new Promise(resolve=>{finishHomeSetup=resolve;});
 let config={},lastRevision=null,lastBoards=[],shellRevision=null,reloadPending=false;
+const newBoardPrompt=$('new-dialog');
+bindBackdropDismiss(newBoardPrompt);
+newBoardPrompt.querySelector('.workspace-close').onclick=()=>newBoardPrompt.close();
 const fallbackArtwork=FALLBACK_ART;
 const escape=value=>String(value??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 function fileURL(id,value){const pieces=String(value||'').split('/');if(!value||pieces.some(p=>p==='..'||p.startsWith('.'))||String(value).startsWith('/')||String(value).includes('://'))return null;return `/boards/${encodeURIComponent(id)}/files/${pieces.map(encodeURIComponent).join('/')}`;}
@@ -29,11 +35,32 @@ async function refresh(){try{const response=await fetch('/api/boards',{cache:'no
 function updatePrompt(){
  const name=$('board-name').value.trim()||'Untitled exploration';const brief=$('board-brief').value.trim()||'Help me explore this idea. Propose a few distinct directions, then build working experiments I can compare.';
  $('agent-prompt').value=`Create a new Tinka board named “${name}” in my existing local workspace. No skill is required.\n\nProject: ${config.projectLabel}\nURL: ${config.url}\nApp: ${config.appPath||"(read project instructions or appPath in the config’s adjacent .pid.json)"}\nAgent instructions: ${config.agentGuidePath||"(read docs/AGENT.md if present, otherwise README, in that app)"}\nProtocol: ${config.protocolPath||"(read docs/PROTOCOL.md in that app)"}\nConfiguration: ${config.configPath||'(use this workspace’s external config)'}\nBoards folder: ${config.boardsRoot||'(use the configured boards folder)'}\n\n${brief}\n\nRead the supplied agent instructions and protocol paths, plus the project’s TINKA.md if present. Register the experiment slots first so I can see the work taking shape. Keep each experiment portable: no dependency on the board app, its own run instructions, and a handoff explaining what is real, simulated, and ready to carry into the target product. Create only the requested board and experiments. Do not add a reference board, workspace guide or starter experiment unless I explicitly request one. Make the important work visible on the board at a useful size. For a nested round, choose representative work and show it on the parent where useful, following the installed agent guide and protocol. Use honest previews and retain prior work. Preserve existing boards and notes.`;
- $('copy-status').textContent='Your board appears here once your agent creates it.';$('copy-prompt').textContent='Copy prompt ↗';
+ $('copy-status').textContent='';$('copy-prompt').textContent='Copy prompt';
 }
-document.addEventListener('click',e=>{if(graphHome?.active&&e.target.closest('.new-board')){graphHome.create();return;}const cover=e.target.closest('[data-cover-board]');if(cover&&config.workspaceId){const board=lastBoards.find(item=>item.id===cover.dataset.coverBoard);if(board)openCoverPrompt(config,board);}const remove=e.target.closest('[data-remove-board]');if(remove&&config.workspaceId){const board=lastBoards.find(item=>item.id===remove.dataset.removeBoard);if(board)openRemovalPrompt(config,board);}if(e.target.closest('.new-board')){updatePrompt();$('new-dialog').showModal();$('board-name').focus();}});
+function previewPrompt(open){
+ $('new-board-prompt').hidden=!open;
+ const button=$('show-board-prompt');
+ button.textContent=open?'Hide prompt':'Preview prompt';button.setAttribute('aria-expanded',String(open));
+}
+document.addEventListener('click',async e=>{
+ const newBoard=e.target.closest('.new-board');
+ if(newBoard){
+  await homeReady;
+  if(document.querySelector('dialog[open]'))return;
+  if(graphHome?.active)graphHome.create(newBoard);
+  else{updatePrompt();previewPrompt(false);newBoardPrompt.showModal();$('board-name').focus();}
+  return;
+ }
+ const cover=e.target.closest('[data-cover-board]');if(cover&&config.workspaceId){const board=lastBoards.find(item=>item.id===cover.dataset.coverBoard);if(board)openCoverPrompt(config,board);}
+ const remove=e.target.closest('[data-remove-board]');if(remove&&config.workspaceId){const board=lastBoards.find(item=>item.id===remove.dataset.removeBoard);if(board)openRemovalPrompt(config,board);}
+});
 $('board-name').addEventListener('input',updatePrompt);$('board-brief').addEventListener('input',updatePrompt);
-$('copy-prompt').onclick=async()=>{try{await navigator.clipboard.writeText($('agent-prompt').value);$('copy-status').textContent='Copied. Paste it into your agent conversation.';$('copy-prompt').textContent='Copied ✓';}catch{$('agent-prompt').focus();$('agent-prompt').select();$('copy-status').textContent='Select and copy this prompt, then paste it into your agent conversation.';}};
+$('show-board-prompt').onclick=()=>previewPrompt($('new-board-prompt').hidden);
+newBoardPrompt.querySelector('form').onsubmit=async event=>{
+ event.preventDefault();
+ try{await navigator.clipboard.writeText($('agent-prompt').value);$('copy-status').textContent='Copied. Paste it into your agent conversation.';$('copy-prompt').textContent='Copied ✓';}
+ catch{previewPrompt(true);$('agent-prompt').focus();$('agent-prompt').select();$('copy-status').textContent='Select and copy the prompt, then paste it into your agent conversation.';}
+};
 document.addEventListener('error',event=>{if(event.target.matches?.('.board-art img'))event.target.outerHTML=fallbackArtwork;},true);
 let homeDirty=false,homeRunning=false;
 async function drainHome(){if(!homeDirty||homeRunning||document.querySelector('dialog[open]'))return;homeRunning=true;try{while(homeDirty){homeDirty=false;await refresh();}}finally{homeRunning=false;}}
@@ -56,6 +83,6 @@ try{const r=await fetch('/api/config');if(r.ok){config=await r.json();$('workspa
 try{setSort(sortKey()&&localStorage.getItem(sortKey())||'created',{save:false});}catch{setSort('created',{save:false});}
 if(config.workspaceId)new ProjectNavigator(config).mount(document.querySelector('.masthead .brand'));
 installDateTooltip();startLiveDates(document);
-try{graphHome=new WorkspaceHome(config);if(!await graphHome.init())await refresh();}catch{await refresh();}
+try{graphHome=new WorkspaceHome(config);if(!await graphHome.init())await refresh();}catch{await refresh();}finally{finishHomeSetup();}
 
 if(!graphHome?.active)watchChanges(config,{onChange:()=>{homeDirty=true;return drainHome();},onConnection:connected=>{$('connection').textContent=connected?'Live on this Mac':'Reconnecting';document.querySelector('.live').classList.toggle('offline',!connected);}});

@@ -28,19 +28,22 @@ try{
   server=await listen(config,{port:0});const base=`http://127.0.0.1:${server.address().port}`;
   browser=await chromium.launch({headless:true,...(process.env.CHROMIUM_EXECUTABLE?{executablePath:process.env.CHROMIUM_EXECUTABLE}:{})});
   const page=await browser.newPage({viewport:{width:1440,height:960},colorScheme:'dark'});page.on('pageerror',error=>errors.push(error.message));
+  await page.addInitScript(()=>{
+    if (window.top === window && !localStorage.getItem('tinka/appearance')) localStorage.setItem('tinka/appearance','system');
+  });
   await page.goto(base+'/');await page.locator('.board-card').first().waitFor();assert.equal(await page.locator('html').getAttribute('data-appearance'),'dark');
   await page.screenshot({path:path.join(evidence,'home-dark.png')});
   await page.goto(base+'/boards/round/?from=parent');await page.locator('.workspace-card').first().waitFor();
   await page.locator(`[data-placement-select="${a.placementIds[0]}"]`).click();await page.getByRole('button',{name:'Show on parent…'}).click();
   const dialog=page.getByRole('dialog',{name:'Show on parent board'});await dialog.waitFor();
-  assert.equal(await dialog.locator('select[name=target]').inputValue(),'parent');assert.equal(await dialog.locator('select option').count(),2);
+  assert.equal(await dialog.locator('[name=target]:checked').inputValue(),'parent');assert.equal(await dialog.getByRole('radio').count(),2);
   await dialog.getByRole('button',{name:'Close dialog'}).click();await dialog.waitFor({state:'hidden'});
   await page.getByRole('button',{name:'Show on parent…'}).click();await dialog.waitFor();
   let attemptId;const rejectWrite=route=>{const payload=route.request().postDataJSON();if(payload?.featureOnParent){attemptId=payload.operationId;return route.fulfill({status:503,contentType:'application/json',body:JSON.stringify({error:'Temporary save failure'})});}return route.continue();};
   await page.route('**/api/operations',rejectWrite);
   await dialog.getByRole('button',{name:'Show on parent',exact:true}).click();
   await dialog.getByRole('alert').filter({hasText:'Could not confirm the save'}).waitFor();
-  assert.equal(await dialog.locator('select[name=target]').isDisabled(),true);
+  assert.equal(await dialog.locator('[name=target]:checked').isDisabled(),true);
   assert.equal((await getBoardSnapshot(config,parent.boardId)).placements.some(p=>p.presentation?.featuredFrom),false);
   await page.unroute('**/api/operations',rejectWrite);
   const retry=page.waitForResponse(r=>r.url().endsWith('/api/operations')&&r.request().postDataJSON()?.featureOnParent&&r.status()===200);

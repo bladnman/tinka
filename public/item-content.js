@@ -6,6 +6,7 @@ import {
   toast,
 } from "./workspace.js";
 import {validTextAnchor} from './markdown-document.js';
+import {fileVersion} from './version-stack.js';
 const host = document.getElementById("item-content"),
   q = new URLSearchParams(location.search);
 let item, variant, content, markdownFrame;
@@ -197,7 +198,10 @@ try {
       "This item is unavailable. Return to the board and refresh.",
     );
   item = await r.json();
-  variant = item.revisions?.find((v) => v.id === q.get("variant"));
+  const requested = q.get("variant");
+  variant = item.revisions?.find((v, i) => (v.id || `revision-${i + 1}`) === requested) || fileVersion(item, requested);
+  if (!variant && /^file-v[1-9][0-9]*(?:-auto(?:-[0-9]+)?)?$/.test(requested || ""))
+    throw new Error("This file version is no longer available. Choose another version on the board.");
   content =
     variant?.content ||
     (variant?.resource || variant?.url ? variant : item.content);

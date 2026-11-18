@@ -25,7 +25,7 @@ export function watchBoard(boardId,{config,onSnapshot,onManifestChange,onShellCh
     try{while(queued){const snapshot=queued;queued=null;
       if(!snapshot.concepts||typeof snapshot.revision!=='string')throw new Error('Invalid board state');
       // Initial/resumed connection also reconciles metadata fetched before connect.
-      if(!latest||latest.manifestRevision!==snapshot.manifestRevision)await onManifestChange(snapshot.manifestRevision);
+      if(!latest||latest.manifestRevision!==snapshot.manifestRevision||latest.versionStackRevision!==snapshot.versionStackRevision)await onManifestChange(snapshot.manifestRevision);
       if(latest&&latest.shellRevision!==snapshot.shellRevision)onShellChange();
       if(!latest||latest.revision!==snapshot.revision)await onSnapshot(snapshot,latest);
       latest=snapshot;

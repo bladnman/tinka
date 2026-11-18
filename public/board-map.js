@@ -4,8 +4,7 @@
 // the frame. The map owns its pointer, wheel and key gestures, so nothing it does
 // reaches the board underneath. All coordinates it exchanges are world units.
 import {wheelZoomFactor} from './canvas-zoom.js';
-
-const HEX = /^#(?:[0-9a-f]{3,4}|[0-9a-f]{6}|[0-9a-f]{8})$/i;
+import {canvasBackdrop,readableColor,renderDrawingColor} from './theme-colors.js';
 
 // Fit the content bounds into a box at most `width` wide and `maxHeight` tall.
 export function mapBox(bounds, { width = 248, maxHeight = 200, minHeight = 96 } = {}) {
@@ -81,9 +80,11 @@ export class BoardMap {
       if (c.roundRect) c.roundRect(x, y, w, h, Math.min(radius, w / 2, h / 2)); else c.rect(x, y, w, h);
     };
     const sage = token('--sage') || '#899477';
+    const theme = document.documentElement.dataset.appearance === 'dark' ? 'dark' : 'light';
     for (const d of decorations) {
       if (d.type === 'line') continue;
-      const color = HEX.test(d.color || '') ? d.color : sage;
+      const color = readableColor(renderDrawingColor(d.color,'stroke',theme) || sage,
+        [canvasBackdrop(this.shapes.backgroundColor,theme)],3).color;
       shape(d, d.type === 'region' ? 3 : 1);
       c.globalAlpha = d.type === 'region' ? .3 : .15; c.fillStyle = color; c.fill();
       c.globalAlpha = .55; c.strokeStyle = color; c.lineWidth = 1; c.stroke();

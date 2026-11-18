@@ -37,9 +37,10 @@ export function contentURL(item, revision) {
   return remoteURL(c?.url) || resourceURL(c?.resource);
 }
 export class WorkspaceClient {
-  constructor(config, revision = 0) {
+  constructor(config, revision = 0, {readOnly=false} = {}) {
     this.config = config;
     this.revision = revision;
+    this.readOnly = readOnly;
     this.queue = Promise.resolve();
     this.pendingWrites = 0;
   }
@@ -50,6 +51,7 @@ export class WorkspaceClient {
     return d;
   }
   importFiles(files, metadata, signal) {
+    if(this.readOnly)return Promise.reject(new Error("This board view is read-only."));
     const operationId = crypto.randomUUID();
     this.pendingWrites++;
     this.onState?.();
@@ -73,20 +75,21 @@ export class WorkspaceClient {
     this.queue = pending;
     return pending;
   }
-  write(type, data = {}, {recordHistory = true,includeHistory = false,operationId = crypto.randomUUID()} = {}) {
+  write(type, data = {}, {recordHistory = true,includeHistory = false,operationId = crypto.randomUUID(),expectedRevision} = {}) {
+    if(this.readOnly)return Promise.reject(new Error("This board view is read-only."));
     this.pendingWrites++;
     this.onState?.();
     const pending = this.queue
       .catch(() => {})
       .then(async () => {
         await writesReady();
-        const appendOnly=['addComment','replyComment','addHighlight'].includes(type);
+        const appendOnly=expectedRevision===undefined&&['addComment','replyComment','addHighlight'].includes(type);
         let d;
         for(let attempt=0;attempt<2;attempt++) {
           const r = await fetch("/api/operations", {
             method: "POST",
             headers: {"Content-Type":"application/json","x-tinka-workspace":this.config.workspaceId},
-            body: JSON.stringify({type,...data,expectedRevision:this.revision,operationId}),
+            body: JSON.stringify({type,...data,expectedRevision:expectedRevision??this.revision,operationId}),
           });
           d = await r.json();
           if(r.ok)break;
@@ -146,41 +149,83 @@ export function toast(message) {
 export function showFailure(error) {
   const d = makeDialog(
     "Change not saved",
-    `<p role="alert">${escape(error.message)}</p><p>Your resource files have not been removed. A conflicting change is never silently overwritten.</p>${error.conflict ? '<button type="button" data-reload>Reload latest</button>' : ""}`,
+    `<p role="alert">${escape(error.message)}</p>${error.conflict ? '<button type="button" data-reload>Reload latest</button>' : ""}`,
   );
   d.querySelector("[data-reload]")?.addEventListener("click", () =>
     location.reload(),
   );
 }
-export function makeDialog(title, body, onSubmit) {
-  const opener = document.activeElement;
+export function bindBackdropDismiss(dialog, dismiss = () => dialog.close()) {
+  const outside = event => {
+    if (event.target !== dialog) return false;
+    const {left,right,top,bottom} = dialog.getBoundingClientRect();
+    return event.clientX < left || event.clientX >= right || event.clientY < top || event.clientY >= bottom;
+  };
+  let press, backdropClick = false;
+  dialog.addEventListener("pointerdown", event => {
+    backdropClick = false;
+    press = event.isPrimary && event.button === 0 && outside(event)
+      ? {id:event.pointerId, x:event.clientX, y:event.clientY} : null;
+  });
+  dialog.addEventListener("pointerup", event => {
+    backdropClick = press?.id === event.pointerId && outside(event) &&
+      Math.hypot(event.clientX - press.x, event.clientY - press.y) < 6;
+    press = null;
+  });
+  dialog.addEventListener("pointercancel", () => { press = null; backdropClick = false; });
+  dialog.addEventListener("click", event => {
+    if (backdropClick && outside(event)) dismiss();
+    backdropClick = false;
+  });
+}
+export function makeDialog(title, body, onSubmit, {
+  opener = document.activeElement, compact = false, shortcutHint, onDismiss,
+} = {}) {
   const d = document.createElement("dialog");
   const titleId = "workspace-dialog-" + crypto.randomUUID();
   d.className = "workspace-dialog";
+  d.classList.toggle("workspace-dialog-compact", compact);
   d.setAttribute("aria-labelledby", titleId);
   d.innerHTML = `<form><button class="workspace-close" type="button" aria-label="Close dialog">×</button><h2 id="${titleId}">${escape(title)}</h2>${body}<p class="workspace-form-status" role="status"></p></form>`;
   document.body.append(d);
-  if (onSubmit && d.querySelector('[type=submit]')) {
-    const hint=document.createElement('small');hint.className='workspace-submit-hint';
-    hint.textContent=`${commitShortcutLabel()} to save`;
-    d.querySelector('.workspace-form-status').before(hint);
+  const form = d.querySelector("form"), status = d.querySelector(".workspace-form-status");
+  const submit = onSubmit && form.querySelector('[type="submit"]');
+  if (submit) {
+    const hint = document.createElement("small");
+    hint.className = "workspace-submit-hint";
+    hint.textContent = shortcutHint || `${commitShortcutLabel()} to confirm`;
+    submit.setAttribute("aria-keyshortcuts", "Meta+Enter Control+Enter");
+    if (submit.parentElement === form) {
+      const footer = document.createElement("footer");
+      footer.className = "workspace-dialog-actions";
+      status.after(footer);
+      footer.append(hint, submit);
+    } else {
+      // A custom form can place its own action row.
+      status.before(hint);
+    }
   }
   let closed = false, controller;
-  const close = () => {
-    if (closed || controller?.pending) return;
-    closed = true; controller?.destroy(); d.close(); d.remove(); restoreFocus(opener);
+  const finish = (saved = false) => {
+    if (closed) return;
+    closed = true;
+    if (!saved) onDismiss?.(form);
+    controller?.destroy();
+    d.close();
+    d.remove();
+    restoreFocus(opener);
   };
-  d.querySelector(".workspace-close").onclick = close;
-  d.addEventListener("cancel", event => { event.preventDefault(); close(); });
-  d.addEventListener("close", () => { controller?.destroy(); d.remove(); });
-  controller = bindForm(d.querySelector('form'), {
+  const dismiss = () => { if (!controller?.pending) finish(); };
+  d.querySelector(".workspace-close").onclick = dismiss;
+  d.addEventListener("cancel", event => { event.preventDefault(); dismiss(); });
+  d.addEventListener("close", () => finish());
+  // The backdrop's events target the dialog itself. Check both ends of the
+  // pointer gesture so releasing a click or text selection outside stays safe.
+  bindBackdropDismiss(d, dismiss);
+  controller = bindForm(form, {
     submit: async data => { await onSubmit?.(data, d); },
-    onSuccess: () => {
-      // The successful form is no longer pending from the domain's perspective.
-      if (!closed) { closed = true; controller.destroy(); d.close(); d.remove(); restoreFocus(opener); }
-    },
+    onSuccess: () => finish(true),
     onError: error => {
-      const status = d.querySelector(".workspace-form-status");
       status.textContent = error.message; status.setAttribute("role", "alert");
       if (error.conflict && !d.querySelector("[data-reload]")) {
         const button = document.createElement("button"); button.type = "button";
@@ -190,6 +235,30 @@ export function makeDialog(title, body, onSubmit) {
   });
   d.showModal();
   return d;
+}
+// Keep the draft on this page if creation is dismissed before it succeeds.
+const boardDrafts = new WeakMap();
+export function newBoardDialog(client, {parentBoardId, opener, refresh}) {
+  const draft = boardDrafts.get(client) || {title:""};
+  boardDrafts.set(client, draft);
+  return makeDialog("New board",
+    `<label>Board name<input name="title" required maxlength="1000" autocomplete="off" autofocus value="${escape(draft.title)}"></label><button type="submit" class="workspace-primary">Create board</button>`,
+    async data => {
+      const title = data.get("title").trim();
+      if (!title) throw new Error("Enter a name for this board.");
+      if (draft.attempt?.title !== title) draft.attempt = {title, id:crypto.randomUUID()};
+      await client.write("createBoard", {title, ...(parentBoardId ? {parentBoardId} : {})}, {operationId:draft.attempt.id});
+      boardDrafts.delete(client);
+      try {
+        await refresh();
+        toast("Board created.");
+      } catch {
+        toast("Board created. Reload to see it.");
+      }
+    }, {
+      opener, compact:true, shortcutHint:"Enter to create",
+      onDismiss: form => { draft.title = form.elements.title.value; },
+    });
 }
 export async function enableOrganization(config) {
   makeDialog(
@@ -210,6 +279,10 @@ export async function enableOrganization(config) {
       location.reload();
     },
   );
+}
+function boardChoices(choices, current) {
+  return `<fieldset class="workspace-board-choices"><legend class="sr-only">Destination</legend>${choices.map(({id,title}) =>
+    `<label><input type="radio" name="target" value="${escape(id)}"${id === current ? " checked" : ""} required><span>${escape(title)}</span></label>`).join("")}</fieldset>`;
 }
 export async function destinationDialog(
   client,
@@ -235,22 +308,26 @@ export async function destinationDialog(
     (b) =>
       b.id !== sourceBoardId &&
       !forbidden.has(b.id) &&
-      !byItem.get(b.ownerItemId)?.deletedAt,
+      !byItem.get(b.ownerItemId)?.deletedAt &&
+      !byItem.get(b.ownerItemId)?.archivedAt,
   );
   const isMove = kind === "move";
-  makeDialog(
+  const newBoard = "@new", home = "@home";
+  const choices = [...boards, ...(itemIds ? [{id:home,title:"Home"}] : []), {id:newBoard,title:"New board…"}];
+  const current = choices.length === 1 ? newBoard : null;
+  const dialog = makeDialog(
     isMove ? "Move to a board" : "Add a reference",
-    `<p>${isMove ? "Replace the selected placements with placements in the destination." : "Keep these placements and add references to the same items in the destination."} Content, stars and notes stay with each item.</p><label>Destination<select name="target"><option value="new">＋ Create a new board</option>${boards.map((b) => `<option value="${escape(b.id)}">${escape(b.title)}</option>`).join("")}${itemIds ? '<option value="home">Home</option>' : ""}</select></label><label data-new-title>New board title<input name="title" maxlength="1000" placeholder="A new series"></label><p class="workspace-scope">A reference shares the item. A duplicate makes a separate item.</p><button class="workspace-primary" type="submit">${isMove ? "Move items" : "Add references"}</button>`,
+    `<p>${isMove ? "Choose where the selected items should move." : "Choose where the same items should also appear."}</p>${boardChoices(choices, current)}<label data-new-title${current ? "" : " hidden"}>New board name<input name="title" maxlength="1000"${current ? " required" : ""}></label><button class="workspace-primary" type="submit">${isMove ? "Move items" : "Add references"}</button>`,
     async (f) => {
       const target = f.get("target");
-      if (target === "new" && !f.get("title").trim())
+      if (target === newBoard && !f.get("title").trim())
         throw new Error("Name the new board.");
       await client.write(kind, {
         ...(sourceBoardId ? { sourceBoardId } : {}),
         ...(placementIds ? { placementIds } : { itemIds }),
-        ...(target === "new"
+        ...(target === newBoard
           ? { newBoard: { title: f.get("title").trim() } }
-          : target === "home"
+          : target === home
             ? {}
             : { targetBoardId: target }),
       });
@@ -262,10 +339,12 @@ export async function destinationDialog(
       );
     },
   );
-  const dialog = document.querySelector("dialog.workspace-dialog:last-of-type");
-  dialog.querySelector("[name=target]").onchange = (e) =>
-    (dialog.querySelector("[data-new-title]").hidden =
-      e.target.value !== "new");
+  const title = dialog.querySelector("[data-new-title]");
+  dialog.querySelector(".workspace-board-choices").addEventListener("change", event => {
+    title.hidden = event.target.value !== newBoard;
+    title.querySelector("input").required = !title.hidden;
+  });
+  return dialog;
 }
 
 export async function featureOnParentDialog(client, {sourceBoardId, placementIds, refresh}) {
@@ -280,21 +359,22 @@ export async function featureOnParentDialog(client, {sourceBoardId, placementIds
     return;
   }
   const from = new URLSearchParams(location.search).get('from');
+  const current = parents.find(board => board.id === from)?.id || parents[0].id;
   let attempt = null;
   const dialog = makeDialog('Show on parent board',
-    `<p>Add the selected work beside this board on a parent. The same items, notes and stars stay shared; the original placements remain here.</p><label>Parent board<select name="target">${parents.map(board => `<option value="${escape(board.id)}" ${board.id === from ? 'selected' : ''}>${escape(board.title)}</option>`).join('')}</select></label><p class="workspace-scope">The parent placements can be moved or removed without changing this board.</p><button class="workspace-primary" type="submit">Show on parent</button>`,
+    `<p>Place the same items beside this board on a parent.</p>${boardChoices(parents, current)}<button class="workspace-primary" type="submit">Show on parent</button>`,
     async (_form, currentDialog) => {
-      const select = currentDialog.querySelector('select[name=target]');
-      const targetBoardId = select.value;
+      const choices = currentDialog.querySelector('.workspace-board-choices');
+      const targetBoardId = choices.querySelector('[name=target]:checked').value;
       if (!attempt || attempt.targetBoardId !== targetBoardId) attempt = {targetBoardId,operationId:crypto.randomUUID()};
       try {
         await client.write('reference',{sourceBoardId,placementIds,targetBoardId,featureOnParent:true},{operationId:attempt.operationId});
       } catch (error) {
         if (!error.rejected) {
-          select.disabled = true;
+          choices.disabled = true;
           throw new Error('Could not confirm the save. Try again for this same parent to check the result.');
         }
-        select.disabled = false;
+        choices.disabled = false;
         attempt = null;
         throw error;
       }
@@ -307,57 +387,106 @@ export async function featureOnParentDialog(client, {sourceBoardId, placementIds
     });
   return dialog;
 }
-export function itemForm(client, { item, boardId, refresh }) {
-  const c = item?.content || {},
-    p = item?.preview || {};
-  makeDialog(
-    item ? "Edit item" : "Add an idea",
-    `<label>Title<input name="title" required maxlength="1000" value="${escape(item?.title || "")}" placeholder="A title is enough to begin"></label><label>Description<textarea name="description" rows="3">${escape(item?.description || "")}</textarea></label><label>Status<select name="status">${[
-      ["draft", "Draft"],
-      ["reserved", "Reserved"],
-      ["building", "Taking shape"],
-      ["review", "Ready to review"],
-      ["ready", "Ready"],
-      ["complete", "Complete"],
-      ["blocked", "Blocked"],
-    ]
-      .map(
-        ([value, label]) =>
-          `<option value="${value}" ${(item?.build?.state || "ready") === value ? "selected" : ""}>${label}</option>`,
-      )
-      .join(
-        "",
-      )}</select></label><label>Primary content<select name="kind">${["text", "note", "html", "image", "video", "audio", "pdf", "markdown", "url", "file"].map((k) => `<option ${c.kind === k ? "selected" : ""}>${k}</option>`).join("")}</select></label><label>Text or transcript<textarea name="text" rows="4">${escape(c.text || "")}</textarea></label><label>External or local application URL<input name="url" type="url" value="${escape(c.url || "")}" placeholder="https://… or http://127.0.0.1:…"></label><label>Open content<select name="openMode"><option value="inline" ${c.openMode === "inline" ? "selected" : ""}>Preview inside Tinka</option><option value="external" ${c.openMode === "external" || c.kind === "url" ? "selected" : ""}>Open externally</option></select></label><details><summary>Project resource & saved representation</summary><p>Resources stay in folders managed by your project. Ask your agent to register a resource root; use its root ID and relative path here.</p><label>Resource root ID<input name="rootId" value="${escape(c.resource?.rootId || "")}"></label><label>Resource path<input name="path" value="${escape(c.resource?.path || "")}" placeholder="ideas/first-video.mp4"></label><label>Preview image root ID<input name="previewRoot" value="${escape(p.resource?.rootId || "")}"></label><label>Preview image path<input name="previewPath" value="${escape(p.resource?.path || "")}"></label><label>Preview text<textarea name="previewText" rows="2">${escape(p.text || "")}</textarea></label><label>Start instructions<textarea name="startInstructions" rows="3">${escape(c.startInstructions || "")}</textarea></label></details><button type="submit" class="workspace-primary">${item ? "Save item" : "Add idea"}</button>`,
-    async (f) => {
-      const content = { kind: f.get("kind"), openMode: f.get("openMode") };
-      for (const key of ["text", "url", "startInstructions"])
-        if (f.get(key).trim()) content[key] = f.get(key).trim();
-      if (f.get("rootId") || f.get("path"))
-        content.resource = {
-          rootId: f.get("rootId").trim(),
-          path: f.get("path").trim(),
-        };
-      const preview = {};
-      if (f.get("previewText").trim())
-        preview.text = f.get("previewText").trim();
-      if (f.get("previewRoot") || f.get("previewPath"))
-        preview.resource = {
-          rootId: f.get("previewRoot").trim(),
-          path: f.get("previewPath").trim(),
-        };
-      const patch = {
-        title: f.get("title").trim(),
-        description: f.get("description"),
-        content,
-        preview,
-        build: { ...(item?.build || { message: "" }), state: f.get("status") },
-      };
-      await client.write(
-        item ? "updateItem" : "createItem",
-        item ? { itemId: item.id, patch } : { boardId, item: patch },
-      );
+const itemStatuses = [
+  ["draft", "Draft"], ["reserved", "Reserved"], ["building", "Taking shape"],
+  ["review", "Ready to review"], ["ready", "Ready"], ["complete", "Complete"], ["blocked", "Blocked"],
+];
+const itemKinds = [
+  ["", "None"], ["text", "Text"], ["note", "Note"], ["html", "HTML"], ["image", "Image"],
+  ["video", "Video"], ["audio", "Audio"], ["pdf", "PDF"], ["markdown", "Markdown"], ["url", "Link"], ["file", "File"],
+];
+const itemOpeningModes = [
+  ["", "Automatic"], ["inline", "Inline"], ["preview", "Preview"], ["standalone", "Standalone"],
+  ["external", "External tab"], ["download", "Download"],
+];
+
+function itemChoices(name, label, choices, selected) {
+  return `<fieldset class="workspace-choice-pills"><legend>${label}</legend>${choices.map(([value, title]) =>
+    `<label><input type="radio" name="${name}" value="${value}"${selected === value ? " checked" : ""}><span>${title}</span></label>`).join("")}</fieldset>`;
+}
+
+export function itemForm(client, { item, boardId, refresh, opener }) {
+  const c = item?.content || {}, p = item?.preview || {};
+  const sectionChoices = [["details", "Details"], ["content", "Content"], ["preview", "Preview"]];
+  const sections = `<div class="workspace-item-sections" role="group" aria-label="Item editor sections">${sectionChoices.map(([id, text]) =>
+    `<button type="button" data-item-section="${id}" aria-pressed="${id === "details"}">${text}</button>`).join("")}</div>`;
+  const dialog = makeDialog(item ? "Edit item" : "Add an idea", `${sections}
+    <div data-item-fields="details">
+      <label>Title<input name="title" required maxlength="1000" value="${escape(item?.title)}" autofocus></label>
+      <label>Description<textarea name="description" rows="2">${escape(item?.description)}</textarea></label>
+      ${itemChoices("status", "Status", itemStatuses, item?.build?.state || "ready")}
+    </div>
+    <div data-item-fields="content" hidden>
+      ${itemChoices("kind", "Content type", itemKinds, c.kind || "")}
+      <div data-item-source hidden>
+        <label>Text or transcript<textarea name="text" rows="2">${escape(c.text)}</textarea></label>
+        <label>Web or local app address<input name="url" type="url" value="${escape(c.url)}"></label>
+        <div class="workspace-item-resource">
+          <label>Resource root<input name="rootId" value="${escape(c.resource?.rootId)}"></label>
+          <label>Resource path<input name="path" value="${escape(c.resource?.path)}"></label>
+        </div>
+        ${itemChoices("openMode", "Open content", itemOpeningModes, c.openMode || "")}
+        <label>App start instructions<textarea name="startInstructions" rows="2">${escape(c.startInstructions)}</textarea></label>
+      </div>
+    </div>
+    <div data-item-fields="preview" hidden>
+      <label>Preview text<textarea name="previewText" rows="2">${escape(p.text)}</textarea></label>
+      <div class="workspace-item-resource">
+        <label>Image root<input name="previewRoot" value="${escape(p.resource?.rootId)}"></label>
+        <label>Image path<input name="previewPath" value="${escape(p.resource?.path)}"></label>
+      </div>
+    </div>
+    <button type="submit" class="workspace-primary">${item ? "Save item" : "Add idea"}</button>`, async data => {
+      const value = key => data.get(key).trim();
+      const title = value("title");
+      if (!title) throw new Error("Enter a title for this item.");
+      const patch = {title, description:data.get("description"), build:{...(item?.build || {message:""}), state:data.get("status")}};
+      const kind = value("kind");
+      if (kind) {
+        const content = {...c, kind};
+        for (const key of ["text", "url", "openMode", "startInstructions"]) {
+          if (data.get(key) === (c[key] ?? "")) continue;
+          if (value(key)) content[key] = key === "text" || key === "startInstructions" ? data.get(key) : value(key);
+          else delete content[key];
+        }
+        if (data.get("rootId") !== (c.resource?.rootId ?? "") || data.get("path") !== (c.resource?.path ?? "")) {
+          if (value("rootId") || value("path")) content.resource = {rootId:value("rootId"), path:value("path")};
+          else delete content.resource;
+        }
+        patch.content = content;
+      } else if (item?.content) patch.content = null;
+      const preview = {...p};
+      if (data.get("previewText") !== (p.text ?? "")) {
+        if (value("previewText")) preview.text = data.get("previewText");
+        else delete preview.text;
+      }
+      if (data.get("previewRoot") !== (p.resource?.rootId ?? "") || data.get("previewPath") !== (p.resource?.path ?? "")) {
+        if (value("previewRoot") || value("previewPath")) preview.resource = {rootId:value("previewRoot"), path:value("previewPath")};
+        else delete preview.resource;
+      }
+      if (Object.keys(preview).length || item?.preview) patch.preview = preview;
+      await client.write(item ? "updateItem" : "createItem", item ? {itemId:item.id, patch} : {boardId, item:patch});
       await refresh();
       toast(item ? "Item updated." : "Idea added.");
-    },
-  );
+    }, {opener});
+  const showSection = id => {
+    for (const button of dialog.querySelectorAll("[data-item-section]"))
+      button.setAttribute("aria-pressed", String(button.dataset.itemSection === id));
+    for (const fields of dialog.querySelectorAll("[data-item-fields]")) fields.hidden = fields.dataset.itemFields !== id;
+  };
+  dialog.querySelector(".workspace-item-sections").addEventListener("click", event => {
+    if (event.target.dataset.itemSection) showSection(event.target.dataset.itemSection);
+  });
+  dialog.addEventListener("invalid", event => {
+    const fields = event.target.closest("[data-item-fields]");
+    if (fields) showSection(fields.dataset.itemFields);
+  }, true);
+  const source = dialog.querySelector("[data-item-source]");
+  const updateSource = () => {
+    source.hidden = dialog.querySelector("[name=kind]:checked").value === "";
+    source.querySelector("[name=url]").disabled = source.hidden;
+  };
+  dialog.addEventListener("change", event => { if (event.target.name === "kind") updateSource(); });
+  updateSource();
+  return dialog;
 }

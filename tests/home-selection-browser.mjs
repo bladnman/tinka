@@ -172,6 +172,7 @@ try {
 
   // Dark theme: same ring and circle in the dark accent.
   await page.setViewportSize({width:1440,height:1000});await page.evaluate(()=>scrollTo(0,0));
+  await page.getByRole('combobox',{name:'Appearance'}).selectOption('system');
   await page.emulateMedia({colorScheme:'dark'});
   await card('Delta').locator('h3').click({modifiers:['Shift']});await card('Gamma').locator('h3').click({modifiers:['Shift']});
   await page.mouse.move(1400,980);await page.waitForTimeout(250);

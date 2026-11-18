@@ -69,7 +69,7 @@ try{
   await run('S creates a sticky',async(page,id)=>{
     await page.mouse.move(600,350);await page.keyboard.press('s');
     const d=await until(async()=>(await decos(id))[0]);
-    assert.equal(d?.type,'region');assert.equal(d.shape,'rectangle');assert.equal(d.color,'#f6e6a4');
+    assert.equal(d?.type,'region');assert.equal(d.shape,'rectangle');assert.equal(d.color,'palette:gold');
     await page.locator(`[data-decoration="${d.id}"]`).waitFor();
   });
 
@@ -101,15 +101,29 @@ try{
     await page.keyboard.press('Escape');await page.locator('.workspace-card.doc-editing').waitFor({state:'detached'});
   });
 
-  await run('Edit tools palette: hidden by default, toggles, buttons work, remembered',async(page,id)=>{
+  await run('Canvas toolbar: visible and grouped, pan is view-only, tools and visibility persist',async(page,id)=>{
     assert.equal(await page.locator('[class*=quick-add],[data-quick-add]').count(),0,'no quick-add strip in the top bar');
     const palette=page.locator('#edit-tools'),toggle=page.locator('#edit-tools-toggle');
-    assert.equal(await palette.isVisible(),false,'palette hidden by default');
-    await page.mouse.click(1100,820);await page.keyboard.press('a');await palette.waitFor({state:'visible'});
+    await palette.waitFor({state:'visible'});
+    assert.deepEqual(await palette.getByRole('group').evaluateAll(groups=>groups.map(group=>group.getAttribute('aria-label'))),['Navigation','Draw','Feedback']);
+    const pointer=palette.getByRole('button',{name:'Pointer'}),pan=palette.getByRole('button',{name:'Pan'});
+    assert.equal(await pointer.getAttribute('aria-pressed'),'true');
+    await pointer.focus();await page.keyboard.press('ArrowRight');
+    assert.equal(await pan.evaluate(button=>document.activeElement===button),true);
+    await pan.press('Enter');
+    assert.equal(await pan.getAttribute('aria-pressed'),'true');
+    const beforeView=await page.locator('#world').boundingBox();
+    const beforeRevision=(await getBoardSnapshot(config,id)).revision;
+    const view=await page.locator('#viewport').boundingBox(),x=view.x+80,y=view.y+150;
+    await page.mouse.move(x,y);await page.mouse.down();await page.mouse.move(x+75,y+40,{steps:8});await page.mouse.up();
+    assert.ok((await page.locator('#world').boundingBox()).x>beforeView.x+40,'the hand moves the viewport');
+    assert.equal((await getBoardSnapshot(config,id)).revision,beforeRevision);
+    await page.keyboard.press('Escape');
+    assert.equal(await pointer.getAttribute('aria-pressed'),'true');
     assert.equal(await toggle.getAttribute('aria-pressed'),'true');
     await page.keyboard.press('a');await palette.waitFor({state:'hidden'});
     await toggle.click();await palette.waitFor({state:'visible'});
-    for(const [tool,check] of [['text',d=>d.type==='text'],['sticky',d=>d.color==='#f6e6a4']]){
+    for(const [tool,check] of [['text',d=>d.type==='text'],['sticky',d=>d.shape==='rectangle'],['rounded',d=>d.shape==='rounded'],['arrow',d=>d.type==='line']]){
       const before=(await decos(id)).length;
       await palette.locator(`[data-edit-tool=${tool}]`).click();
       const d=await until(async()=>{const all=await decos(id);return all.length>before&&all.at(-1);});
@@ -117,11 +131,14 @@ try{
       await page.keyboard.press('Escape');await page.mouse.click(1100,820);await page.waitForTimeout(200);
     }
     assert.equal(await palette.isVisible(),true,'Escape leaves the palette open');
-    await palette.locator('[data-edit-tool=document]').click();
+    await page.keyboard.press('d');
     await page.locator('.workspace-card.doc-editing').waitFor({timeout:6000});
     await page.keyboard.press('Escape');await page.locator('.workspace-card.doc-editing').waitFor({state:'detached'});
-    await palette.locator('[data-edit-tool=jot]').click();await page.locator('.quick-jot input').waitFor();await page.keyboard.press('Escape');
-    await palette.locator('[data-edit-tool=more]').click();await page.locator('.workspace-add-menu').waitFor();await page.keyboard.press('Escape');
+    await page.keyboard.press('n');await page.locator('.quick-jot input').waitFor();await page.keyboard.press('Escape');
+    assert.equal(await palette.locator('[aria-haspopup=menu]').count(),0);
+    await page.setViewportSize({width:320,height:620});
+    const narrow=await palette.boundingBox();
+    assert.ok(narrow.x>=0&&narrow.x+narrow.width<=320,'the complete rail fits');
     await page.reload();await page.locator('#edit-tools').waitFor({state:'visible',timeout:8000});
     await page.locator('#edit-tools-toggle').click();await page.reload();await page.waitForSelector('#edit-tools-toggle');await page.waitForTimeout(500);
     assert.equal(await page.locator('#edit-tools').isVisible(),false,'off state survives reload');
