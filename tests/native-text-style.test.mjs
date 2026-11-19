@@ -5,6 +5,11 @@ import path from 'node:path';
 import test from 'node:test';
 import {callTool} from '../lib/tools.mjs';
 import {applyOperation, getBoardSnapshot} from '../lib/workspace.mjs';
+// Drawn elements now carry their place in the board's stacking order (z); these
+// checks are about style and geometry, so they compare without it.
+const unstacked = value => Array.isArray(value) ? value.map(unstacked) : value && typeof value === 'object' ? (({z, ...rest}) => rest)(value) : value;
+const sameDrawn = (actual, expected) => assert.deepEqual(unstacked(actual), unstacked(expected));
+
 
 test('native Text styling survives tool and workspace writes, undo and board duplication', async t => {
   const directory = await mkdtemp(path.join(tmpdir(), 'tinka-text-style-'));
@@ -27,22 +32,22 @@ test('native Text styling survives tool and workspace writes, undo and board dup
   const shape = {...region, id:'shape', shape:'diamond', textSize:10};
   await apply('createDecoration', {decoration:region});
   await tool('decoration.create', {decoration:shape});
-  assert.deepEqual((await board()).decorations, [decoration, {...decoration, id:'preset', textSize:'large'}, region, shape]);
+  sameDrawn((await board()).decorations, [decoration, {...decoration, id:'preset', textSize:'large'}, region, shape]);
 
   const patch = {textSize:144, textFace:'mono', textFill:'#abcD', textBorder:{style:'solid'}, textPadding:0};
   const updated = await tool('decoration.update', {decorationId:'text', patch});
-  assert.deepEqual((await board()).decorations[0], {...decoration, ...patch});
+  sameDrawn((await board()).decorations[0], {...decoration, ...patch});
   const undo = await apply('restoreMovement', {history:updated.history});
-  assert.deepEqual((await board()).decorations[0], decoration);
+  sameDrawn((await board()).decorations[0], decoration);
   await apply('restoreMovement', {history:undo.history});
   const current = await board();
   const noBorder = {...current.decorations[0], textBorder:null};
   const mixed = [noBorder, current.decorations[1], {...region, textSize:32}, shape];
   await tool('board.update', {patch:{decorations:mixed}});
-  assert.deepEqual((await board()).decorations, mixed);
+  sameDrawn((await board()).decorations, mixed);
   const {result:{childBoardId}} = await apply('duplicate', {itemId:current.ownerItemId});
-  assert.deepEqual((await board(childBoardId)).decorations, (await board()).decorations);
-  assert.deepEqual((await board(childBoardId)).decorations[0], noBorder);
+  sameDrawn((await board(childBoardId)).decorations, (await board()).decorations);
+  sameDrawn((await board(childBoardId)).decorations[0], noBorder);
 
   const resized = await tool('decoration.update', {decorationId:'sticky', patch:{textSize:144}});
   assert.equal((await board()).decorations[2].textSize, 144);

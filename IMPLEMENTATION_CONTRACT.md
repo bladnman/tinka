@@ -65,7 +65,7 @@ accepts {patch:{note?,star?},expectedRevision?,operationId?}. POST
 /resources/:rootId/PATH uses named-root realpath/dotfile/symlink containment and media
 byte ranges; ordinary relative HTML assets resolve in the same namespace.
 
-Operations: createItem, updateItem, createBoard, updateBoard, updatePlacement, translatePlacements, arrangePlacements, groupOccurrences, ungroupOccurrences,
+Operations: createItem, updateItem, createBoard, updateBoard, updatePlacement, translatePlacements, arrangePlacements, groupOccurrences, ungroupOccurrences, restackOccurrences,
 move, pastePlacements, restoreMovement, reference, duplicate, archive, archiveItem, remove, deleteItem, review,
 updateWorkspace, addHighlight, removeHighlight. CLI workspace show/op and item show use these same transactions.
 Graph-aware board create/status preserve existing command usage. See
@@ -145,6 +145,28 @@ presentation and z are unchanged. Cancellation/conflicts restore all cards, pres
 selection/drafts and reconcile the latest board. Moving away clears only moved
 selection/context; ordinary positioning retains selection. Keyed previews remain
 mounted throughout dragging and reconciliation.
+
+Stacking order (`public/stacking.js`, shared by store and browser): placements and
+drawn elements share one order. Placement `z` and an optional finite decoration `z`
+(±10000000) share one numeric space; a decoration without `z` keeps its former fixed
+level (plain region/container 0, text and shapes 1, sticker and line 2), ties put
+decorations beneath placements and then array order, so saved boards render
+unchanged without migration. A container paints directly beneath its lowest member.
+The browser paints each object at its 1-based rank as inline z-index; overlays
+(pins 10005/10006, ports 10001, selected-line/sticker lift, drag 100002, copy and
+drop layers) stay above content. createItem/createDecoration without explicit z land
+on top, beneath existing objects resting on them (more than half inside, at most
+half the base's area; arrows and stickers are never bases). Paste, import and
+duplicate copies land on top keeping relative order (paste keeps z distances).
+`restack:"drop"` on updatePlacement (x/y), translatePlacements and updateDecoration
+applies the drop rule after container reflow in the same revision and receipt: the
+moved set (containers bring members) rises only if it newly overlaps a non-line
+object above it, then sits above everything except objects resting on it. Nudges,
+resizes, arrange, selection and style edits never restack. restackOccurrences
+{boardId,placementIds?,decorationIds?,to:front|back} (`board.restack`) moves a
+selection to the top or bottom keeping relative order, with a movement receipt;
+Canvas `]`/`[`, the tile ⋯ menu, shape/region/arrow options panels and any drawing
+More menu use it.
 
 Saved Canvas groups use optional board records `{id,placementIds,decorationIds}`
 with at least two top-level members and no nested groups. Cmd/Ctrl-G and the

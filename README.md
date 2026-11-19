@@ -361,6 +361,18 @@ objects in place as separate selections. Both actions support Undo and Redo.
 Select a container itself to group it with other objects. Its children follow
 the container's layout.
 
+Everything on a Canvas, Tinkas and drawings alike, sits in one stacking order.
+New things land on top, except that a colored region or other backdrop drawn
+around existing objects goes under them. Dragging something onto an object above
+it, that it was not touching before, brings it forward; a small slip, a slide
+among the same neighbours, arrow-key nudges, resizing, recoloring and editing
+leave the order alone. A backdrop you drag stays beneath the things resting on it
+(more than half inside it and no more than half its size). Press **]** to bring the
+selection to the front or **[** to send it to the back, or choose Bring to front /
+Send to back from a Tinka's ⋯ menu or a shape's, region's or arrow's options. Undo
+restores the order with the move that changed it. Existing boards keep their
+appearance: drawings without a saved place keep the levels they always had.
+
 Hold **Option** (**Alt** on Windows or Linux) as you start dragging a card or
 drawn element to place a copy on the same canvas. Drag a selected member to copy
 the whole selection in one Undo step. A card copy has its own position and size

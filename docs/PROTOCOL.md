@@ -193,7 +193,7 @@ drawn elements were copied. Mixed Paste and Duplicate each use one receipt.
 Paste creates fresh canonical and placement IDs in one revision, retaining saved
 content, review, resource references, dimensions, presentation, relative x/y and
 relative z distances. `targetPosition` anchors the selected minimum x/y corner;
-stacking begins above existing destination placements. Copies of the same selected
+stacking begins above everything on the destination board (see Stacking order). Copies of the same selected
 item share one new canonical identity. Originals remain unchanged, and the saved
 snapshot remains usable after their source placements move. Archived selections
 produce visible unarchived copies. Board copies retain their saved arrangement,
@@ -372,6 +372,50 @@ and support the same signed Undo/Redo history. Removals that leave fewer than tw
 members dissolve the group. An occurrence copy preserves grouping when it
 copies every member. Moving every member of a placement-only group to another
 board carries the group membership with the new placements.
+
+#### Stacking order
+
+Everything on a Canvas shares one stacking order: Tinka placements and drawn
+elements alike (text, stickies, shapes, stickers, regions, containers and arrows).
+A placement's `z` is its place in that order. A drawn element may store an optional
+`z` in the same numeric space (finite, within ±10000000; `decoration.create` and
+`decoration.update` accept it). A drawn element without `z` keeps the level it has
+always had: plain regions and containers 0, text and shapes (stickies included) 1,
+stickers and arrows 2. Higher values paint above lower ones; at equal values drawn
+elements paint beneath placements, then in array order. Saved boards therefore look
+exactly as before until something is restacked, and no migration is involved. A
+container is always drawn directly beneath its lowest member. Pins, comment
+markers, ports, drop markers, guides and dragged objects stay above all content; a
+selected arrow or sticker is lifted while selected so its handles stay usable.
+`public/stacking.js` is the shared rule for the store and the browser.
+
+New objects land on top: `createItem` placements and `createDecoration` elements
+without an explicit `z` go above everything, beneath any existing object that rests
+on them. An object rests on another when more than half of it lies inside the
+other and it is at most half the other's size; arrows and stickers never act as a
+base. A colored region drawn around existing cards therefore goes under them.
+Pasted, imported and duplicated copies keep their own relative order (paste keeps
+relative `z` distances) and land on top of everything.
+
+Selecting, editing text, recoloring, restyling, resizing, keyboard nudges and
+`arrangePlacements` never change the order. A pointer drag may: `updatePlacement`
+(with `x` or `y`), `translatePlacements` and `updateDecoration` accept
+`restack:"drop"`, which the browser sends for drag drops. The moved objects (a
+container brings its members) come forward only when the drop makes them overlap
+something above them that they did not overlap before; arrows do not count as such
+a neighbour. They then rise above everything except the objects resting on them,
+which stay above them in their own order. A drop that creates no new overlap, such
+as a small slip or a slide among the same neighbours, leaves the order alone. The
+reorder is part of the move's revision and its one movement receipt, so Undo
+restores position and order together.
+
+`restackOccurrences` (`board.restack`) takes `boardId`, `placementIds` and/or
+`decorationIds` (at least one) and `to:"front"|"back"`. It moves the selection to the
+top or bottom of the order, keeping its relative order, and returns
+`{boardId,placementIds,decorationIds}` with a movement receipt. On Canvas, `]` and
+`[` (outside fields, dialogs and readers) and Bring to front / Send to back in a
+tile's ⋯ menu, a shape's, region's or arrow's options panel and a drawing's More
+menu (when it has one) run it on the current selection.
 
 Receipts are bound to their durable workspace and authenticated using a private
 key stored lazily in workspace metadata. Public workspace/board responses and

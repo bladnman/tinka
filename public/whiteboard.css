@@ -3,14 +3,17 @@
    appearance; the renderer supplies per-appearance ink and an editing wash. */
 .workspace-decoration { --decoration-color:var(--decoration-color-light); --decoration-opacity:var(--decoration-opacity-light,20%); --decoration-stroke:var(--decoration-stroke-light); --decoration-ink:var(--decoration-ink-light,var(--ink)); --decoration-region-label:var(--decoration-region-label-light,var(--ink-2)); --decoration-wash:var(--decoration-wash-light,var(--paper)); --line-halo:var(--line-halo-light,transparent); }
 html[data-appearance="dark"] .workspace-decoration { --decoration-color:var(--decoration-color-dark); --decoration-opacity:var(--decoration-opacity-dark,20%); --decoration-stroke:var(--decoration-stroke-dark); --decoration-ink:var(--decoration-ink-dark,var(--ink)); --decoration-region-label:var(--decoration-region-label-dark,var(--ink-2)); --decoration-wash:var(--decoration-wash-dark,var(--paper)); --line-halo:var(--line-halo-dark,transparent); }
-.whiteboard-shape { background:transparent !important; border:0 !important; border-radius:0 !important; box-shadow:none !important; z-index:1 !important; }
+/* Board content paints in the board's one shared stacking order (public/stacking.js),
+   set inline as z-index. Only interaction states below lift an object, and every
+   overlay (ports, pins, guides, drop markers) stays above all content. */
+.whiteboard-shape { background:transparent !important; border:0 !important; border-radius:0 !important; box-shadow:none !important; }
 .whiteboard-silhouette { position:absolute; inset:0; width:100%; height:100%; fill:var(--decoration-color); stroke:var(--decoration-stroke); stroke-width:1; overflow:visible; pointer-events:none; filter:drop-shadow(0 3px 3px #35402a14); }
 .whiteboard-shape .workspace-decoration-label { position:relative; display:flex; align-items:center; justify-content:center; width:100%; height:100%; box-sizing:border-box; text-align:center; white-space:pre-wrap; color:var(--decoration-ink); padding:16px; font:400 20px/1.4 Georgia,serif; }
 .shape-rectangle .workspace-decoration-label { align-items:flex-start; justify-content:flex-start; text-align:left; padding:20px; }
 .shape-diamond .workspace-decoration-label { padding:20% 24%; }
 .shape-ellipse .workspace-decoration-label { padding:15% 20%; }
-.workspace-decoration.decoration-line { background:transparent; pointer-events:none; outline:none; z-index:2; }
-.workspace-decoration.decoration-line.selected { outline:none; z-index:10000; }
+.workspace-decoration.decoration-line { background:transparent; pointer-events:none; outline:none; }
+.workspace-decoration.decoration-line.selected { outline:none; z-index:10000 !important; }
 .workspace-decoration.decoration-line:is([style*="--line-halo-light:"],[style*="--line-halo-dark:"]) .workspace-decoration-line {
   filter:drop-shadow(0 0 1px var(--line-halo)) drop-shadow(0 0 1px var(--line-halo));
 }
@@ -105,7 +108,6 @@ body:has(.workspace-add-menu) > :is(.whiteboard-toolbar,.whiteboard-menu) { visi
 .deco-body{display:block;max-width:100%;white-space:normal}.deco-body ul,.deco-body ol{margin:0;padding-left:1.3em;text-align:left}.deco-heading{font-size:1.3em;font-weight:600}.deco-body code{font-family:ui-monospace,monospace;font-size:.9em}
 /* Text is a readable block, using the board's existing typography and colors. */
 .workspace-board .workspace-decoration.decoration-text {
-  z-index:1;
   --text-fill:var(--text-fill-light,transparent);
   --text-edge:var(--text-edge-light,transparent);
   --text-halo:var(--text-halo-light,transparent);
@@ -139,8 +141,8 @@ html[data-appearance="dark"] .workspace-board .workspace-decoration.decoration-t
 .workspace-decoration.whiteboard-container[data-container-drop-target=ready] { outline:3px solid var(--green); outline-offset:2px; }
 .workspace-decoration.whiteboard-container[data-container-drop-target=blocked] { outline:2px dashed var(--muted); outline-offset:2px; }
 .workspace-board .workspace-decoration.whiteboard-dragging { z-index:100002 !important; }
-.workspace-board .workspace-decoration.whiteboard-sticker { display:grid; place-items:center; z-index:2; user-select:none; }
-.workspace-board .workspace-decoration.whiteboard-sticker.selected { z-index:10003; }
+.workspace-board .workspace-decoration.whiteboard-sticker { display:grid; place-items:center; user-select:none; }
+.workspace-board .workspace-decoration.whiteboard-sticker.selected { z-index:10003 !important; }
 .whiteboard-sticker > .whiteboard-sticker-glyph {
   padding:0; width:max-content; height:max-content; pointer-events:none;
   font:normal var(--sticker-size)/1 'Apple Color Emoji','Segoe UI Emoji','Noto Color Emoji',sans-serif;

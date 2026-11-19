@@ -234,6 +234,8 @@ body .workspace-add-menu button > span { width: 18px; color: var(--ink-3); text-
 #world .workspace-card.selected, #world .workspace-card.inspected { outline: 2px solid var(--board-ring,var(--accent-ring)); outline-offset: 2px; }
 #world .workspace-card.inspected:not(.selected) { outline-style: dashed; }
 #world .workspace-card.workspace-dragging, #world .workspace-card[data-dragging] { box-shadow: var(--e3); }
+/* A card in flight rides above all content; the drop decides its place in the order. */
+#world .workspace-card.workspace-dragging { z-index: 100002 !important; }
 #world .workspace-card-preview { background-color: var(--surface-sunken); }
 #world .workspace-compact .workspace-card-preview { border-top: 0; }
 #world .workspace-panel { border-radius: var(--r-lg); }

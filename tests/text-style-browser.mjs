@@ -112,7 +112,7 @@ try {
   await appearance.waitFor({state:"hidden"});
   await waitFor(async()=>(await saved("copy")).textSize===37);
   assert.deepEqual(await saved("copy"),{id:"copy",type:"text",x:36,y:60,width:278,height:85,color:"palette:rose",
-    text:"## A title\nText wraps naturally in its box.",textSize:37,textFace:"mono",textFill:"palette:blue",textBorder:{style:"dashed",color:"palette:clay"},textPadding:16});
+    text:"## A title\nText wraps naturally in its box.",textSize:37,textFace:"mono",textFill:"palette:blue",textBorder:{style:"dashed",color:"palette:clay"},textPadding:16,z:2});
   await waitFor(()=>label.evaluate(node=>getComputedStyle(node).paddingTop==="16px"));
   assert.deepEqual(await label.evaluate(node=>{
     const style=getComputedStyle(node);

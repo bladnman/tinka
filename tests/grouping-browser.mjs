@@ -6,6 +6,7 @@ import {pathToFileURL} from 'node:url';
 import {main} from '../cli.mjs';
 import {loadConfig} from '../lib/config.mjs';
 import {applyOperation,getBoardSnapshot} from '../lib/workspace.mjs';
+import {stackOrder} from '../public/stacking.js';
 import {createAppServer,closeAppServer} from '../server.mjs';
 
 const {chromium}=await import(process.env.PLAYWRIGHT_MODULE?pathToFileURL(process.env.PLAYWRIGHT_MODULE).href:'playwright');
@@ -131,6 +132,21 @@ try {
   await action('ungroupOccurrences',()=>page.keyboard.press(`${mod}+g`));
   await drawingGroup.getByText('Group',{exact:true}).waitFor();
 
+  // One shared stacking order: the rendered z-index follows it, and [ sends the
+  // selected drawings to the back in one undoable step.
+  const painted=async()=>(await page.evaluate(()=>[...document.querySelectorAll('#world [data-placement],#world [data-decoration]')]
+    .map(el=>[el.dataset.placement||el.dataset.decoration,Number(getComputedStyle(el).zIndex)])))
+    .sort((a,b)=>a[1]-b[1]).map(([id])=>id);
+  assert.deepEqual(await painted(),stackOrder(await snapshot()).map(entry=>entry.id));
+  const restacked=await action('restackOccurrences',()=>page.keyboard.press('['));
+  assert.deepEqual(new Set(restacked.decorationIds),new Set(['caption','spare']));
+  const sent=stackOrder(await snapshot()).map(entry=>entry.id);
+  assert.deepEqual(new Set(sent.slice(0,2)),new Set(['caption','spare']));
+  await page.waitForFunction(order=>{const z=id=>Number(getComputedStyle(document.querySelector(`#world [data-decoration="${id}"],#world [data-placement="${id}"]`)).zIndex);
+    return order.every((id,index)=>!index||z(order[index-1])<z(id));},sent);
+  await action('restoreMovement',()=>page.keyboard.press(`${mod}+z`));
+  assert.deepEqual(stackOrder(await snapshot()).map(entry=>entry.id),stackOrder(ungrouped).map(entry=>entry.id));
+
   await draw('caption').dblclick();
   await page.locator('.whiteboard-editor textarea').waitFor();
   const beforeEdit=await snapshot();
@@ -138,7 +154,7 @@ try {
   assert.deepEqual((await snapshot()).groups,beforeEdit.groups);
   assert.equal(await page.locator('.whiteboard-editor textarea').count(),1);
   assert.deepEqual(errors,[]);
-  console.log('Grouping passed: mixed selection, geometry, reload, nudge, container children, Option-copy, undo, native toolbar and editor guard.');
+  console.log('Grouping passed: mixed selection, geometry, reload, nudge, container children, Option-copy, undo, stacking keys, native toolbar and editor guard.');
 } finally {
   await browser?.close();
   if(server)await closeAppServer(server);

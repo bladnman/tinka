@@ -1741,6 +1741,12 @@
             },
             "required": [],
             "additionalProperties": false
+          },
+          "restack": {
+            "description": "\"drop\" applies the pointer-drop stacking rule: the moved objects come forward only when the move makes them overlap something above them that they did not overlap before, staying beneath objects resting on them.",
+            "enum": [
+              "drop"
+            ]
           }
         },
         "required": [
@@ -1801,6 +1807,12 @@
             "type": "number",
             "minimum": -10000000,
             "maximum": 10000000
+          },
+          "restack": {
+            "description": "\"drop\" applies the pointer-drop stacking rule: the moved objects come forward only when the move makes them overlap something above them that they did not overlap before, staying beneath objects resting on them.",
+            "enum": [
+              "drop"
+            ]
           }
         },
         "required": [
@@ -1897,6 +1909,64 @@
         ]
       },
       "operation": "ungroupOccurrences",
+      "mutating": true
+    },
+    {
+      "name": "board.restack",
+      "description": "Bring placements and drawn elements to the front of the board's shared stacking order, or send them to the back, keeping their relative order. A container brings its members. Undoable.",
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "expectedRevision": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "operationId": {
+            "type": "string",
+            "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_-]{0,127}$",
+            "maxLength": 128
+          },
+          "boardId": {
+            "type": "string",
+            "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_-]{0,127}$",
+            "maxLength": 128
+          },
+          "placementIds": {
+            "type": "array",
+            "maxItems": 10000,
+            "uniqueItems": true,
+            "items": {
+              "type": "string",
+              "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_-]{0,127}$",
+              "maxLength": 128
+            },
+            "description": "Board placement IDs."
+          },
+          "decorationIds": {
+            "type": "array",
+            "maxItems": 10000,
+            "uniqueItems": true,
+            "items": {
+              "type": "string",
+              "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_-]{0,127}$",
+              "maxLength": 128
+            },
+            "description": "Board decoration IDs."
+          },
+          "to": {
+            "enum": [
+              "front",
+              "back"
+            ]
+          }
+        },
+        "required": [
+          "boardId",
+          "to"
+        ]
+      },
+      "operation": "restackOccurrences",
       "mutating": true
     },
     {
@@ -2894,6 +2964,12 @@
                 "minimum": -180,
                 "maximum": 180,
                 "description": "Clockwise emoji sticker rotation in degrees."
+              },
+              "z": {
+                "description": "Place in the board's shared stacking order (higher paints above). Omit to land on top.",
+                "type": "number",
+                "minimum": -10000000,
+                "maximum": 10000000
               }
             },
             "required": [
@@ -3479,10 +3555,22 @@
                 "minimum": -180,
                 "maximum": 180,
                 "description": "Clockwise emoji sticker rotation in degrees."
+              },
+              "z": {
+                "description": "Place in the board's shared stacking order (higher paints above). Omit to land on top.",
+                "type": "number",
+                "minimum": -10000000,
+                "maximum": 10000000
               }
             },
             "required": [],
             "additionalProperties": false
+          },
+          "restack": {
+            "description": "\"drop\" applies the pointer-drop stacking rule: the moved objects come forward only when the move makes them overlap something above them that they did not overlap before, staying beneath objects resting on them.",
+            "enum": [
+              "drop"
+            ]
           }
         },
         "required": [

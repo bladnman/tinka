@@ -8,6 +8,11 @@ import {applyOperation,getBoardSnapshot} from '../lib/workspace.mjs';
 import {emojiSticker,favoriteEmoji} from '../public/emoji-stickers.js';
 import {emojiEntries,emojiGroups,emojiVersion} from '../public/emoji-repertoire.js';
 import {makeEmojiSearch} from '../public/emoji-search.js';
+// Drawn elements now carry their place in the board's stacking order (z); these
+// checks are about style and geometry, so they compare without it.
+const unstacked = value => Array.isArray(value) ? value.map(unstacked) : value && typeof value === 'object' ? (({z, ...rest}) => rest)(value) : value;
+const sameDrawn = (actual, expected) => assert.deepEqual(unstacked(actual), unstacked(expected));
+
 
 test('one pasted emoji retains its Unicode sequence',()=>{
   for(const value of ['🚀','⚡️','👩🏽‍💻','🇨🇦','4️⃣'])assert.equal(emojiSticker(` ${value} `),value);
@@ -43,7 +48,7 @@ test('a sticker from the bundled repertoire can use code points newer than the h
   await applyOperation(config,{type:'createBoard',id:boardId,title:'New emoji'});
   const decoration={id:'cracking-face',type:'text',text:'🫫',sticker:true,x:0,y:0,width:112,height:112,color:'palette:neutral'};
   await callTool(config,'decoration.create',{boardId,decoration});
-  assert.deepEqual((await getBoardSnapshot(config,boardId)).decorations,[decoration]);
+  sameDrawn((await getBoardSnapshot(config,boardId)).decorations,[decoration]);
 });
 
 test('sticker creation, rotation, copy and group retain compact independent board data',async t=>{
@@ -58,13 +63,13 @@ test('sticker creation, rotation, copy and group retain compact independent boar
   await callTool(config,'decoration.create',{boardId,decoration:original});
   const transformed=await callTool(config,'decoration.update',{boardId,decorationId:'rocket',patch:{rotation:-45,width:180,height:180}});
   const snapshot=()=>getBoardSnapshot(config,boardId);
-  assert.deepEqual((await snapshot()).decorations[0],{...original,rotation:-45,width:180,height:180});
+  sameDrawn((await snapshot()).decorations[0],{...original,rotation:-45,width:180,height:180});
   const inverse=await op('restoreMovement',{history:transformed.history});
-  assert.deepEqual((await snapshot()).decorations[0],original);
+  sameDrawn((await snapshot()).decorations[0],original);
   await op('restoreMovement',{history:inverse.history});
   const duplicate=await op('duplicateOccurrences',{placementIds:[],decorationIds:['rocket'],dx:12,dy:15});
   const saved=await snapshot(), copy=saved.decorations.find(d=>d.id===duplicate.result.decorationIds[0]);
-  assert.deepEqual(copy,{...saved.decorations[0],id:copy.id,x:27,y:35});
+  sameDrawn(copy,{...saved.decorations[0],id:copy.id,x:27,y:35});
   await op('groupOccurrences',{placementIds:[],decorationIds:['rocket',copy.id]});
   assert.deepEqual((await snapshot()).groups[0].decorationIds,['rocket',copy.id]);
   await assert.rejects(op('updateDecoration',{decorationId:'rocket',patch:{rotation:181}}),{status:400});

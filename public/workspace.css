@@ -1238,7 +1238,6 @@ html[data-theme="night"] .item-representation p {
 .workspace-decoration.selected { outline: 1px dashed #8b9d77; outline-offset: 3px; }
 .workspace-decoration .workspace-decoration-label[contenteditable] { cursor: text; outline: 1px solid #98aa84; background: #fafcf5a0; }
 .workspace-board .decoration-text { color: var(--decoration-color); }
-.workspace-board .decoration-region { z-index: 0; }
 .workspace-board .decoration-line { background: transparent; min-height: 1px; }
 .workspace-decoration-line { position: absolute; inset: 0; width: 100%; height: 100%; overflow: visible; pointer-events: none; }
 .decoration-line .workspace-decoration-label { position: absolute; left: 0; bottom: 100%; padding: 3px 0; font-size: 16px; min-height: 0; }
@@ -1560,7 +1559,7 @@ html[data-appearance="dark"] .board-miniature .workspace-cover-tile.mini-tile { 
 @media (pointer:coarse) { .arrange-menu { --arrange-control:42px; } }
 
 /* ---------- Comment tool: pins, the comments layer and Send to agent ---------- */
-.comment-pins { position: absolute; inset: 0; pointer-events: none; z-index: 30; }
+.comment-pins { position: absolute; inset: 0; pointer-events: none; z-index: 10005; }
 .comment-pins[hidden] { display: none; }
 .comment-pin { position: absolute; pointer-events: auto; display: grid; place-items: center; width: 30px; height: 30px; min-width: 0; min-height: 0; padding: 0;
   transform: translate(-4px, -100%) scale(var(--chrome-scale, 1)); transform-origin: 4px 100%;

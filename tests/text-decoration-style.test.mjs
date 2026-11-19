@@ -5,6 +5,11 @@ import path from 'node:path';
 import test from 'node:test';
 import {callTool} from '../lib/tools.mjs';
 import {applyOperation, getBoardSnapshot} from '../lib/workspace.mjs';
+// Drawn elements now carry their place in the board's stacking order (z); these
+// checks are about style and geometry, so they compare without it.
+const unstacked = value => Array.isArray(value) ? value.map(unstacked) : value && typeof value === 'object' ? (({z, ...rest}) => rest)(value) : value;
+const sameDrawn = (actual, expected) => assert.deepEqual(unstacked(actual), unstacked(expected));
+
 
 async function fixture(t) {
   const directory = await mkdtemp(path.join(tmpdir(), 'tinka-text-sizing-'));
@@ -26,14 +31,14 @@ test('Text sizing is stored with text and geometry and survives occurrence copy 
   const legacy = {...base, id:'legacy'};
   await tool('decoration.create', {decoration:initial});
   await apply('createDecoration', {decoration:legacy});
-  assert.deepEqual((await read()).decorations, [initial, legacy]);
+  sameDrawn((await read()).decorations, [initial, legacy]);
 
   const measured = {text:'A longer heading', textSize:36, height:90};
   const fitted = await tool('decoration.update', {decorationId:base.id, patch:measured});
   const afterFit = {...initial, ...measured};
-  assert.deepEqual((await read()).decorations[0], afterFit);
+  sameDrawn((await read()).decorations[0], afterFit);
   const inverse = await apply('restoreMovement', {history:fitted.history});
-  assert.deepEqual((await read()).decorations[0], initial);
+  sameDrawn((await read()).decorations[0], initial);
   await apply('restoreMovement', {history:inverse.history});
 
   const fixed = {width:180, height:64, textSizing:'fixed'};
@@ -43,12 +48,12 @@ test('Text sizing is stored with text and geometry and survives occurrence copy 
     placementIds:[], decorationIds:[base.id], dx:50, dy:20,
   });
   const copied = {...manuallySized, id:copy.result.decorationIds[0], x:70, y:50};
-  assert.deepEqual((await read()).decorations, [manuallySized, legacy, copied]);
+  sameDrawn((await read()).decorations, [manuallySized, legacy, copied]);
   const undoneCopy = await apply('restoreMovement', {history:copy.history});
-  assert.deepEqual((await read()).decorations, [manuallySized, legacy]);
+  sameDrawn((await read()).decorations, [manuallySized, legacy]);
   await apply('restoreMovement', {history:undoneCopy.history});
   await tool('board.update', {patch:{decorations:[manuallySized, legacy, copied]}});
-  assert.deepEqual((await read()).decorations, [manuallySized, legacy, copied]);
+  sameDrawn((await read()).decorations, [manuallySized, legacy, copied]);
 });
 
 test('Text sizing rejects unknown modes and non-Text decorations without a write', async t => {
@@ -62,5 +67,5 @@ test('Text sizing rejects unknown modes and non-Text decorations without a write
   await assert.rejects(tool('decoration.update', {decorationId:region.id, patch:{textSizing:'auto'}}), {status:400});
   await assert.rejects(apply('createDecoration', {decoration:{...region, id:'invalid', textSizing:'fixed'}}), {status:400});
   assert.equal((await read()).revision, before.revision);
-  assert.deepEqual((await read()).decorations, [base, region]);
+  sameDrawn((await read()).decorations, [base, region]);
 });
