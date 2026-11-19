@@ -77,7 +77,7 @@ try {
 
   await idle();
   await sizeButton.click();
-  assert.equal(await sizePanel.getByRole("button",{name:"Disable auto height"}).getAttribute("aria-pressed"),"true");
+  assert.equal(await sizePanel.locator("[data-auto-height]").count(),0);
   const scrub=sizePanel.getByRole("slider",{name:"Adjust text size"});
   const control=await scrub.boundingBox();
   const sizeRevision=(await snapshot()).revision;
@@ -112,18 +112,19 @@ try {
   assert.equal(await logicalHeight(id),fixed.height);
   await edit.press("Escape");
   assert.equal((await waitSaved(id,d=>d.text==="Shorter")).height,fixed.height);
-  await idle();await sizeButton.click();
-  await sizePanel.getByRole("button",{name:"Enable auto height"}).click();
+  await idle();await bar.getByRole("button",{name:"Text box",exact:true}).click();
+  const boxPanel=page.getByRole("dialog",{name:"Text box",exact:true});
+  await boxPanel.getByRole("button",{name:"Fit height once",exact:true}).click();
+  const fittedOnce=await waitSaved(id,d=>d.height<fixed.height);
+  assert.equal(fittedOnce.textSizing,"fixed");
+  await boxPanel.getByRole("button",{name:"Enable auto height"}).click();
   const restored=await waitSaved(id,d=>d.textSizing==="auto");
   assert.ok(restored.height<fixed.height);
   assert.equal(restored.width,fixed.width);
   await page.keyboard.press("Escape");
 
   await idle();
-  await more.click();
-  const actions=page.getByRole("menu",{name:"Object actions"});
-  assert.deepEqual(await actions.getByRole("menuitem").allTextContents(),["Fit height to text"]);
-  await page.keyboard.press("Escape");
+  assert.equal(await more.count(),0,"a loose Text block has no empty overflow");
   await page.keyboard.press("Delete");
   await waitSaved(id,d=>!d);
   await idle();
@@ -132,7 +133,7 @@ try {
 
   await idle();
   await label("legacy").click();await sizeButton.click();
-  assert.equal(await sizePanel.getByRole("button",{name:"Enable auto height"}).getAttribute("aria-pressed"),"false");
+  assert.equal(await sizePanel.locator("[data-auto-height]").count(),0);
   await scrub.press("End");
   const legacy=await waitSaved("legacy",d=>d.textSize===144);
   assert.equal(legacy.height,62);

@@ -122,22 +122,11 @@ html[data-appearance=dark] .drawing-color-dot:not(.drawing-color-dot-mixed) { ba
   background:var(--soft);
 }
 .text-format-roles button { min-height:26px; font-size:12px; }
-.text-size-controls {
-  --auto-height-control:34px;
-  display:grid;
-  grid-template-columns:minmax(0,1fr) var(--auto-height-control);
-  align-items:start;
-  gap:7px;
-}
-.text-size-controls [data-auto-height] {
-  min-height:var(--auto-height-control);
-  margin-top:4px;
-  color:var(--muted);
-}
-.text-size-controls [data-auto-height][aria-pressed=true] { color:var(--accent-text,var(--ink)); }
-@media (pointer:coarse) {
-  .text-size-controls { --auto-height-control:44px; }
-}
+.text-format-controls[data-text-format-mode=box] .text-format-colors { border-top:0; padding-top:0; }
+.text-format-box-height { display:flex; justify-content:space-between; gap:7px; border-top:1px solid var(--line); padding-top:7px; }
+.text-format-box-height [data-auto-height] { display:flex; justify-content:center; align-items:center; gap:5px; width:auto; padding:0 7px; color:var(--muted); }
+.text-format-box-height [data-auto-height][aria-pressed=true] { color:var(--accent-text,var(--ink)); }
+.text-format-box-height [data-fit-height] { width:auto; padding:0 7px; font-size:12px; }
 .text-format-options button {
   display:flex;
   justify-content:center;

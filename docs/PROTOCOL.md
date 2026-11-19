@@ -501,6 +501,23 @@ Local HTML cover thumbnails load from `/frames/items/ID/cover.html?v=REVISION`; 
 
 Grid and Canvas use the same placements. Review order is separate from freeform geometry and remains suitable for comparison. Graph boards retain the comparison reader's previous/next stepping, revisions, notes/star, sizing, standalone opening and browser Back/Forward behavior. The compact header shows Home, an explicit parent return when applicable, one current title and the Navigator toggle on the left, with Find, Undo/Redo, the Inspector and + Add on the right. The board Inspector contains Grid/Canvas, the browser-local Dots/Grid/Plain background (Plain until chosen), canvas filtering, recent, starred and archive views, board details, export and help. The background preference is not board metadata; no schema field was added for it. A valid `?from=BOARD_ID` retains the entry parent; ambiguous parents without entry context open a chooser. An opened item keeps the board's header pattern and zoom pill: Home, ‹ its board, one current item title with a where-you-are path (closing on a press outside it or Escape), a ↓ Board chip when the item has a board, and a ‹ n / N › stepper fixed at the right end of the title row, and its own canvas zoom; the % menu holds window size, version, light, type size and standalone opening, and its Inspector holds item actions. Stepping replaces the browser history entry; opening, going up and going down add one. Search, recent, starred and archive views operate on canonical items; a shared reference does not create another source of truth.
 
+### Opened resource surface
+
+HTML opens at the placement's authored `presentation.viewport` (1000×720 when
+omitted). An image uses its decoded natural dimensions, bounded to 16384 per side
+while keeping its aspect ratio. Fit frames the whole surface at no more than
+100%; pan clamps to its bounds, with smaller content centered. There is no outer
+card border or padding. The native header, conditional file-version strip,
+Inspector, notes and floating view controls remain available.
+
+Window Compact/Standard/Wide and custom corner resizing still reflow HTML.
+Canvas zoom magnifies the existing document without reloading it. Documents and
+nonvisual representations retain native scrolling and responsive stage sizing.
+An item/version switch refits; late image readiness preserves a view already
+adjusted by the person. Tinka reads dimensions only from its own media wrapper,
+not arbitrary embedded HTML or cross-origin apps. No content sizing message or
+SDK is required. Standalone links and resource bytes are unchanged.
+
 ### Discoverable tools, discovery cache and annotations
 
 `lib/tools.json` is the shipped catalog. CLI `tools list [--summary]`,
@@ -606,7 +623,8 @@ Cmd/Ctrl-Enter keep the edits, while Cancel discards them. The rendered block
 wraps at its width and scrolls when its content exceeds its height. Clicking
 a task changes only its checked marker in the stored text and is undoable.
 Select a Text block for its size control, ink swatch and alignment buttons.
-**Aa** holds typeface, fill, border and padding. The panels open away from the
+**Aa** chooses the typeface. **Text box** holds fill, border, padding and height
+controls. The panels open away from the
 selected block when there is room. `textSize` accepts the existing `small`,
 `medium` and `large` presets
 or an integer from 10 to 144 in logical pixels. `textAlign` controls alignment
@@ -632,7 +650,7 @@ Copies retain styling and sizing mode. New Text created on Canvas starts in
 **Auto height**. The editor previews fitted height at the wrapping width, then
 saves the rendered height together with the text. Changing type size in Auto
 height fits the block in the same write. Outline resize switches to **Fixed
-height**. Change modes in the Text size popup. **More → Fit height to text**
+height**. Change modes in **Text box**. **Fit height once** in that panel
 fits the block once while keeping its sizing mode. Attached connectors follow
 the new bounds. Agents can supply explicit logical dimensions and a sizing mode
 in one geometry patch. Store geometry is authoritative for API writes.

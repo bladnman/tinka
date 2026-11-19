@@ -96,18 +96,6 @@
   background-color: var(--bg-canvas); background-image: none;
   background-size: var(--reader-pattern-step, 22px) var(--reader-pattern-step, 22px); background-position: var(--reader-pattern-x, 0) var(--reader-pattern-y, 0);
 }
-/* The canvas follows the board's background choice (Plain unless Dots or Grid was chosen), with the board's values. */
-body:has(#viewport[data-canvas-pattern="dots"]) #reader-dialog .reader-stage {
-  --reader-pattern-ink: color-mix(in srgb, var(--dot) calc(var(--reader-pattern-fade, 1) * 100%), transparent);
-  background-image: radial-gradient(circle, color-mix(in srgb, var(--reader-pattern-ink) 55%, transparent) .8px, transparent 1.05px);
-}
-body:has(#viewport[data-canvas-pattern="grid"]) #reader-dialog .reader-stage {
-  --reader-pattern-major: calc(var(--reader-pattern-step, 22px) * 5);
-  --reader-pattern-minor: color-mix(in srgb, var(--grid-minor) calc(var(--reader-pattern-fade, 1) * 100%), transparent);
-  --reader-pattern-majorline: color-mix(in srgb, var(--grid-major) calc(var(--reader-pattern-fade, 1) * 100%), transparent);
-  background-image: linear-gradient(var(--reader-pattern-majorline) 1px, transparent 1px), linear-gradient(90deg, var(--reader-pattern-majorline) 1px, transparent 1px), linear-gradient(var(--reader-pattern-minor) 1px, transparent 1px), linear-gradient(90deg, var(--reader-pattern-minor) 1px, transparent 1px);
-  background-size: var(--reader-pattern-major) var(--reader-pattern-major), var(--reader-pattern-major) var(--reader-pattern-major), var(--reader-pattern-step, 22px) var(--reader-pattern-step, 22px), var(--reader-pattern-step, 22px) var(--reader-pattern-step, 22px);
-}
 /* Focus is handed to the canvas after every step and load; its ring shows only when Tab brought it here. */
 #reader-dialog .reader-stage:focus-visible { box-shadow: none; }
 #reader-dialog .reader-stage[data-tab-focus]:focus-visible { box-shadow: inset 0 0 0 2px var(--accent); }
@@ -115,13 +103,13 @@ body:has(#viewport[data-canvas-pattern="grid"]) #reader-dialog .reader-stage {
 #reader-dialog .reader-plane { position: absolute; left: 0; top: 0; width: max-content; transform-origin: 0 0; }
 #reader-dialog #reader-window {
   position: relative; box-sizing: border-box; width: var(--reader-fit-w, 1000px); height: var(--reader-fit-h, 720px);
-  min-width: 240px; min-height: 200px; max-width: none; max-height: none; resize: both; overflow: hidden; padding: 0 0 12px;
-  border: 1px solid var(--line); border-radius: var(--r-lg); background: var(--surface-sunken, var(--hover)); box-shadow: var(--e2);
+  min-width: 0; min-height: 0; max-width: none; max-height: none; resize: both; overflow: hidden; padding: 0;
+  border: 0; border-radius: 0; background: transparent; box-shadow: none;
 }
 #reader-dialog #reader-window[data-size="compact"] { width: 440px; height: 620px; }
 #reader-dialog #reader-window[data-size="standard"] { width: 1000px; height: 720px; }
 #reader-dialog #reader-window[data-size="wide"] { width: 1380px; height: 840px; }
-#reader-dialog #active-reader { border-radius: calc(var(--r-lg) - 1px) calc(var(--r-lg) - 1px) 0 0; }
+#reader-dialog #active-reader { border-radius: 0; }
 .reader-pan-shield { position: absolute; inset: 0; z-index: 2; cursor: grab; }
 .reader-pan-shield[hidden] { display: none; }
 
@@ -211,3 +199,7 @@ body:has(#viewport[data-canvas-pattern="grid"]) #reader-dialog .reader-stage {
 @media (prefers-reduced-motion: reduce) {
   .reader-path-pop, #reader-info.calm-side { animation: none; }
 }
+
+/* Explicit Window choices keep corner resizing; Fit is the borderless resource. */
+#reader-dialog #reader-window[data-size="fit"] { resize: none; }
+#reader-dialog #reader-window:not([data-size="fit"]) { min-width: 240px; min-height: 200px; }

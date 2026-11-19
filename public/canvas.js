@@ -13,6 +13,7 @@ import {clampZoom, FIT_MAX_ZOOM, LARGE_BOARD_ZOOM, sameView, sliderFromZoom, zoo
 import {BoardMap} from './board-map.js';
 import {decorationBounds} from './whiteboard-geometry.js';
 import {ReaderCanvas, contentScrolls} from './reader-canvas.js';
+import {ReaderResourceSurface} from './reader-resource-surface.js';
 import {ReaderPath} from './reader-path.js';
 import {isMacPlatform, readerCommand, stepModifierLabel} from './reader-keys.js';
 import {boardStepCommand, boardStepTarget, isSteppable} from './board-step.js';
@@ -624,6 +625,10 @@ const readerCanvas = new ReaderCanvas(readerStage, $('reader-plane'), $('reader-
   onBack: shown => { $('reader-view-back').hidden = !shown; },
   reserveBottom: () => { const pill = dialog.querySelector('.reader-footer .zoom-pill'); return pill ? pill.offsetHeight + 20 : 0; },
 });
+const readerResource = new ReaderResourceSurface($('active-reader'), {
+  isActive: () => dialog.open,
+  onImageSize: (width, height) => readerCanvas.setResourceSize(width, height),
+});
 function syncReaderZoom(view) {
   const percent = Math.round(view.zoom * 100);
   const toggle = $('reader-zoom-toggle');
@@ -666,6 +671,7 @@ function setReaderSize(size) {
     viewer.style.removeProperty('height');
     viewer.dataset.size = readerView.size;
   }
+  viewer.title = readerView.size === 'fit' ? 'Resource surface' : 'Drag the lower-right corner to resize';
   renderSizeControls();
   // A new window size shows whole again; canvas zoom never reflows it.
   if (dialog.open) readerCanvas.rest();
@@ -769,6 +775,14 @@ function renderReaderHeader() {
 function loadRevision({ focus = false } = {}) {
   if (!active) return;
   const variant = currentVariant();
+  readerCanvas.dropBack();
+  readerCanvas.fitted = true;
+  const kind = descriptor(active, variant).kind;
+  const viewport = active.placement?.presentation?.viewport;
+  // Documents retain native scrolling; visual resources use their authored viewport.
+  readerCanvas.setResourceSize(...(['html', 'image'].includes(kind)
+    ? [viewport?.width || 1000, viewport?.height || 720] : [null, null]));
+  if (dialog.open) readerCanvas.rest();
   $('active-reader').title = `${descriptor(active, variant).name} experiment`;
   const standalone = standaloneHref(active, variant);
   $('reader-standalone').hidden = !standalone;
@@ -777,7 +791,9 @@ function loadRevision({ focus = false } = {}) {
   activeRevision = active.graphItem ? versionStamp(auto, liveSnapshot?.items?.[active.graphItem.id]) : liveSnapshot?.concepts?.[activeSourceKey()]?.revision || null;
   $('reader-update').textContent = auto ? `Files changed · Reload ${auto.name}` : 'New version available · Reload experiment';
   $('reader-update').hidden = true;
-  replaceFrame($('active-reader'), previewHref(active, variant, readerView.theme, readerView.type, activeRevision || auto?.modifiedAt || 'initial', true));
+  const href = previewHref(active, variant, readerView.theme, readerView.type, activeRevision || auto?.modifiedAt || 'initial', true);
+  readerResource.reset(href);
+  replaceFrame($('active-reader'), href);
   if (focus) focusTinka();
 }
 
@@ -917,6 +933,7 @@ function closeReader({ history: mode = 'push' } = {}) {
   readerCanvas.setSpacePan(false);
   if (dialog.open) dialog.close();
   projectNavigator?.host?.(null);
+  readerResource.reset();
   replaceFrame($('active-reader'), 'about:blank');
   active = null;
   commitHistory({ view: 'board', round: rounds[currentRound]?.id || null }, mode);
@@ -2060,6 +2077,7 @@ dialog.addEventListener('close', () => { if (active && !dialog.open) closeReader
 $('active-reader').addEventListener('load', () => {
   if (!dialog.open) return;
   forwardFrame($('active-reader'));
+  readerResource.prepare();
   // Key events inside a frame do not reach the surrounding dialog.
   try {
     $('active-reader').contentWindow.addEventListener('keydown', event => {

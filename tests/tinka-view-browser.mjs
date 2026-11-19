@@ -81,7 +81,8 @@ try{
  const fitted=await plane();
  eq(fitted.zoom,1,'A Fit-size window opens at 100%');
  const winBox=await page.locator('#reader-window').boundingBox(),pillBox=await page.locator('#reader-dialog .zoom-pill').boundingBox();
- ok(winBox.y+winBox.height<=pillBox.y+1,'The fitted window stays clear of the pill (and its resize corner stays reachable)');
+ ok(winBox.x>=0&&pillBox.y+pillBox.height<=900,'The resource fits the canvas and its floating pill remains reachable');
+ eq(await page.locator('#reader-window').evaluate(e=>getComputedStyle(e).resize),'none','The resource surface has no outer resize corner in Fit');
  await page.screenshot({path:path.join(evidence,'tinka-view-1440-light.png')});
  // The Navigator opens inside the opened Tinka, and Escape closes it before anything else.
  await page.locator('#reader-navigator').click();
@@ -306,7 +307,9 @@ try{
  const popOpen=()=>page.locator('#reader-path-pop').isVisible();
  await page.locator('#reader-path').click();ok(await popOpen(),'The title opens the path');
  const wb=await page.locator('#reader-window').boundingBox();
- await page.mouse.click(wb.x+wb.width/2,wb.y+wb.height/2);await page.waitForTimeout(250);
+ const outside={x:wb.x+wb.width-24,y:wb.y+wb.height-24};
+ eq(await page.evaluate(({x,y})=>document.elementFromPoint(x,y)?.id,outside),'active-reader','The click-away point hits content rather than a path row');
+ await page.mouse.click(outside.x,outside.y);await page.waitForTimeout(250);
  ok(!(await popOpen()),'A click on the content closes the path');
  await page.locator('#reader-path').click();ok(await popOpen());
  await page.mouse.click(sb.x-6,hb.y+hb.height-3);await page.waitForTimeout(100);
@@ -329,8 +332,8 @@ try{
  await page.locator('#zoom-menu-toggle').click();await page.locator('#zoom-menu [data-canvas-pattern="dots"]').click();await page.keyboard.press('Escape');
  await openItem(grabby[1].placementIds[0]);
  const dots=await page.evaluate(()=>[getComputedStyle(document.getElementById('reader-stage')).backgroundImage,getComputedStyle(document.getElementById('viewport')).backgroundImage]);
- ok(dots[0].startsWith('radial-gradient')&&dots[0].includes('0.8px'),`The opened Tinka follows the board's Dots with the board's dot: ${dots[0]}`);
- eq(dots[0].replace(/rgba?\([^)]*\)|color-mix\([^)]*\)\)?/g,'C'),dots[1].replace(/rgba?\([^)]*\)|color-mix\([^)]*\)\)?/g,'C'),'Same dot shape and size as the board');
+ eq(dots[0],'none','The resource surface stays plain while the board keeps its chosen pattern');
+ ok(dots[1].startsWith('radial-gradient'),'The board retains its own Dots preference');
  await page.locator('#reader-stage').focus();await page.keyboard.press('Escape');await page.locator('#reader-dialog').waitFor({state:'hidden'});
  await page.locator('#zoom-menu-toggle').click();await page.locator('#zoom-menu [data-canvas-pattern="plain"]').click();await page.keyboard.press('Escape');
 }finally{

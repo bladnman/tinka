@@ -645,9 +645,9 @@ try{
   assert.equal(await h.locator('.note-dot').isVisible(),true);
   assert.equal(await h.locator('#reader-note').inputValue(),'Shared from the reader');
   await waitFor(async()=>(await saved(path.join(a.boards,'history/.state/notes.json')))['alpha/one']?.note==='Shared from the reader','Reader note persisted to .state/notes.json');
-  // The notes sit beside (or, on a phone, below) the canvas; the window stays inside the canvas and clear of the pill.
-  const noOverlap=()=>h.evaluate(()=>{const stage=document.querySelector('.reader-stage').getBoundingClientRect();const panel=document.querySelector('#notes-panel').getBoundingClientRect();const viewer=document.querySelector('#reader-window').getBoundingClientRect();const pill=document.querySelector('.reader-footer .zoom-pill').getBoundingClientRect();const side=panel.left>=stage.right-.5&&panel.top<stage.bottom;const below=panel.top>=stage.bottom-.5;return {separate:side||below,mode:side?'side':below?'sheet':'overlap',viewerInside:viewer.left>=stage.left-.5&&viewer.right<=stage.right+.5&&viewer.top>=stage.top-.5&&viewer.bottom<=stage.bottom+.5,pillInCanvas:pill.right<=stage.right+.5&&pill.bottom<=stage.bottom+.5,viewerAbovePill:viewer.bottom<=pill.top+.5,width:Math.round(panel.width)};});
-  assert.deepEqual(await noOverlap(),{separate:true,mode:'side',viewerInside:true,pillInCanvas:true,viewerAbovePill:true,width:320});
+  // The notes sit beside (or, on a phone, below) the canvas; the resource stays inside the canvas, with its floating controls in the canvas.
+  const noOverlap=()=>h.evaluate(()=>{const stage=document.querySelector('.reader-stage').getBoundingClientRect();const panel=document.querySelector('#notes-panel').getBoundingClientRect();const viewer=document.querySelector('#reader-window').getBoundingClientRect();const pill=document.querySelector('.reader-footer .zoom-pill').getBoundingClientRect();const side=panel.left>=stage.right-.5&&panel.top<stage.bottom;const below=panel.top>=stage.bottom-.5;return {separate:side||below,mode:side?'side':below?'sheet':'overlap',viewerInside:viewer.left>=stage.left-.5&&viewer.right<=stage.right+.5&&viewer.top>=stage.top-.5&&viewer.bottom<=stage.bottom+.5,pillInCanvas:pill.right<=stage.right+.5&&pill.bottom<=stage.bottom+.5,width:Math.round(panel.width)};});
+  assert.deepEqual(await noOverlap(),{separate:true,mode:'side',viewerInside:true,pillInCanvas:true,width:320});
   await h.screenshot({path:path.join(evidence,'history-reader-notes-wide.png')});
   await h.locator('#reader-next').click();
   await waitReader('Two');
@@ -664,7 +664,7 @@ try{
   assert.equal(await hashNow(),'#alpha/two');
   await h.setViewportSize({width:390,height:844});
   await h.evaluate(()=>new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r))));
-  assert.deepEqual(await noOverlap(),{separate:true,mode:'sheet',viewerInside:true,pillInCanvas:true,viewerAbovePill:true,width:390});
+  assert.deepEqual(await noOverlap(),{separate:true,mode:'sheet',viewerInside:true,pillInCanvas:true,width:390});
   for(const selector of ['.reader-header','.reader-footer'])assert.equal(await h.locator(selector).evaluate(el=>el.scrollWidth<=el.clientWidth),true,selector);
   await h.screenshot({path:path.join(evidence,'history-reader-notes-narrow.png')});
   // The open notes field follows a step even while it has focus.

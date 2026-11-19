@@ -61,12 +61,11 @@ try{
  await wheel(0,-240);ok((await plane()).y>side.y+200,'Wheel back up pans back');
  // (2) Control-scroll over the image still zooms.
  const before=await plane();await wheel(0,60,'Control');ok((await plane()).zoom<before.zoom*.9,'Control-scroll still zooms out over the image');
- // (3) The window's own edge (its bottom padding) pans like the background.
+ // (3) Fit now frames the resource without card padding; wheel cannot pan it beyond bounds.
  await page.locator('#reader-fit').click();await page.waitForTimeout(60);
- const win=await page.locator('#reader-window').boundingBox(),edge={x:win.x+win.width/2,y:win.y+win.height-5};
- ok(await page.evaluate(({x,y})=>document.elementFromPoint(x,y)?.id,edge)==='reader-window','The edge point is the window itself');
- const fitted=await plane();await page.mouse.move(edge.x,edge.y);await wheel(0,120);
- ok((await plane()).y<fitted.y-80,'Wheel over the window edge pans');
+ const fitted=await plane();await page.mouse.move(cx,cy);await wheel(0,120);
+ assert.deepEqual(await plane(),fitted,'A fitted image remains centered at its bounds');checks++;
+ ok(await page.locator('#reader-window').evaluate(e=>getComputedStyle(e).paddingBottom)==='0px','The resource surface has no nested card padding');
 
  // (4) A long Markdown document scrolls itself; the canvas stays still.
  await open(doc.placementIds[0],new Function(`return ${inner}?.querySelector('.markdown p')`));

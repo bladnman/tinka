@@ -44,7 +44,7 @@ export function textStyleVariables(decoration, ink, backdrop = theme => [canvasB
 
 const colorRoles = {ink:"ink",fill:"fill",border:"stroke"};
 const colorLabels = {ink:"Ink",fill:"Fill",border:"Border"};
-const formatTitles = {size:"Text size",ink:"Ink",advanced:"Advanced text"};
+const formatTitles = {size:"Text size",ink:"Ink",face:"Typeface",box:"Text box"};
 const fills = [["none","None"],["paper","Paper"],["tint","Tint"],["strong","Strong"]];
 const borders = [["none","None"],["solid","Solid"],["dashed","Dashed"]];
 const closeIcon = '<svg viewBox="0 0 16 16" aria-hidden="true"><path d="m4 4 8 8m0-8-8 8"/></svg>';
@@ -59,16 +59,16 @@ const currentPadding = d => d.textPadding??12;
 const currentFill = d => d.textFill??"none";
 const currentBorder = d => d.textBorder?.style??"none";
 
-const sizeMarkup = `<div class="text-size-controls">
-  <div data-text-size-scrub></div>
-  <button type="button" data-auto-height>${autoHeightIcon}</button>
-</div>`;
+const sizeMarkup = '<div data-text-size-scrub></div>';
 
-function advancedMarkup() {
+function faceMarkup() {
   return `<div class="text-format-faces" role="group" aria-label="Typeface">
       ${faces.map(([id,label])=>`<button type="button" data-face="${id}" title="${label}"><span class="text-format-specimen" aria-hidden="true">Aa</span><span>${label}</span></button>`).join("")}
-    </div>
-    <div class="text-format-colors">
+    </div>`;
+}
+
+function boxMarkup() {
+  return `<div class="text-format-colors">
       <div class="text-format-roles" role="group" aria-label="Color applies to">
         <button type="button" data-role="fill"><span data-role-dot></span>Fill</button><button type="button" data-role="border"><span data-role-dot></span>Border</button>
       </div>
@@ -83,17 +83,21 @@ function advancedMarkup() {
     </div>`;
 }
 
-export function mountTextAppearance(popover, decoration, {save, close, layout, previewSize, previewPadding, mode="advanced"}) {
+export function mountTextAppearance(popover, decoration, {save, close, layout, previewSize, previewPadding, fitHeight, mode="face"}) {
   const title=formatTitles[mode];
-  const content=mode==="size"?sizeMarkup:mode==="ink"?paletteMarkup(["ink"]):advancedMarkup();
+  const content=mode==="size"?sizeMarkup:mode==="ink"?paletteMarkup(["ink"]):mode==="box"?boxMarkup():faceMarkup();
   popover.innerHTML=`<div class="text-format-controls" data-text-format-mode="${mode}">
     <div class="text-format-header"><strong>${title}</strong>
       <button type="button" data-format-close aria-label="Close ${title.toLowerCase()}" title="Close">${closeIcon}</button>
     </div>
     ${content}
-    ${mode==="advanced"?`<div class="text-format-inset">
+    ${mode==="box"?`<div class="text-format-inset">
       <span class="text-format-inset-label" aria-hidden="true">${insetIcon}Padding</span>
       <div data-padding-scrub></div>
+    </div>
+    <div class="text-format-box-height">
+      <button type="button" data-auto-height>${autoHeightIcon}<span>Auto height</span></button>
+      <button type="button" data-fit-height>Fit height once</button>
     </div>`:""}
     <div data-style-feedback hidden><span data-style-status role="status"></span><button type="button" data-style-retry hidden>Retry</button></div>
   </div>`;
@@ -102,6 +106,7 @@ export function mountTextAppearance(popover, decoration, {save, close, layout, p
   const get=selector=>surface.querySelector(selector);
   const custom=get("[name=custom]");
   const autoHeightToggle=get("[data-auto-height]");
+  const fitHeightButton=get("[data-fit-height]");
   const customTarget=get(".text-format-custom"),status=get("[data-style-status]");
   const swatches=get("[data-color-swatches]");
   const fillOptions=get("[data-fill-options]"),borderOptions=get("[data-border-options]"),autoBorder=get("[data-border-auto]");
@@ -118,8 +123,8 @@ export function mountTextAppearance(popover, decoration, {save, close, layout, p
   function update() {
     if(!active)return;
     const d=optimistic();
-    if(mode==="advanced"){
-      press("data-face",d.textFace??"serif");
+    press("data-face",d.textFace??"serif");
+    if(mode==="box"){
       press("data-role",channel);
       press("data-fill",currentFill(d));
       press("data-border",currentBorder(d));
@@ -145,16 +150,17 @@ export function mountTextAppearance(popover, decoration, {save, close, layout, p
       custom.value=pickerHex(isHexColor(selected) ? selected : renderDrawingColor(selected,colorRoles[channel],theme)??fillColors[selected]?.[theme],
         {ink:"#78866c",fill:"#e4e9da",border:"#747d67"}[channel]);
     }
-    if(sizeControl){
+    if(autoHeightToggle){
       const autoHeight=d.textSizing==="auto";
       const action=autoHeight?"Disable auto height":"Enable auto height";
       autoHeightToggle.setAttribute("aria-pressed",String(autoHeight));
       autoHeightToggle.setAttribute("aria-label",action);
       autoHeightToggle.title=action;
-      sizeControl.setValue(currentSize(d),sizeSelection(d));
+      fitHeightButton.disabled=pending.some(change=>change.fit);
     }
+    sizeControl?.setValue(currentSize(d),sizeSelection(d));
     paddingControl?.setValue(currentPadding(d));
-    const message=failed?"Change wasn’t saved.":"";
+    const message=failed?(failed.change.fit?"Couldn’t fit the text height.":"Change wasn’t saved."):"";
     get("[data-style-feedback]").hidden=!message;
     get("[data-style-retry]").hidden=!failed;
     if(status.textContent!==message)status.textContent=message;
@@ -175,11 +181,12 @@ export function mountTextAppearance(popover, decoration, {save, close, layout, p
     writing=true;
     while(pending.length){
       const change=pending[0],patch=change(saved);
-      if(Object.keys(patch).length){
+      if(change.fit||Object.keys(patch).length){
         try {
-          if(await save(patch)===false)throw new Error("Style change was rejected");
-          saved={...saved,...patch};
-          if(failed&&JSON.stringify(failed.patch)===JSON.stringify(patch))failed=null;
+          const result=change.fit?await fitHeight():await save(patch);
+          if(result===false)throw new Error("Style change was rejected");
+          saved={...saved,...(change.fit&&result&&typeof result==="object"?result:patch)};
+          if(failed&&(failed.change.fit===change.fit)&&JSON.stringify(failed.patch)===JSON.stringify(patch))failed=null;
         } catch {failed={change,patch};}
       }
       pending.shift();
@@ -194,7 +201,7 @@ export function mountTextAppearance(popover, decoration, {save, close, layout, p
     value:currentSize(decoration),selection:sizeSelection(decoration),preview:previewSize,
     commit:(value,{preset})=>field("textSize",preset??value,storedSize),
   }):null;
-  const paddingControl=mode==="advanced"?mountPresetScrub(get("[data-padding-scrub]"),{
+  const paddingControl=mode==="box"?mountPresetScrub(get("[data-padding-scrub]"),{
     label:"Padding",inputLabel:"Adjust padding",unit:"px",presets:paddingPresets,min:0,max:64,
     value:currentPadding(decoration),preview:previewPadding,
     commit:value=>field("textPadding",value,currentPadding),
@@ -211,10 +218,19 @@ export function mountTextAppearance(popover, decoration, {save, close, layout, p
     if(button.hasAttribute("data-style-retry")&&failed){
       const {change}=failed;
       failed=null;
-      enqueue(change);
+      if(change.fit){pending.push(change);update();void drain();}
+      else enqueue(change);
       return;
     }
     if(role){channel=role;update();return;}
+    if(button===fitHeightButton){
+      const change=()=>({});
+      change.fit=true;
+      pending.push(change);
+      update();
+      void drain();
+      return;
+    }
     if(button===autoHeightToggle){
       const sizing=optimistic().textSizing==="auto"?"fixed":"auto";
       field("textSizing",sizing,d=>d.textSizing??"fixed");

@@ -61,6 +61,7 @@ try {
   assert.equal(await sizePanel.locator("[data-scrub-value]").count(),1);
   assert.equal(await fontSize.getAttribute("aria-valuemax"),"144");
   assert.equal(await sizePanel.locator("[data-padding-scrub],[data-swatch],input").count(),0);
+  assert.equal(await sizePanel.locator("[data-auto-height],[data-fit-height],[data-face]").count(),0);
   assert.equal(await sizePreset("Medium").getAttribute("aria-pressed"),"true");
   await sizePreset("Large").click();
   await waitFor(async()=>(await saved("copy")).textSize==="large");
@@ -82,11 +83,19 @@ try {
   assert.equal(await inkPanel.locator("[data-scrub-value]").count(),0);
   await inkPanel.locator('[data-swatch="palette:rose"]').click();
   await waitFor(async()=>(await saved("copy")).color==="palette:rose");
-  await toolbar.getByRole("button",{name:"Advanced text",exact:true}).click();
-  const appearance=page.getByRole("dialog",{name:"Advanced text",exact:true});
+  await toolbar.getByRole("button",{name:"Typeface",exact:true}).click();
+  const typeface=page.getByRole("dialog",{name:"Typeface",exact:true});
+  assert.equal(await typeface.locator("[data-face]").count(),3);
+  assert.equal(await typeface.locator("[data-scrub-value],[data-swatch],[data-auto-height],[data-fit-height]").count(),0);
+  await typeface.locator("[data-face=mono]").click();
+  await waitFor(async()=>(await saved("copy")).textFace==="mono");
+  await toolbar.getByRole("button",{name:"Text box",exact:true}).click();
+  const appearance=page.getByRole("dialog",{name:"Text box",exact:true});
   assert.equal(await appearance.locator("select").count(),0);
   assert.equal(await appearance.getByRole("button",{name:"Apply",exact:true}).count(),0);
-  assert.equal(await appearance.locator('[data-text-size-scrub],[data-role=ink],[data-align]').count(),0);
+  assert.equal(await appearance.locator('[data-text-size-scrub],[data-role=ink],[data-align],[data-face]').count(),0);
+  assert.equal(await appearance.locator('[data-auto-height]').getAttribute("aria-pressed"),"false");
+  assert.equal(await appearance.getByRole("button",{name:"Fit height once",exact:true}).isVisible(),true);
   const padding=appearance.getByRole("slider",{name:"Adjust padding",exact:true});
   const paddingPreset=name=>appearance.getByRole("button",{name,exact:true});
   assert.equal(await padding.isVisible(),true);
@@ -97,7 +106,6 @@ try {
   await paddingPreset("Large").click();
   await waitFor(async()=>(await saved("copy")).textPadding===24);
   assert.equal(await padding.getAttribute("aria-valuenow"),"24");
-  await appearance.locator("[data-face=mono]").click();
   await appearance.locator("[data-role=fill]").click();
   await appearance.locator('[data-swatch="palette:blue"]').click();
   await appearance.locator("[data-role=border]").click();
@@ -127,10 +135,12 @@ try {
   assert.notEqual(await label.evaluate(node=>getComputedStyle(node).backgroundColor),background);
   assert.equal(await page.locator('[data-decoration="section"] [data-decoration-label]').evaluate(node=>getComputedStyle(node).display),"none");
 
-  await more.click();
-  assert.equal(await page.getByRole("menuitem",{name:"Position & size…"}).count(),0);
-  await page.getByRole("menuitem",{name:"Fit height to text"}).click();
+  await toolbar.getByRole("button",{name:"Text box",exact:true}).click();
+  await appearance.getByRole("button",{name:"Fit height once",exact:true}).click();
   await waitFor(async()=>(await saved("copy")).height>85);
+  await page.keyboard.press("Escape");
+  await appearance.waitFor({state:"hidden"});
+  assert.equal(await more.count(),0);
   const fitted=await saved("copy");
   await waitFor(()=>text.evaluate((node,height)=>parseFloat(node.style.height)===height,fitted.height));
   assert.equal(fitted.width,278);
