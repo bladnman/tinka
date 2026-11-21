@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { createHash, randomUUID } from 'node:crypto';
+import { createHash, randomUUID, randomInt } from 'node:crypto';
 import { execFile } from 'node:child_process';
 import { inflateRawSync } from 'node:zlib';
 import { readFile, realpath, lstat, mkdir, rename, rm, writeFile, readdir } from 'node:fs/promises';
@@ -291,6 +291,7 @@ async function installArchiveLocked({ zipBytes, checksumText, zipName, installDi
   let movedNew = false;
   let newRunning = false;
   let pinChanged = false;
+  let service;
   try {
     await extract(entries, stage);
     const manifest = JSON.parse(await readFile(path.join(stage, 'package.json'), 'utf8'));
@@ -319,11 +320,11 @@ async function installArchiveLocked({ zipBytes, checksumText, zipName, installDi
     if (external) {
       await runCli(path.join(installDir, 'cli.mjs'), 'start', external.configPath, lockToken);
       newRunning = true;
-      await verifyInstalledHealth(installDir, external.configPath, manifest.version);
+      service=await verifyInstalledHealth(installDir, external.configPath, manifest.version);
       if (!wasRunning) { await runCli(path.join(installDir, 'cli.mjs'), 'stop', external.configPath, lockToken); newRunning = false; await atomicText(external.configPath, configBefore); }
     }
     if (pinPath) { await atomicText(pinPath, `${JSON.stringify({...JSON.parse(pinBefore), version: manifest.version}, null, 2)}\n`); pinChanged = true; }
-    return { version: manifest.version, installDir, backup, restarted: wasRunning, configPath: external?.configPath || null };
+    return { version: manifest.version, installDir, backup, restarted: wasRunning, configPath: external?.configPath || null,...(wasRunning?{service}:{}) };
   } catch (error) {
     const failures = [error.message];
     if (pinChanged) { try { await atomicText(pinPath, pinBefore); } catch (pinError) { failures.push(`Pin restore failed: ${pinError.message}`); } }
@@ -357,13 +358,13 @@ export async function atomicText(file, text) {
 export async function verifyInstalledHealth(app, configPath, version) {
   const runtime = JSON.parse(await readFile(`${configPath}.pid.json`, 'utf8'));
   const config = JSON.parse(await readFile(configPath, 'utf8'));
-  if (runtime.configPath !== configPath || runtime.appPath !== app || !Number.isInteger(runtime.port)) throw new Error('Health runtime identity mismatch.');
+  if (runtime.configPath !== configPath || runtime.appPath !== app || !Number.isInteger(runtime.port) || runtime.port<1 || runtime.port>65535 || runtime.url!==`http://127.0.0.1:${runtime.port}/`) throw new Error('Health runtime identity mismatch.');
   const health = await fetch(`http://127.0.0.1:${runtime.port}/api/health`, {signal: AbortSignal.timeout(1500)}).then(response => {if (!response.ok) throw new Error('Health request failed.'); return response.json();});
   const boardsRoot=await realpath(config.boardsRoot);
   const workspaceRoot=await canonicalFuturePath(config.workspaceRoot||path.join(boardsRoot,'.tinka'));
   const defaultRoot=await canonicalFuturePath(path.join(boardsRoot,'.tinka'));
   const workspaceId=createHash('sha256').update(`${configPath}\0${boardsRoot}${workspaceRoot===defaultRoot?'':`\0${workspaceRoot}`}`).digest('hex').slice(0,24);
-  if (health.app !== 'board-room' || health.version !== version || health.configPath !== configPath || health.boardsRoot !== boardsRoot || health.workspaceId!==workspaceId || health.port!==runtime.port || config.port!==runtime.port || health.projectLabel !== (config.projectLabel?.trim() || path.basename(path.dirname(configPath)))) throw new Error('Installed app health identity/version mismatch.');
+  if (health.app !== 'board-room' || health.version !== version || health.configPath !== configPath || health.boardsRoot !== boardsRoot || health.workspaceId!==workspaceId || health.port!==runtime.port || health.url!==runtime.url || config.port!==runtime.port || health.projectLabel !== (config.projectLabel?.trim() || path.basename(path.dirname(configPath)))) throw new Error('Installed app health identity/version mismatch.');
   return runtime;
 }
 export async function fetchLimited(url, headers, limit, timeoutMs = 4000) {
@@ -437,7 +438,7 @@ export async function main(args = process.argv.slice(2)) {
       if(!inside(project,canonicalBoards)||inside(directory,canonicalBoards))throw new Error('Project boards leave this checkout.');
       await mkdir(local,{recursive:true});
       if(await realpath(local)!==local)throw new Error('The local config folder must not be a symlink.');
-      await writeFile(localConfig,`${JSON.stringify({schemaVersion:1,port:43821,portMode:'auto',projectLabel:options['--label']||settings?.projectLabel||path.basename(project),boardsRoot:canonicalBoards,title:'Tinka'},null,2)}\n`,{flag:'wx'});
+      await writeFile(localConfig,`${JSON.stringify({schemaVersion:1,port:randomInt(45000,46000),portMode:'auto',projectLabel:options['--label']||settings?.projectLabel||path.basename(project),boardsRoot:canonicalBoards,title:'Tinka'},null,2)}\n`,{flag:'wx'});
       configPath=localConfig;
     }
     const installed=path.join(installDir,'package.json');
@@ -482,7 +483,7 @@ export async function main(args = process.argv.slice(2)) {
     if(options['--repo'])arguments_.push('--repo',options['--repo']);
     prepared=`\n${(await execFileAsync(process.execPath,arguments_,{timeout:12000})).stdout.trim()}`;
   }
-  return `Installed Tinka ${displayVersion(result.version)} at ${result.installDir}.${result.backup ? ` Backup: ${result.backup}.` : ''}${result.restarted ? ' Managed service restarted.' : ''}${prepared}`;
+  return `Installed Tinka ${displayVersion(result.version)} at ${result.installDir}.${result.backup ? ` Backup: ${result.backup}.` : ''}${result.restarted ? ` Managed service restarted on ${result.service.url}${result.service.portChange?` (old port ${result.service.portChange.from} was in use; new port ${result.service.portChange.to} saved; no other process was changed)` : ''}.` : ''}${prepared}`;
 }
 
 if (process.argv[1] && await realpath(path.resolve(process.argv[1])).catch(() => null) === fileURLToPath(import.meta.url)) {

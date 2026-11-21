@@ -27,9 +27,18 @@ when the project gives none. Recommend visible `tinka/` for tooling and
 
 When asked to open or return to boards, always run the normal `node /absolute/app/cli.mjs start --config /absolute/config.json`, even if the server is already healthy. This checks for updates once daily and returns the verified existing URL without restarting it. Relay an available update in one short sentence offering update now, later, or always install compatible updates; do not dump CLI lines or local paths into the user conversation. The CLI notice contains exact commands for the agent. Do not select auto policy without the user's explicit personal consent. When Tinka reports a major update ("This is a major update; ask the user before updating."), tell the user and ask before installing; run the notice's `update now --major` command only after they agree. A request the user copied from Tinka's browser notice that says they agree to the major update is that agreement.
 
-Before claiming a running workspace, verify `/api/health` matches the selected
-canonical config path and project label. Report the actual URL printed by start.
-Do not kill, adopt or reconfigure another instance to resolve a collision.
+Treat saved URLs in conversations, bookmarks and project notes as hints: after an
+instance stops, another project may use its port. Run this project's config-specific
+`start` before following or sharing those links, then use the actual URL it prints.
+Before claiming a running workspace, verify `URL/api/health` matches the selected
+canonical config path, boards root and project label. Keep the board/item path from
+an older link only after confirming it exists in this verified workspace.
+
+If start reports that the remembered port was occupied and selects a new URL, tell
+the user that something was using the old port, this project's Tinka moved to the
+printed URL, and the chosen port was saved for next time. Share links using that
+new URL. A fixed-port collision fails instead; report it for a deliberate config
+choice. Do not kill, adopt or reconfigure another instance to resolve a collision.
 
 ## Showing visual work
 
@@ -75,6 +84,13 @@ first place as `link` and every place in `links`. Board-only changes return the
 board's link; deleting or archiving an item returns none. Give one link per
 changed item; for many, the board link plus the key items. The links use this
 instance's saved port and open only on this computer.
+
+When a tool saves a change but cannot verify this project's server at its remembered
+port, it returns `linkPath` (and optionally `linkPaths`), `startCommand` and
+`linkWarning`, without a full `link`. Run `startCommand`, verify the identity as
+above, and append the relative path to the actual URL it prints. Share that full
+verified link. The change is already saved; do not repeat the operation or build a
+link from an older URL.
 
 When the user may be away from this computer (on a phone, say) or just needs to
 see the work, consider also saving a picture and sending it in the conversation

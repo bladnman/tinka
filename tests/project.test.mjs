@@ -25,6 +25,7 @@ test('a Git checkout restores its pinned app and board notes at a different path
   try{
     await writeFile(path.join(project,'AGENTS.md'),'# Product rules\n\nKeep this existing guidance.\n');
     await exec(process.execPath,[release.installer,'--project',project,'--label','Portable project',...sourceArgs]);
+    assert((await json(config)).port>=45000&&(await json(config)).port<=45999);
     assert((await readFile(path.join(project,'tinka/.gitignore'),'utf8')).includes('/.app.operation-lock/'));
     const firstGuide=await readFile(path.join(project,'AGENTS.md'),'utf8');
     assert(firstGuide.startsWith('# Product rules\n\nKeep this existing guidance.\n'));
@@ -53,6 +54,7 @@ test('a Git checkout restores its pinned app and board notes at a different path
     await assert.rejects(readFile(restoredConfig),{code:'ENOENT'});
     // Restore offline with only the checked-in helper, pin and packaged app.
     await exec(process.execPath,[path.join(checkout,'tinka/setup.mjs')],{cwd:temporary});
+    assert((await json(restoredConfig)).port>=45000&&(await json(restoredConfig)).port<=45999);
     assert.equal((await json(restoredConfig)).boardsRoot,path.join(checkout,'design/boards'));
     assert.equal(await readFile(path.join(checkout,'tinka/project.json'),'utf8'),pinBefore);
     assert.deepEqual(await readFile(path.join(checkout,'tinka/setup.mjs')),setupBefore);

@@ -5,7 +5,7 @@ import {realpath,readFile} from 'node:fs/promises';
 import path from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {boardResponse,discoverBoards,loadBoard,readNotes,writeNotes} from './lib/boards.mjs';
-import {loadConfig,publicConfig,VERSION,PORT_STEP,PORT_ATTEMPTS,savePort} from './lib/config.mjs';
+import {loadConfig,publicConfig,VERSION,PORT_MIN,PORT_MAX,PORT_ATTEMPTS,portCandidates,savePort} from './lib/config.mjs';
 import {createLiveState,createWorkspaceLiveState} from './lib/live.mjs';
 import {createPushHub} from './lib/push.mjs';
 import {boardDirectory,existingInside,HttpError,safeRelative} from './lib/paths.mjs';
@@ -279,10 +279,8 @@ export function createAppServer(config,{updates=createUpdateService(config)}={})
 }
 export async function listen(config,{port=config.port,persist=false,updates}={}){
   const automatic=persist&&config.portMode==='auto';
-  const attempts=automatic?PORT_ATTEMPTS:1;
-  for(let attempt=0;attempt<attempts;attempt++){
-    const candidate=port+attempt*PORT_STEP;
-    if(candidate>65535)break;
+  const candidates=automatic?portCandidates(port):[port];
+  for(const candidate of candidates){
     const server=createAppServer(config,updates?{updates}:{});
     try{
       await new Promise((resolve,reject)=>{
@@ -292,6 +290,7 @@ export async function listen(config,{port=config.port,persist=false,updates}={})
         server.listen(candidate,'127.0.0.1');
       });
       if(persist)await savePort(config,server.address().port);
+      if(candidate!==port)server.portChange={from:port,to:server.address().port};
       return server;
     }catch(error){
       if(server.listening)await closeAppServer(server);
@@ -299,7 +298,7 @@ export async function listen(config,{port=config.port,persist=false,updates}={})
       if(!automatic)throw new Error(`Port ${candidate} is already in use. This instance has a fixed port; choose another in its config. No other process was changed.`);
     }
   }
-  throw new Error(`No free port in this instance's ${PORT_ATTEMPTS}-attempt range starting at ${port}, step ${PORT_STEP}. Set another port in its config.`);
+  throw new Error(`No free port after ${PORT_ATTEMPTS} attempts (saved port ${port}, then random ports in ${PORT_MIN}–${PORT_MAX}). No other process was changed. Retry start or choose another port in this project's config.`);
 }
 if(process.argv[1]&&await realpath(path.resolve(process.argv[1])).catch(()=>null)===fileURLToPath(import.meta.url)){
   try{

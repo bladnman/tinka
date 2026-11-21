@@ -140,7 +140,7 @@ test('the agent inbox is read-only, reports only new things, and --brief is sile
   assert.ok(elapsed<1000,`brief took ${elapsed} ms`);
   const inbox=await feedbackInbox(f.config,{actorId:'design-agent'});
   assert.deepEqual(inbox.threads.map(entry=>[entry.threadId,entry.reason]),[['i1','sent'],['i4','reply']]);
-  assert.equal(inbox.threads[0].targetLabel,'A · Pricing hero');assert.equal(inbox.threads[0].boardTitle,'Landing page directions');assert.match(inbox.threads[0].link,/\/boards\/landing\/#comments\/i1$/);assert.equal(inbox.threads[1].snippet,'Tighter still, please.');
+  assert.equal(inbox.threads[0].targetLabel,'A · Pricing hero');assert.equal(inbox.threads[0].boardTitle,'Landing page directions');assert.equal(inbox.threads[0].link,undefined);assert.equal(inbox.threads[0].linkPath,'/boards/landing/#comments/i1');assert(inbox.startCommand);assert.equal(inbox.threads[1].snippet,'Tighter still, please.');
   assert.equal(await cli(['--brief','--actor','design-agent']),brief,'brief never moves the position');
   const full=await cli(['--actor','design-agent']);assert.match(full,/2 comments for you/);assert.match(full,/thread i1/);
   assert.equal(await cli(['--brief','--actor','design-agent']),'','a full run marks them seen');

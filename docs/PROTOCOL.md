@@ -531,6 +531,11 @@ A changing tool call's response adds `link`, the direct Tinka link to what it
 added or changed (`/boards/BOARD/#items/PLACEMENT` for one Tinka, the board for
 board-level changes), plus `links` when it changed several; `revision` and
 `result` are unchanged. `workspace op` adds the same; POST `/api/operations` does not.
+Absolute tool links require a bounded matching health-identity check. When stopped
+or a foreign listener occupies the remembered port, the committed result carries
+`linkPath`/`linkPaths`, `startCommand` and `linkWarning` instead. Run startCommand
+and append the relative path to its actual URL; do not repeat the mutation. Inbox
+reads use the same check and return relative thread paths while unverified.
 
 workspace.search accepts query, fields title/description, kind items/boards/all,
 withinBoardId, recursive, createdAfter/Before, updatedAfter/Before, sort
@@ -933,7 +938,12 @@ Auto replacement requires explicit version-bound runtime/schema compatibility,
 no migration and unchanged app file baselines; it occurs only before a stopped
 start. Source checkouts skip automatic checks. The [README](../README.md#updates-for-one-project)
 describes local state, old-receipt bootstrap, checksums, health and recovery.
-Setup without version arguments remains a pinned restore.
+Setup without version arguments remains a pinned restore. New automatic configs choose a random
+45000–45999 port. A start reuses a verified matching instance; otherwise it binds
+the saved port first and retries distinct random ports in that range (20 binds
+total), leaving foreign listeners alone. A successful fallback is saved and
+reported explicitly. Fixed and legacy ports stay fixed. Always use the actual
+URL printed by start rather than an old bookmark.
 
 The browser's notice uses three routes. GET `/api/update` is read-only:
 `{installed,version,display,project,pin,agentCommand,policy,checkedAt,checkFailed,latest,notice,install}`,

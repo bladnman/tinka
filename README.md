@@ -89,7 +89,7 @@ is not automatically excluded by Git: what travels is what you commit. Check
 ignore rules, especially for `.state/notes.json`. You may deliberately vendor an
 app copy for offline use; keep its boards and config outside that replaceable copy.
 
-**Open the URL printed by `start`.** A new automatic instance tries 43821, 43921, 44021, and so on, at most 20 candidates. It binds the real socket before choosing a port, saves the actual port in this instance's config, and tries that saved port first on restart. If it is occupied, the same bounded sequence continues from there. A numeric `init --port 43821` means **fixed**: a collision fails clearly without changing any other process. Omit `--label` to use the current project folder's name.
+**Open the URL printed by `start` each time you return.** New automatic configs choose a random port from 45000–45999. Restart tries this project's saved port first (including ports saved by older versions), then distinct random ports in 45000–45999, up to 20 actual socket binds. A collision leaves the listener alone, saves the successful new port, and clearly reports the change and actual URL. Old bookmarks can point to another project after its former server stops. A numeric `init --port 43821` means **fixed**: a collision fails clearly without changing any other process. Legacy configs without `portMode` remain fixed. Omit `--label` to use the current project folder's name.
 
 For a source checkout, run `node cli.mjs` directly; keep config and boards outside the app checkout. No build step or `npm install` is needed. `node cli.mjs project init --project /absolute/target-project` prepares portable project instructions and setup, or use `init --config /absolute/config.json --boards /absolute/boards --label Atlas` for a manual layout. The standalone installer also accepts `--install-dir /absolute/app` and `--config` for existing installations.
 
@@ -161,10 +161,13 @@ or idea as a card. It prints the item's Tinka link (`--board` chooses which boar
 uses the same headless browser and limits as an overview, and never overwrites a
 file. Remote web pages are not loaded; a local app item is, when it is answering.
 
-Every tool call that changes a board also returns `link`, the direct Tinka link
-to what it added or changed (`URL/boards/BOARD/#items/PLACEMENT` opens that Tinka;
+When this project's running server is verified, every tool call that changes a
+board also returns `link`, the direct Tinka link to what it added or changed (`URL/boards/BOARD/#items/PLACEMENT` opens that Tinka;
 several changed Tinkas also get `links`). Agents give the user that link, and
-when the user is away from this computer, a picture with it.
+when the user is away from this computer, a picture with it. If its remembered
+port cannot be verified, the saved change instead returns `linkPath` and
+`startCommand`: run that command, then use the actual URL it prints plus the
+relative path. Do not repeat the mutation just to obtain a link.
 
 Stop only this instance with `node /absolute/project/tinka/app/cli.mjs stop --config /absolute/project/tinka/local/config.json`. Use `serve` for a foreground process and Ctrl-C to stop it. PID and log files live beside the config. Managed stop checks the recorded PID, CLI path, config path, and unique process token before signaling anything.
 

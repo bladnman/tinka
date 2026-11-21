@@ -79,7 +79,11 @@ find.addEventListener('input',()=>{homeView.query=find.value;rerender();});
 find.addEventListener('keydown',e=>{if(e.key!=='Escape')return;e.preventDefault();if(find.value){find.value='';homeView.query='';rerender();}else find.blur();});
 const typing=el=>el?.closest?.('input,textarea,select,[contenteditable=""],[contenteditable="true"]');
 document.addEventListener('keydown',e=>{if(e.key!=='/'||e.metaKey||e.ctrlKey||e.altKey||e.defaultPrevented||typing(e.target)||document.querySelector('dialog[open]'))return;e.preventDefault();find.focus();find.select();});
-try{const r=await fetch('/api/config');if(r.ok){config=await r.json();$('workspace-name').textContent=`Tinka / ${config.projectLabel}`;document.title=`Tinka / ${config.projectLabel}`;$('project-label').textContent=config.projectLabel;}}catch{}
+try{const r=await fetch('/api/config');if(r.ok){config=await r.json();$('workspace-name').textContent=`Tinka / ${config.projectLabel}`;document.title=`Tinka / ${config.projectLabel}`;$('project-label').textContent=config.projectLabel;
+ const location=config.projectRoot||config.boardsRoot;
+ if(location){$('project-location-label').textContent=config.projectRoot?'Project root':'Boards folder';$('project-location-path').textContent=location;$('project-location').hidden=false;}
+ if(!config.projectRoot&&config.configPath){$('project-config-location').textContent=`Configuration: ${config.configPath}`;$('project-config-location').hidden=false;}
+}}catch{}
 try{setSort(sortKey()&&localStorage.getItem(sortKey())||'created',{save:false});}catch{setSort('created',{save:false});}
 if(config.workspaceId)new ProjectNavigator(config).mount(document.querySelector('.masthead .brand'));
 installDateTooltip();startLiveDates(document);

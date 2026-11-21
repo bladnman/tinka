@@ -31,6 +31,11 @@ html[data-appearance] body>.masthead{background:var(--bg-chrome);border:0}
 
 /* ---------- Heading, find and sort ---------- */
 main{max-width:1340px;margin:0 auto;padding:28px 32px 0}
+.project-location{display:flex;flex-direction:column;gap:2px;margin:0 0 22px;min-width:0;color:var(--ink-2);font-size:var(--t-sm)}
+.project-location[hidden]{display:none}
+#project-location-label{color:var(--ink-3);font-size:var(--t-xs)}
+#project-location-path{overflow-wrap:anywhere;user-select:text;font-weight:500}
+#project-config-location{overflow-wrap:anywhere;color:var(--ink-3);font-size:var(--t-xs)}
 .shelf-heading{display:flex;align-items:flex-end;justify-content:space-between;flex-wrap:wrap;gap:14px 24px;margin:0 0 20px}
 .shelf-title{min-width:0}
 .shelf-title h1{margin:0;font:600 28px/1.15 var(--font-display);letter-spacing:-.01em;color:var(--ink)}

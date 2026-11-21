@@ -20,6 +20,9 @@ async function fixture(t){
   await writeFile(path.join(root,'work/page.html'),'<!doctype html><h1>Example</h1>');
   await writeFile(path.join(root,'work/picture.png'),PNG);
   const config=await loadConfig(configPath);
+  const server=await listen(config,{port:0,persist:true});
+  const url=`http://127.0.0.1:${server.address().port}/`;
+  t.after(async()=>{await new Promise(resolve=>server.close(resolve));await rm(root,{recursive:true,force:true});});
   await callTool(config,'workspace.update',{patch:{resourceRoots:{work:{path:'../../work'}}}});
   await callTool(config,'board.create',{id:'looks',title:'Looks'});
   await callTool(config,'board.create',{id:'shortlist',title:'Shortlist'});
@@ -29,9 +32,6 @@ async function fixture(t){
   const missing=await add({title:'Gone',content:{kind:'html',resource:{rootId:'work',path:'gone.html'}}});
   const remote=await add({title:'Remote',content:{kind:'html',url:'https://example.org/'}});
   const board=await callTool(config,'board.create',{id:'child',title:'Child',parentBoardId:'looks'});
-  const server=await listen(config,{port:0});
-  const url=`http://127.0.0.1:${server.address().port}/`;
-  t.after(async()=>{await new Promise(resolve=>server.close(resolve));await rm(root,{recursive:true,force:true});});
   return {root,config,url,running:async()=>({url}),page,picture,missing,remote,board};
 }
 

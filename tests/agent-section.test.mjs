@@ -20,11 +20,11 @@ async function project(files,{pinned=true}={}){
     read:name=>readFile(path.join(root,name),'utf8'),done:()=>rm(root,{recursive:true,force:true})};
 }
 
-test('the managed block routes visual work to boards in a few lines',()=>{
+test('the managed block routes visual work and verifies the current instance concisely',()=>{
   assert.equal(BLOCK,`${TINKA_START}\n${TINKA_SECTION}\n${TINKA_END}`);
   assert.match(TINKA_START,/^<!-- tinka:start .*-->$/);
   assert.equal(TINKA_END,'<!-- tinka:end -->');
-  assert(TINKA_SECTION.split('\n').length<=11);
+  assert(TINKA_SECTION.split('\n').length<=19);
   assert.match(TINKA_SECTION,/^## Tinka\n/);
   // The board is added to the usual way of showing work, not substituted for it.
   assert.match(TINKA_SECTION,/add it to a board as well as showing\nit the way you otherwise would/);
@@ -35,6 +35,11 @@ test('the managed block routes visual work to boards in a few lines',()=>{
   assert.doesNotMatch(TINKA_SECTION,/instead of/);
   assert.match(TINKA_SECTION,/open only on\sthis computer/);
   assert.match(TINKA_SECTION,/\[TINKA\.md\]\(TINKA\.md\)/);
+  assert.match(TINKA_SECTION,/Whenever opening or returning to boards, run this project's config-specific `start`/);
+  assert.match(TINKA_SECTION,/even if a saved URL answers/);
+  assert.match(TINKA_SECTION,/canonical config path, boards root and project label/);
+  assert.match(TINKA_SECTION,/`linkPath` with `startCommand`/);
+  assert.match(TINKA_SECTION,/Relay any port-collision notice and the new URL/);
 });
 
 test('setup adds the block to AGENTS.md only; CLAUDE.md is never written',async()=>{
@@ -118,6 +123,12 @@ test('a new TINKA.md says to share the direct link and, when useful, a picture; 
   try{
     await fresh.init();await custom.init();
     const text=await fresh.read('TINKA.md');
+    assert.match(text,/## Open or return to this project's boards/);
+    assert.match(text,/run this every time, even if an old URL still answers/);
+    assert.match(text,/node tinka\/app\/cli\.mjs start --config tinka\/local\/config\.json/);
+    assert.match(text,/canonical config path, boards root\nand project label/);
+    assert.match(text,/remembered port was occupied and selects a new URL/);
+    assert.match(text,/`linkPath` and `startCommand` without a full `link`/);
     assert.match(text,/## Share what you add or change\n\nGive the user the Tinka link to exactly what you added or changed\. Tool results\nthat change a board carry it as `link`/);
     assert.match(text,/node tinka\/app\/cli\.mjs item shot ITEM_ID --config tinka\/local\/config\.json --out \/absolute\/shot\.png/);
     assert.match(text,/node tinka\/app\/cli\.mjs board overview BOARD_ID --config tinka\/local\/config\.json --out/);
