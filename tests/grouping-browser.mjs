@@ -42,7 +42,8 @@ try {
   const tile=id=>page.locator(`#world .workspace-card[data-placement="${id}"]`);
   const draw=id=>page.locator(`#world [data-decoration="${id}"]`);
   const selectionBar=page.locator('#workspace-selection');
-  const groupButton=selectionBar.locator('[data-bulk="canvas-group"]');
+  const groupButton=page.locator('.selection-actions-menu [data-bulk="canvas-group"]');
+  const expectGroup=async label=>{await selectionBar.locator('[data-selection-more]').click();await groupButton.getByText(label,{exact:true}).waitFor();await page.keyboard.press('Escape');};
   const drawingGroup=page.locator('[data-whiteboard-action="canvas-group"]');
   const center=async element=>{
     const box=await element.boundingBox();
@@ -65,9 +66,9 @@ try {
   await tile(first).locator('[data-placement-select]').evaluate(el=>el.click());
   await draw('caption').click({modifiers:['Shift']});
   await draw('holder').locator('[data-decoration-label]').click({modifiers:['Shift']});
-  await groupButton.getByText('Group',{exact:true}).waitFor();
+  await expectGroup('Group');
   const group=await action('groupOccurrences',()=>page.keyboard.press(`${mod}+g`));
-  await groupButton.getByText('Ungroup',{exact:true}).waitFor();
+  await expectGroup('Ungroup');
   assert.deepEqual(new Set(group.decorationIds),new Set(['caption','holder']));
   assert.deepEqual(group.placementIds,[first]);
   const grouped=await snapshot();
@@ -79,7 +80,7 @@ try {
   await tile(first).waitFor();
   await page.locator('#fit').click();
   await tile(first).locator('.workspace-preview-launch').click();
-  await groupButton.getByText('Ungroup',{exact:true}).waitFor();
+  await expectGroup('Ungroup');
   assert.equal(await draw('caption').evaluate(el=>el.classList.contains('selected')),true);
   assert.equal(await draw('holder').evaluate(el=>el.classList.contains('selected')),true);
   assert.equal(await tile(second).evaluate(el=>el.classList.contains('selected')),false);
@@ -93,7 +94,7 @@ try {
   assert.equal(moved.decorations.find(d=>d.id==='inside').x,grouped.decorations.find(d=>d.id==='inside').x+10);
   assert.deepEqual(moved.groups,grouped.groups);
   await action('restoreMovement',()=>page.keyboard.press(`${mod}+z`));
-  await groupButton.getByText('Ungroup',{exact:true}).waitFor();
+  await expectGroup('Ungroup');
   await page.waitForFunction(()=>!document.querySelector('#chrome-redo').disabled);
 
   const start=await center(draw('caption'));
@@ -115,9 +116,9 @@ try {
   await tile(copyId).waitFor({state:'detached'});
 
   await tile(first).locator('.workspace-preview-launch').click();
-  await groupButton.getByText('Ungroup',{exact:true}).waitFor();
-  await action('ungroupOccurrences',()=>groupButton.click());
-  await groupButton.getByText('Group',{exact:true}).waitFor();
+  await expectGroup('Ungroup');
+  await action('ungroupOccurrences',async()=>{await selectionBar.locator('[data-selection-more]').click();await groupButton.click();});
+  await expectGroup('Group');
   const ungrouped=await snapshot();
   assert.equal(ungrouped.groups,undefined);
   assert.deepEqual(ungrouped.placements,original.placements);

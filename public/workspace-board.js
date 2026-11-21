@@ -1,3 +1,6 @@
+import {SelectionActionsMenu,MORE_SELECTION_ICON} from "./selection-actions.js";
+import {ARRANGE_ICON,arrangePositions,arrangeMenuMarkup,arrangeMenuKeys} from "./arrange.js";
+export {arrangePositions} from "./arrange.js";
 import {positionTilePopover,bindTileMenu} from './tile-ui.js';
 import {bindCommitShortcut,commitShortcutLabel} from './interaction.js';
 import {bindDrawingPalette,colorDot,paletteMarkup} from './color-control.js';
@@ -45,55 +48,6 @@ import {
 // The opened-Tinka step modifier: ⌥ on a Mac, Ctrl elsewhere (see reader-keys.js).
 const MOD = stepModifierLabel(isMacPlatform());
 const svg16 = body => `<svg viewBox="0 0 16 16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round">${body}</svg>`;
-const ARRANGE = [
-  ["align-left","Align left",'<path d="M2.5 2v12"/><rect x="4.5" y="4" width="8" height="3" rx=".6"/><rect x="4.5" y="9" width="5" height="3" rx=".6"/>'],
-  ["align-center","Align centres",'<path d="M8 2v12"/><rect x="3" y="4" width="10" height="3" rx=".6"/><rect x="5" y="9" width="6" height="3" rx=".6"/>'],
-  ["align-right","Align right",'<path d="M13.5 2v12"/><rect x="3.5" y="4" width="8" height="3" rx=".6"/><rect x="6.5" y="9" width="5" height="3" rx=".6"/>'],
-  ["align-top","Align top",'<path d="M2 2.5h12"/><rect x="4" y="4.5" width="3" height="8" rx=".6"/><rect x="9" y="4.5" width="3" height="5" rx=".6"/>'],
-  ["align-middle","Align middles",'<path d="M2 8h12"/><rect x="4" y="3" width="3" height="10" rx=".6"/><rect x="9" y="5" width="3" height="6" rx=".6"/>'],
-  ["align-bottom","Align bottom",'<path d="M2 13.5h12"/><rect x="4" y="3.5" width="3" height="8" rx=".6"/><rect x="9" y="6.5" width="3" height="5" rx=".6"/>'],
-  ["distribute-h","Distribute horizontally",'<path d="M2 2v12M14 2v12"/><rect x="6.5" y="4.5" width="3" height="7" rx=".6"/>'],
-  ["distribute-v","Distribute vertically",'<path d="M2 2h12M2 14h12"/><rect x="4.5" y="6.5" width="7" height="3" rx=".6"/>'],
-  ["tidy","Tidy into a grid",'<rect x="2.5" y="2.5" width="4.5" height="4.5" rx=".6"/><rect x="9" y="2.5" width="4.5" height="4.5" rx=".6"/><rect x="2.5" y="9" width="4.5" height="4.5" rx=".6"/><rect x="9" y="9" width="4.5" height="4.5" rx=".6"/>'],
-];
-const ARRANGE_ICON = svg16('<path d="M2.5 2v12"/><rect x="4.5" y="3.5" width="9" height="3.5" rx=".6"/><rect x="4.5" y="9" width="6" height="3.5" rx=".6"/>');
-// Pure arrangement maths (board units). Each object is {box:{x,y,width,height}}; returns new top-left points.
-export function arrangePositions(kind, objects, gap = 40) {
-  const boxes = objects.map(o => o.box), left = Math.min(...boxes.map(b => b.x)), top = Math.min(...boxes.map(b => b.y));
-  const right = Math.max(...boxes.map(b => b.x + b.width)), bottom = Math.max(...boxes.map(b => b.y + b.height));
-  const same = b => ({x:b.x,y:b.y});
-  if (kind === "align-left") return boxes.map(b => ({x:left,y:b.y}));
-  if (kind === "align-center") return boxes.map(b => ({x:(left + right) / 2 - b.width / 2,y:b.y}));
-  if (kind === "align-right") return boxes.map(b => ({x:right - b.width,y:b.y}));
-  if (kind === "align-top") return boxes.map(b => ({x:b.x,y:top}));
-  if (kind === "align-middle") return boxes.map(b => ({x:b.x,y:(top + bottom) / 2 - b.height / 2}));
-  if (kind === "align-bottom") return boxes.map(b => ({x:b.x,y:bottom - b.height}));
-  if (kind === "distribute-h" || kind === "distribute-v") {
-    const [pos,size] = kind === "distribute-h" ? ["x","width"] : ["y","height"];
-    const order = boxes.map((b,i) => i).sort((a,b) => boxes[a][pos] + boxes[a][size] / 2 - (boxes[b][pos] + boxes[b][size] / 2));
-    const start = boxes[order[0]][pos], end = Math.max(...order.map(i => boxes[i][pos] + boxes[i][size]));
-    const space = (end - start - order.reduce((sum,i) => sum + boxes[i][size],0)) / (order.length - 1);
-    const out = boxes.map(same);
-    let at = start;
-    for (const i of order) { out[i][pos] = at; at += boxes[i][size] + space; }
-    return out;
-  }
-  // Tidy: reading order (rows top to bottom, then left to right), into ⌈√n⌉ columns.
-  const sorted = boxes.map((b,i) => i).sort((a,b) => boxes[a].y - boxes[b].y);
-  const reading = [];
-  for (let k = 0; k < sorted.length;) {
-    const first = boxes[sorted[k]], row = [];
-    while (k < sorted.length && boxes[sorted[k]].y < first.y + first.height / 2) row.push(sorted[k++]);
-    reading.push(...row.sort((a,b) => boxes[a].x - boxes[b].x));
-  }
-  const columns = Math.ceil(Math.sqrt(reading.length)), widths = [], heights = [];
-  reading.forEach((i,n) => { const c = n % columns, r = Math.floor(n / columns);
-    widths[c] = Math.max(widths[c] || 0,boxes[i].width); heights[r] = Math.max(heights[r] || 0,boxes[i].height); });
-  const out = boxes.map(same);
-  reading.forEach((i,n) => { const c = n % columns, r = Math.floor(n / columns);
-    out[i] = {x:left + widths.slice(0,c).reduce((a,b) => a + b + gap,0),y:top + heights.slice(0,r).reduce((a,b) => a + b + gap,0)}; });
-  return out;
-}
 const EDIT_TOOL_ICONS = {
   pointer: '<path d="M4 3.5l11.5 5-5 1.8-2 5z"/>',
   pan: '<path d="M5.5 9V6.5a1 1 0 012 0v2-3.6a1 1 0 012 0v3-4a1 1 0 012 0V8 5.4a1 1 0 012 0v5.1l.6-.8a1.2 1.2 0 012 1.2l-2 3.9a3 3 0 01-2.6 1.6h-2a4.6 4.6 0 01-4.2-2.8l-1.6-3.5a1.1 1.1 0 012-1z"/>',
@@ -1680,41 +1634,51 @@ export class WorkspaceBoard {
   }
   selectionMenu() {
     this.closeArrangeMenu();
+    this.selectionActions?.close({focus:!!this.selectionActions.popup?.menu.contains(document.activeElement)});
+    this.selectionActions ||= new SelectionActionsMenu();
     const el = $("workspace-selection");
+    const focused = el.contains(document.activeElement) ? document.activeElement : null;
+    const focusSelector = focused?.matches("[data-selection-more]") ? "[data-selection-more]" : focused?.matches("[data-arrange-open]") ? "[data-arrange-open]" : focused?.dataset.bulk ? `[data-bulk="${focused.dataset.bulk}"]` : null;
     el.hidden = !this.selection.size;
     el.setAttribute("role", "toolbar");
-    const grouping = this.selection.size && this.groupAction();
-    const groupButton = grouping ? `<button type="button" class="tk-btn tk-sm" data-bulk="canvas-group" title="${isMacPlatform() ? "⌘G" : "Ctrl+G"}">${grouping.label}</button>` : "";
-    el.innerHTML = `<strong role="status">${this.selectedCount()} selected</strong>${groupButton}<button class="tk-btn tk-sm" data-bulk="feature">Show on parent…</button><button class="tk-btn tk-sm" data-bulk="move">Move…</button><button class="tk-btn tk-sm selection-wide" data-bulk="reference">Add reference…</button><button class="tk-btn tk-sm" data-bulk="new-board-around">New board around selection…</button><button class="tk-btn tk-sm selection-wide" data-bulk="archive">${this.filters.archive ? "Restore here" : "Archive here"}</button><button class="tk-btn tk-sm tk-danger" data-bulk="remove">Remove from board…</button><span class="tk-divider" aria-hidden="true"></span><button class="tk-btn tk-sm tk-icon" data-bulk="clear" aria-label="Clear selection" title="Clear selection (Esc)"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="m5.5 5.5 9 9m0-9-9 9"/></svg></button>`;
-    if (this.canvasGroups().some(group => group.placementIds.some(id => this.selection.has(id)) && group.decorationIds.length)) {
-      for (const action of ["feature","move","reference","new-board-around","archive"])
-        el.querySelector(`[data-bulk="${action}"]`).hidden = true;
-    }
-    if (this.mode === "canvas" && this.selectedCount() >= 2 && this.arrangeObjects().length >= 2) {
-      const arrange = document.createElement("button");
-      arrange.type = "button"; arrange.className = "tk-btn tk-sm tk-icon"; arrange.dataset.arrangeOpen = "";
-      arrange.setAttribute("aria-label", "Arrange"); arrange.setAttribute("aria-haspopup", "dialog");
-      arrange.setAttribute("aria-expanded", "false");
-      arrange.title = "Arrange: align, distribute, tidy into a grid"; arrange.innerHTML = ARRANGE_ICON;
-      arrange.onclick = () => this.arrangeMenu(arrange);
-      el.querySelector("strong")?.after(arrange);
-    }
-    el.querySelectorAll("[data-bulk]").forEach(
-      (b) => (b.onclick = () => this.bulk(b.dataset.bulk)),
-    );
-    if (this.selection.size === 1) {
-      const id = [...this.selection][0];
-      const controls = document.createElement('button'); controls.type='button'; controls.className='tk-btn tk-sm'; controls.textContent='Details…'; controls.setAttribute('aria-label','Item details'); controls.title='Item details (⌘I)';
-      controls.onclick=()=>this.itemControls(id,'notes'); el.insertBefore(controls,el.querySelector('[data-bulk]'));
-      const doc = this.selectedDocument();
-      if (doc) {
-        const edit = document.createElement('button'); edit.type='button'; edit.className='tk-btn tk-sm'; edit.dataset.editDocument=''; edit.textContent='Edit document'; edit.title='Edit document (E)';
-        edit.onclick=()=>this.editDocument(doc.id); el.insertBefore(edit,controls);
+    const mixed = this.mixedGroup && this.decorationSelection.size;
+    const cards = `${this.selection.size} card${this.selection.size === 1 ? "" : "s"}`;
+    const lockedGroup = this.canvasGroups().some(group => group.placementIds.some(id => this.selection.has(id)) && group.decorationIds.length);
+    const arrange = this.mode === "canvas" && this.selectedCount() >= 2 && this.arrangeObjects().length >= 2;
+    el.innerHTML = `<strong role="status">${this.selectedCount()} selected</strong>${arrange ? `<button type="button" class="tk-btn tk-sm" data-arrange-open aria-haspopup="dialog" aria-expanded="false" title="Arrange: align, distribute, tidy into a grid">${ARRANGE_ICON}<span>Arrange</span></button>` : ""}${!lockedGroup ? `<button type="button" class="tk-btn tk-sm" data-bulk="move">${mixed ? `Move ${cards}…` : "Move…"}</button>` : ""}<button type="button" class="tk-btn tk-sm tk-icon" data-selection-more aria-label="More selection actions" title="More selection actions" aria-haspopup="menu" aria-expanded="false">${MORE_SELECTION_ICON}</button><span class="tk-divider" aria-hidden="true"></span><button type="button" class="tk-btn tk-sm tk-icon" data-bulk="clear" aria-label="Clear selection" title="Clear selection (Esc)"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="m5.5 5.5 9 9m0-9-9 9"/></svg></button>`;
+    el.querySelector("[data-arrange-open]")?.addEventListener("click", event => {
+      this.selectionActions.close();this.arrangeMenu(event.currentTarget);
+    });
+    el.querySelectorAll("[data-bulk]").forEach(b => b.onclick = () => {this.selectionActions.close();this.bulk(b.dataset.bulk);});
+    el.querySelector("[data-selection-more]").onclick = event => {
+      this.closeArrangeMenu();
+      const entries=[], add=(action,label,danger=false)=>entries.push({action,label,danger});
+      if (this.selection.size === 1) {
+        if (this.selectedDocument()) add("edit-document","Edit document");
+        add("details", mixed ? "Card details…" : "Details…");
       }
-    }
+      const grouping=this.groupAction();
+      if (grouping) add("canvas-group",grouping.label);
+      if (!lockedGroup) {
+        add("feature",mixed ? `Show ${cards} on parent…` : "Show on parent…");
+        add("reference",mixed ? `Add reference to ${cards}…` : "Add reference…");
+        add("new-board-around",mixed ? `New board around ${cards}…` : "New board around selection…");
+      }
+      entries.push("separator");
+      if (!lockedGroup) add("archive",this.filters.archive ? (mixed ? `Restore ${cards} here` : "Restore here") : (mixed ? `Archive ${cards} here` : "Archive here"));
+      add("remove","Remove from board…",true);
+      this.selectionActions.toggle({anchor:event.currentTarget,entries,context:"board",attribute:"data-bulk",
+        returnFocus:()=>$("workspace-selection").querySelector("[data-selection-more]"),
+        run:action=>{
+          if (action === "details") this.itemControls([...this.selection][0],"notes");
+          else if (action === "edit-document") { const doc=this.selectedDocument();if(doc)this.editDocument(doc.id); }
+          else this.bulk(action);
+        }});
+    };
     this.updateHistoryControls();
     this.emitSelection();
     this.positionEditTools();
+    if (focusSelector && !el.hidden) el.querySelector(focusSelector)?.focus({preventScroll:true});
   }
   // The board's items and regions, for Navigator's "On this board" outline.
   // A brief green pulse that survives keyed reconciliation while it plays.
@@ -2567,6 +2531,9 @@ export class WorkspaceBoard {
     // which would clear only the drawn elements).
     window.addEventListener("keydown", e => {
       if (e.key === "Escape" && drag?.copy) { cancel(); e.preventDefault(); e.stopImmediatePropagation(); return; }
+      if (e.key === "Escape" && this.selectionActions?.popup) {
+        this.selectionActions.close({focus:true});e.preventDefault();e.stopImmediatePropagation();return;
+      }
       if (e.key === "Escape" && this.arrangePopup) {
         this.closeArrangeMenu({focus:true});e.preventDefault();e.stopImmediatePropagation();return;
       }
@@ -3196,6 +3163,7 @@ export class WorkspaceBoard {
   // Board commands only: plain keys, arrows, Delete/Backspace/Enter, and ⌘/Ctrl-Z, -D, -A, -G. Native
   // clipboard and browser shortcuts, fields, editors, dialogs and IME composition pass through.
   queueableKey(e) {
+    if (e.target.closest?.(".selection-actions-menu")) return false;
     if (e.isComposing || e.keyCode === 229 || e.repeat || e.altKey || this.editorHold || this.whiteboard?.editing || this.documentEditing) return false;
     if (document.querySelector("dialog[open]") || document.activeElement?.tagName === "IFRAME" ||
         e.target.closest?.("input,textarea,select,[contenteditable],[role=dialog],[role=textbox]")) return false;
@@ -3631,10 +3599,7 @@ export class WorkspaceBoard {
     const events = new AbortController();
     const menu = document.createElement("div");
     menu.className = "tk-menu arrange-menu"; menu.setAttribute("role","dialog"); menu.setAttribute("aria-label","Arrange");
-    const item = ([kind,label,icon]) => `<button type="button" class="arrange-item" data-arrange="${kind}" aria-label="${label}" title="${label}" ${kind.startsWith("distribute") && count < 3 ? "disabled" : ""}>${svg16(icon)}</button>`;
-    menu.innerHTML = `<div class="arrange-group" role="group" aria-label="Align"><span>Align</span>${ARRANGE.slice(0,6).map(item).join("")}</div>
-      <div class="arrange-group" role="group" aria-label="Distribute"><span>Distribute</span>${ARRANGE.slice(6,8).map(item).join("")}</div>
-      <button type="button" class="arrange-tidy" data-arrange="tidy" title="Tidy the selection into a grid, keeping reading order">${svg16(ARRANGE[8][2])}<span>Tidy into grid</span></button>`;
+    menu.innerHTML = arrangeMenuMarkup(count);
     document.body.append(menu);
     this.arrangePopup = {menu,anchor,events};
     anchor.setAttribute("aria-expanded","true");
@@ -3645,13 +3610,7 @@ export class WorkspaceBoard {
       this.closeArrangeMenu({focus:true});
       this.arrange(button.dataset.arrange);
     };
-    menu.onkeydown = e => {
-      const forward = ["ArrowRight","ArrowDown"].includes(e.key), backward = ["ArrowLeft","ArrowUp"].includes(e.key);
-      if (!forward && !backward && e.key !== "Home" && e.key !== "End") return;
-      e.preventDefault();
-      const buttons = [...menu.querySelectorAll("button:not(:disabled)")], index = buttons.indexOf(document.activeElement);
-      buttons[e.key === "Home" ? 0 : e.key === "End" ? buttons.length-1 : (index+(forward?1:-1)+buttons.length)%buttons.length]?.focus();
-    };
+    menu.onkeydown = e => arrangeMenuKeys(menu,e);
     const away = e => { if (!menu.contains(e.target) && !anchor.contains(e.target)) this.closeArrangeMenu(); };
     document.addEventListener("pointerdown",away,{capture:true,signal:events.signal});
     document.addEventListener("focusin",away,{capture:true,signal:events.signal});

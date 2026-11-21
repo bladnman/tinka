@@ -1977,34 +1977,36 @@ function contentChanged() {
   boardMap?.invalidate();
 }
 document.addEventListener('tinka:selection', () => { readSelection(); syncFitControls(); boardMap?.invalidate(); requestAnimationFrame(placeSelectionBar); });
-// The selection bar never runs into the zoom controls or the map. When its usual
-// centred place would, it centres in the free space to their left: beside the
-// status line if it fits, otherwise over a quiet status line (which steps aside
-// while the bar shows), otherwise raised above the footer row. On a phone it spans
-// the width and the open map stacks above it instead.
+// Selection actions use the available canvas width above the footer. Wrapping
+// changes their height, so position the drawing dock only after that final layout.
 function placeSelectionBar() {
   const bar = $('workspace-selection'), pill = document.querySelector('.canvas-footer .zoom-pill'), root = document.documentElement;
-  const footer = document.querySelector('.canvas-footer');
+  const footer = document.querySelector('.canvas-footer'), tools = $('edit-tools');
   if (!bar || !footer) return;
   if (!barObserved) { barObserved = true; footerObserver.observe(bar); }
-  root.style.setProperty('--selection-bar-space', !bar.hidden && innerWidth <= 720 ? `${bar.offsetHeight + 14}px` : '0px');
   for (const property of ['left', 'max-width', 'bottom']) bar.style.removeProperty(property);
+  tools?.style.removeProperty('left');
   footer.classList.remove('status-yields');
-  if (bar.hidden || !pill || innerWidth <= 720) return;
-  const meets = (a, b) => a.right > b.left - 8 && a.left < b.right + 8 && a.bottom > b.top && a.top < b.bottom;
-  const b = bar.getBoundingClientRect(), p = pill.getBoundingClientRect();
-  const m = boardMap?.visible ? boardMapElement().getBoundingClientRect() : null;
-  if (!meets(b, p) && !(m && meets(b, m))) return;
-  const statusLine = footer.querySelector('.status-line'), status = statusLine?.getBoundingClientRect();
-  const right = Math.min(p.left, m ? m.left : Infinity) - 12, edge = footer.getBoundingClientRect().left + 12;
-  const beside = status && status.width && status.bottom > b.top && status.top < b.bottom ? Math.max(edge, status.right + 12) : edge;
-  const quiet = ['saved', 'saving', '', undefined].includes($('save-status').dataset.state) && $('live-refresh').hidden && $('live-status').dataset.connection !== 'offline';
-  let from = edge;
-  if (b.width <= right - beside) from = beside;
-  else if (quiet && b.width <= right - edge) footer.classList.add('status-yields');
-  else bar.style.bottom = `${Math.max(72, innerHeight - p.top + 12)}px`;
-  bar.style.left = `${Math.round((from + right) / 2)}px`;
-  bar.style.maxWidth = `${Math.max(160, Math.round(right - from))}px`;
+  if (!bar.hidden && pill && innerWidth > 720) {
+    const p = pill.getBoundingClientRect(), f = footer.getBoundingClientRect();
+    // Panels can leave very little room: keep the actions inside the window
+    // rather than inheriting a negative or unusably narrow panel remainder.
+    const left = Math.min(Math.max(12, f.left + 12), Math.max(12, innerWidth - 332));
+    let right = Math.max(left + 320, Math.min(innerWidth - 12, f.right - 12));
+    let bottom = Math.max(72, innerHeight - p.top + 12);
+    const map = boardMap?.visible ? boardMapElement().getBoundingClientRect() : null;
+    if (map) {
+      if (map.left - left - 12 >= 380) right = Math.min(right, map.left - 12);
+      else bottom = Math.max(bottom, innerHeight - map.top + 12);
+    }
+    bar.style.left = `${Math.round((left + right) / 2)}px`;
+    bar.style.maxWidth = `${Math.round(right - left)}px`;
+    bar.style.bottom = `${Math.round(bottom)}px`;
+    if (tools) tools.style.left = bar.style.left;
+  }
+  root.style.setProperty('--selection-bar-space', !bar.hidden && innerWidth <= 720 ? `${bar.offsetHeight + 14}px` : '0px');
+  graph?.positionEditTools();
+  graph?.positionArrangeMenu();
 }
 let barObserved = false;
 const footerObserver = new ResizeObserver(() => placeSelectionBar());

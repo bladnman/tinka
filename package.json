@@ -1,6 +1,6 @@
 {
   "name": "board-room",
-  "version": "1.6.0",
+  "version": "1.8.0",
   "license": "MIT",
   "private": true,
   "type": "module",
@@ -9,6 +9,6 @@
   },
   "scripts": {
     "test": "node --test tests/*.test.mjs",
-    "test:browser": "node tests/browser.mjs && node tests/appearance-browser.mjs && node tests/cards-browser.mjs && node tests/calm-browser.mjs && node tests/covers-browser.mjs && node tests/home-selection-browser.mjs && node tests/return-browser.mjs && node tests/inspector-commands-browser.mjs && node tests/drag-settle-browser.mjs && node tests/decoration-ink-browser.mjs && node tests/arrangement-retry-browser.mjs && node tests/overview-browser.mjs && node tests/zoom-browser.mjs && node tests/fit-map-browser.mjs && node tests/tinka-view-browser.mjs && node tests/resource-surface-browser.mjs && node tests/reader-fill-browser.mjs && node tests/reader-wheel-browser.mjs && node tests/board-step-browser.mjs && node tests/undo-moves-browser.mjs && node tests/standalone-browser.mjs && node tests/update-notice-browser.mjs && node tests/quick-create-browser.mjs && node tests/reanchor-browser.mjs && node tests/arrange-snap-browser.mjs && node tests/arrow-bar-browser.mjs && node tests/marquee-drawn-browser.mjs && node tests/object-bar-browser.mjs && node tests/decoration-undo-browser.mjs && node tests/document-undo-browser.mjs && node tests/comment-pins-browser.mjs && node tests/comment-thread-browser.mjs && node tests/interaction-browser.mjs && node tests/common-guarded-browser.mjs && node tests/structural-guarded-browser.mjs"
+    "test:browser": "node tests/browser.mjs && node tests/appearance-browser.mjs && node tests/cards-browser.mjs && node tests/calm-browser.mjs && node tests/covers-browser.mjs && node tests/home-selection-browser.mjs && node tests/home-layout-browser.mjs && node tests/return-browser.mjs && node tests/inspector-commands-browser.mjs && node tests/drag-settle-browser.mjs && node tests/decoration-ink-browser.mjs && node tests/arrangement-retry-browser.mjs && node tests/overview-browser.mjs && node tests/zoom-browser.mjs && node tests/fit-map-browser.mjs && node tests/tinka-view-browser.mjs && node tests/resource-surface-browser.mjs && node tests/reader-fill-browser.mjs && node tests/reader-wheel-browser.mjs && node tests/board-step-browser.mjs && node tests/undo-moves-browser.mjs && node tests/standalone-browser.mjs && node tests/update-notice-browser.mjs && node tests/quick-create-browser.mjs && node tests/reanchor-browser.mjs && node tests/arrange-snap-browser.mjs && node tests/arrow-bar-browser.mjs && node tests/marquee-drawn-browser.mjs && node tests/object-bar-browser.mjs && node tests/decoration-undo-browser.mjs && node tests/document-undo-browser.mjs && node tests/comment-pins-browser.mjs && node tests/comment-thread-browser.mjs && node tests/interaction-browser.mjs && node tests/common-guarded-browser.mjs && node tests/structural-guarded-browser.mjs"
   }
 }

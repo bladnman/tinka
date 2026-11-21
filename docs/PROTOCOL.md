@@ -1334,3 +1334,9 @@ requires reconciliation, not a retry with a newer workspace watermark.
 `restoreMovement` continues to rely on its existing server-signed arrangement
 receipt. Canonical destructive operations remain outside movement Undo/Redo.
 The original raw operation shapes and their omission behavior remain compatible.
+
+### Home card arrangement
+
+Workspace metadata may contain optional `homeLayout:{BOARD_ID:{x,y,width,height}}`. It records Home card geometry independently of `homeBoardIds`; positions are nonnegative finite board units up to 10000000, width 160–10000 and height 120–10000. `updateWorkspace.patch.homeLayout` replaces this map and the compact Home response exposes it. Home layout saves use the strict displayed `expectedRevision`, captured before dispatch. A stale save rejects without a newer-watermark retry. Unknown board IDs may retain geometry for an unavailable legacy or removed Home card; the field creates no board, placement or membership. Omission preserves current geometry. Older readers ignore this optional field and existing `updateWorkspace` patches to other properties retain it. No migration is performed.
+
+The default Home remains Grid when no layout or browser preference is saved. Arrange is available on two or more selected active graph board cards in Grid or Canvas and enters Canvas; sorting remains a Grid view action. Home reuses the board's Arrange calculation/menu, while layout Undo/Redo saves only Home geometry, checks the expected layout before replay, and never rolls back membership, board content, notes or resources. Home cannot apply canonical-placement grouping, clipboard copying, drawn elements or resizing through this geometry map. Legacy boards remain links with their explicit conversion route.

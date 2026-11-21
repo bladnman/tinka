@@ -357,15 +357,15 @@ html[data-appearance="dark"] #world .workspace-tile-toolbar { --ink: #ecece5; }
 /* ---------- Selection bar: one floating pill ---------- */
 #workspace-selection.workspace-selection {
   position: fixed; left: 50%; bottom: 16px; z-index: 35; transform: translateX(-50%);
-  display: flex; flex-wrap: nowrap; align-items: center; gap: 2px; max-width: calc(100vw - 24px); overflow-x: auto;
+  display: flex; flex-wrap: wrap; align-items: center; gap: 2px; width: max-content; max-width: calc(100vw - 24px); box-sizing: border-box; overflow: visible;
   padding: 4px 4px 4px 14px; border: 0; border-radius: var(--r-lg);
   background: var(--surface-2); color: var(--ink); box-shadow: var(--e3); white-space: nowrap;
   animation: calm-up .14s var(--ease);
 }
 #workspace-selection.workspace-selection[hidden] { display: none; }
 @keyframes calm-up { from { opacity: 0; transform: translate(-50%, 8px); } }
-#workspace-selection.workspace-selection strong { margin-right: 8px; font: 600 var(--t-md)/1 var(--font-ui); color: var(--accent-text); }
-#workspace-selection.workspace-selection button { min-height: 0; border: 0; margin: 0; }
+#workspace-selection.workspace-selection strong { flex: none; margin-right: 8px; font: 600 var(--t-md)/1 var(--font-ui); color: var(--accent-text); }
+#workspace-selection.workspace-selection button { flex: none; max-width: 100%; min-height: 32px; height: auto; padding-top: 8px; padding-bottom: 8px; border: 0; margin: 0; white-space: normal; text-align: center; }
 #workspace-selection.workspace-selection .tk-divider { margin: 0 3px; }
 
 /* ---------- Grid layout keeps its comparison strip, with calm surfaces ---------- */
@@ -406,7 +406,7 @@ body dialog::backdrop { background: var(--scrim); }
   body .canvas-footer .status-line:has(#live-refresh:not([hidden])) { display: flex; }
   body .canvas-footer { justify-content: flex-end; }
   .zoom-percent { min-width: 52px; }
-  #workspace-selection.workspace-selection { left: 8px; right: 8px; bottom: 66px; transform: none; max-width: none; justify-content: flex-start; animation: none; }
+  #workspace-selection.workspace-selection { left: 8px; right: 8px; bottom: 66px; transform: none; width: auto; max-width: none; justify-content: flex-start; animation: none; }
   #workspace-selection .selection-wide { display: none; }
 }
 
@@ -650,3 +650,13 @@ body:is(.workspace-box-fit, .workspace-box-zoom) #workspace-marquee { border-sty
 @container tinka-card (min-width: 180px) {
   #world .workspace-card:not(.workspace-place-only):not(.workspace-icon):has(> .workspace-tile-toolbar) .workspace-preview-launch span { display: none; }
 }
+
+/* Compact selection actions retain touch targets without a row of secondary labels. */
+#workspace-selection.workspace-selection .tk-btn { min-height:44px; }
+#workspace-selection.workspace-selection .tk-icon { min-width:44px; width:44px; }
+@media(max-width:720px) {
+  #workspace-selection.workspace-selection { gap:0; }
+  #workspace-selection.workspace-selection strong { margin-right:2px; }
+  #workspace-selection.workspace-selection .tk-divider { display:none; }
+}
+@media(max-width:420px) { #workspace-selection [data-arrange-open] svg { display:none; } }

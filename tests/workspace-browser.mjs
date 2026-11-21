@@ -578,14 +578,16 @@ try {
   });
   await boardTool("[data-mode=grid]");
   await page.locator("[data-placement-select]").first().click();
-  await page.getByRole("button", { name: "Archive here", exact: true }).click();
+  await page.locator("[data-selection-more]").click();
+  await page.getByRole("menuitem", { name: "Archive here", exact: true }).click();
   await page.waitForFunction(
     () => document.querySelectorAll(".workspace-card").length === 0,
   );
   await boardTool("#workspace-archive");
   await page.locator(".workspace-card").first().waitFor();
   await page.locator("[data-placement-select]").first().click();
-  await page.getByRole("button", { name: "Restore here", exact: true }).click();
+  await page.locator("[data-selection-more]").click();
+  await page.getByRole("menuitem", { name: "Restore here", exact: true }).click();
   await boardTool("#workspace-archive");
   await page.locator(".workspace-card").first().waitFor();
   await page.screenshot({ path: path.join(evidence, "graph-desktop.png") });

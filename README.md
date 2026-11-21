@@ -358,6 +358,9 @@ The card’s bottom name bar also drags; clicking its title still opens the item
 Select without checkboxes: Shift-, ⌘- or Ctrl-click a tile (a plain click still
 opens it), click its corner selection circle, or drag a box. Selected tiles get a
 green ring and check, and one floating selection bar at the bottom acts on them.
+On Home and regular boards, it keeps **Arrange** and **Move…** visible when
+available; **⋯ More selection actions** holds the other commands, with scoped
+Archive and Remove actions at the end.
 The toolbar, selection circle and resize controls keep their separate actions.
 Right-click a native card for a short menu: Open, Details…, Favorite, Move to
 board…, Duplicate and Remove from board.
@@ -787,3 +790,5 @@ placement removal. Tile Notes opens a draft editor: Save note or Cmd/Ctrl-Enter
 commits, Cancel discards that draft, and Escape/click-away retains it for return.
 Failed saves keep the draft available for retry. Reader and Inspector notes keep
 their existing autosave behavior; notes and favorites remain shared by references.
+
+Home keeps its responsive **Grid** and sorting, and offers **Canvas** for saved board-card positions. Select two or more active graph boards and choose **Arrange** directly from either view to align, distribute or tidy them using the same controls as a board. Arrange enters Canvas; drag or arrow-key nudge selected cards there. Layout Undo/Redo works across reloads in the same tab. Returning to Grid keeps the saved Canvas arrangement. Move, Add reference, Archive and Remove from home retain their existing membership behavior; legacy boards retain their conversion route.

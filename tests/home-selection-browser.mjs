@@ -103,7 +103,7 @@ try {
   const vb=await bar.boundingBox();
   assert(Math.abs(vb.x+vb.width/2-720)<=2&&Math.abs(1000-(vb.y+vb.height)-16)<=2,`bar floats bottom centre: ${JSON.stringify(vb)}`);
   assert.equal(await bar.evaluate(el=>getComputedStyle(el).position),'fixed');
-  assert.deepEqual(await bar.getByRole('button').evaluateAll(bs=>bs.map(b=>b.getAttribute('aria-label')||b.textContent)),['Move…','Add reference…','Archive everywhere','Remove from home…','Clear selection']);
+  assert.deepEqual(await bar.getByRole('button').evaluateAll(bs=>bs.map(b=>b.getAttribute('aria-label')||b.textContent)),['Arrange','Move…','More selection actions','Clear selection']);
   assert.equal(await page.locator('.workspace-home-toolbar [data-home-action]').count(),0,'no inline selection group in the toolbar');
   await page.mouse.move(1400,980);await page.waitForTimeout(200);
   await page.screenshot({path:path.join(evidence,'home-selected-light-1440.png')});

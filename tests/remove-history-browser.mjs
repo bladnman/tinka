@@ -142,8 +142,8 @@ try {
   // Cancel the newer intent explicitly so Undo addresses this completed removal.
   await page.keyboard.press('Escape');await replay(false);
   // Toolbar confirmation calls the same undoable action, including cancellation.
-  await select([ids[0]]);await noWrite('toolbar opens confirmation only',()=>page.locator('[data-bulk="remove"]').click());await page.locator('dialog.workspace-dialog[open]').waitFor();await page.keyboard.press('Escape');
-  await page.locator('[data-bulk="remove"]').click();await commit(()=>page.getByRole('button',{name:'Remove from this board',exact:true}).click());await replay(false);
+  await select([ids[0]]);await noWrite('toolbar opens confirmation only',async()=>{await page.locator('[data-selection-more]').click();await page.locator('[data-bulk="remove"]').click();});await page.locator('dialog.workspace-dialog[open]').waitFor();await page.keyboard.press('Escape');
+  await page.locator('[data-selection-more]').click();await page.locator('[data-bulk="remove"]').click();await commit(()=>page.getByRole('button',{name:'Remove from this board',exact:true}).click());await replay(false);
   assert.equal(await readFile(path.join(boards,'resources/prototype.html'),'utf8'),resource);assert.equal(errors.length,0,errors.join('\n'));
   const receipt={passed:true,fixture,evidence,operations:receipts,guards,exactIdentityGeometryReviewOrder:true,canonicalEditsRetained:true,aliasesChildrenReferencesResourcesRetained:true,collectionCoversLive:true,survivingFrameMounted:true,failedAndStaleAtomic:true,pendingCutUndoAndNewerTabIntent:true,toolbarConfirmedUndo:true,syntheticClipboardOnly:true,errors};
   await writeFile(path.join(evidence,'remove-history-receipt.json'),JSON.stringify(receipt,null,2));console.log(JSON.stringify(receipt));

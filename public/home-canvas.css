@@ -1,0 +1,13 @@
+/* Home reuses its board cards and the board's Arrange menu. Geometry is optional;
+   Grid stays the normal responsive shelf and never rewrites saved positions. */
+.home-canvas-controls{display:flex;align-items:center;gap:4px;flex-wrap:wrap}
+.home-canvas-viewport.is-canvas{overflow:auto;max-height:calc(100vh - 240px);min-height:360px;padding:6px;overscroll-behavior:contain}
+.home-canvas-viewport.is-canvas #board-grid{display:block;position:relative;min-height:360px;isolation:isolate}
+.home-canvas-viewport.is-canvas .board-card{margin:0;touch-action:none}
+.home-canvas-viewport.is-canvas .board-card .board-link{height:100%}
+.home-canvas-viewport.is-canvas .board-card .board-art{min-height:0;max-height:60%;flex-shrink:1}
+.home-canvas-viewport.is-canvas .board-card:hover .board-link{transform:none}
+.home-canvas-viewport.is-canvas .board-card .board-link{cursor:grab}
+.home-canvas-viewport.is-canvas .home-dragging .board-link{cursor:grabbing;user-select:none}
+.home-selection-bar [data-home-action=arrange] svg{width:16px;height:16px}
+@media(max-width:720px){.home-canvas-viewport.is-canvas{max-height:calc(100vh - 280px);min-height:280px}}

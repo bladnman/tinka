@@ -1630,3 +1630,7 @@ body .canvas-footer .zoom-pill .comment-bar button { display: inline-flex; align
 .comment-send { position: relative; }
 .comment-send.agent-watching::after { content: ""; position: absolute; top: 5px; left: 22px; width: 8px; height: 8px; border-radius: 50%;
   background: #3f9a5a; box-shadow: 0 0 0 2px var(--surface-2); }
+
+/* Secondary selection commands share the existing viewport menu treatment. */
+.selection-actions-menu { position:fixed; z-index:100020; width:max-content; min-width:min(240px,calc(100vw - 16px)); max-width:calc(100vw - 16px); box-sizing:border-box; overflow:auto; overscroll-behavior:contain; }
+.tk-menu.selection-actions-menu .tk-mi { min-height:44px; height:auto; margin:0; padding:8px 10px; white-space:normal; }

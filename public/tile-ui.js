@@ -16,7 +16,7 @@ export function positionTilePopover(element, anchor, point) {
   Object.assign(element.style,{left:`${x}px`,top:`${y}px`});
 }
 
-export function bindTileMenu(menu, {close, returnFocus, anchor}) {
+export function bindTileMenu(menu, {close, returnFocus, anchor, captureKeys=false}) {
   const origin=anchor?.getBoundingClientRect();
   const moved=event=>{
     if(menu.contains(event.target))return;
@@ -29,7 +29,7 @@ export function bindTileMenu(menu, {close, returnFocus, anchor}) {
   document.addEventListener('scroll',moved,true);
   window.addEventListener('resize',close);
 
-  menu.addEventListener('keydown', event => {
+  const keydown = event => {
     const entries = [...menu.querySelectorAll('[role="menuitem"]:not(:disabled)')];
     const index = entries.indexOf(document.activeElement);
     if (event.key === 'Escape') {event.preventDefault(); event.stopImmediatePropagation(); close(); restoreFocus(returnFocus);}
@@ -39,9 +39,13 @@ export function bindTileMenu(menu, {close, returnFocus, anchor}) {
       const next = event.key === 'Home' ? 0 : event.key === 'End' ? entries.length-1 : (index+(event.key === 'ArrowDown' ? 1 : -1)+entries.length)%entries.length;
       entries[next]?.focus({preventScroll:true});
     }
-  });
+  };
+  // Selection menus own keyboard input before canvas capture handlers can act.
+  const captured = event => {if(menu.contains(event.target)){keydown(event);event.stopImmediatePropagation();}};
+  if(captureKeys)window.addEventListener('keydown',captured,true);
+  else menu.addEventListener('keydown',keydown);
   menu.querySelector('[role="menuitem"]:not(:disabled)')?.focus({preventScroll:true});
-  return {destroy(){document.removeEventListener('wheel',moved,true);document.removeEventListener('scroll',moved,true);window.removeEventListener('resize',close);}};
+  return {destroy(){if(captureKeys)window.removeEventListener('keydown',captured,true);document.removeEventListener('wheel',moved,true);document.removeEventListener('scroll',moved,true);window.removeEventListener('resize',close);}};
 }
 
 export class TileNotes {

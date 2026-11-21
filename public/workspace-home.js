@@ -1,3 +1,5 @@
+import {SelectionActionsMenu,MORE_SELECTION_ICON} from "./selection-actions.js";
+import {HomeCanvas} from "./home-canvas.js";
 import {watchChanges} from "./live.js";
 import {newestBoardsFirst} from "./board-order.js";
 import {reconcileChildren} from "./reconcile.js";
@@ -116,10 +118,25 @@ export class WorkspaceHome {
     this.bar.setAttribute("aria-label", "Selected boards");
     this.bar.hidden = true;
     document.body.append(this.bar);
+    this.selectionActions = new SelectionActionsMenu();
     this.bar.addEventListener("click", (e) => {
       const b = e.target.closest("[data-home-action]");
-      if (b) this.bulk(b.dataset.homeAction);
+      if (!b) return;
+      if (b.dataset.homeAction === "more") {
+        this.canvas.closeMenu();
+        this.selectionActions.toggle({anchor:b,context:"home",attribute:"data-home-action",
+          returnFocus:()=>this.bar.querySelector('[data-home-action="more"]'),
+          entries:[{action:"reference",label:"Add reference…"},"separator",
+            {action:"archive",label:this.archive?"Restore everywhere":"Archive everywhere"},
+            {action:"remove",label:"Remove from home…",danger:true}],
+          run:action=>this.bulk(action)});
+      } else {
+        this.selectionActions.close();
+        if (b.dataset.homeAction === "arrange") this.canvas.openMenu(b);
+        else this.bulk(b.dataset.homeAction);
+      }
     });
+    this.canvas = new HomeCanvas(this);
     this.selectionGestures();
     this.render();
     this.liveDirty=false;
@@ -129,15 +146,19 @@ export class WorkspaceHome {
     return true;
   }
   async refresh() {
-    this.workspace = await this.client.get("/api/workspace?view=home");
-    this.catalog = (await this.client.get("/api/boards")).boards || [];
-    this.client.revision = this.workspace.revision;
+    const workspace = await this.client.get("/api/workspace?view=home");
+    const catalog = (await this.client.get("/api/boards")).boards || [];
+    // A read already in flight must not replace the facts under an open Arrange
+    // menu or an active drag. Commit them only when that interaction finishes.
+    if(this.canvas?.menu || this.canvas?.drag){this.liveDirty=true;return;}
+    this.workspace = workspace;this.catalog = catalog;
+    this.client.revision = workspace.revision;
     this.render();
   }
   async drainLive() {
-    if(!this.liveDirty||this.liveRunning||this.client.pendingWrites||document.querySelector("dialog[open]"))return;
+    if(!this.liveDirty||this.liveRunning||this.canvas?.busy||this.canvas?.drag||this.canvas?.menu||this.client.pendingWrites||document.querySelector("dialog[open]"))return;
     this.liveRunning=true;
-    try{while(this.liveDirty&&!document.querySelector("dialog[open]")){this.liveDirty=false;await this.refresh();}}
+    try{while(this.liveDirty&&!this.canvas?.menu&&!this.canvas?.drag&&!document.querySelector("dialog[open]")){this.liveDirty=false;await this.refresh();}}
     catch{this.liveDirty=true;document.getElementById("connection").textContent="Reconnecting";}
     finally{this.liveRunning=false;}
   }
@@ -201,6 +222,7 @@ export class WorkspaceHome {
     document
       .querySelectorAll("[data-convert-legacy]")
       .forEach((b) => (b.onclick = () => enableOrganization(this.config)));
+    this.canvas?.render();
     this.syncSelection();
   }
   /** Card state and the floating bar, without rebuilding the grid. */
@@ -217,14 +239,16 @@ export class WorkspaceHome {
     if (this.marquee?.active) return; // The bar keeps its state until the box finishes.
     const n = this.selected.size, bar = this.bar;
     if (!n) {
+      this.selectionActions.close();
       const hadFocus = bar.contains(document.activeElement);
       bar.hidden = true;
       bar.replaceChildren();
       if (hadFocus) document.querySelector("#board-grid .board-link")?.focus({ preventScroll: true });
       return;
     }
-    const markup = `<strong role="status">${n} selected</strong><button type="button" class="tk-btn tk-sm" data-home-action="move">Move…</button><button type="button" class="tk-btn tk-sm" data-home-action="reference">Add reference…</button><button type="button" class="tk-btn tk-sm" data-home-action="archive">${this.archive ? "Restore everywhere" : "Archive everywhere"}</button><button type="button" class="tk-btn tk-sm" data-home-action="remove">Remove from home…</button><span class="tk-divider" aria-hidden="true"></span><button type="button" class="tk-btn tk-sm tk-icon" data-home-action="clear" aria-label="Clear selection" title="Clear selection (Esc)">${CLOSE}</button>`;
+    const markup = `<strong role="status">${n} selected</strong>${this.archive ? "" : this.canvas?.arrangeButton() || ""}<button type="button" class="tk-btn tk-sm" data-home-action="move">Move…</button><button type="button" class="tk-btn tk-sm tk-icon" data-home-action="more" aria-label="More selection actions" title="More selection actions" aria-haspopup="menu" aria-expanded="false">${MORE_SELECTION_ICON}</button><span class="tk-divider" aria-hidden="true"></span><button type="button" class="tk-btn tk-sm tk-icon" data-home-action="clear" aria-label="Clear selection" title="Clear selection (Esc)">${CLOSE}</button>`;
     if (bar.hidden || bar.dataset.markup !== markup) {
+      this.selectionActions.close();
       const template = document.createElement("template");
       template.innerHTML = markup;
       reconcileChildren(bar, template.content);
@@ -233,11 +257,14 @@ export class WorkspaceHome {
     bar.hidden = false;
   }
   toggle(id) {
+    this.selectionActions.close();
+    this.canvas?.closeMenu();
     this.selected.has(id) ? this.selected.delete(id) : this.selected.add(id);
     this.syncSelection();
   }
   setSelection(next) {
     if (next.size === this.selected.size && [...next].every((id) => this.selected.has(id))) return;
+    this.selectionActions.close();
     this.selected = next;
     this.syncSelection();
   }
@@ -376,6 +403,7 @@ export class WorkspaceHome {
     });
   }
   async bulk(type) {
+    if(this.client.pendingWrites || this.canvas?.busy)return;
     const ids = [...this.selected];
     const source=structuredClone(this.workspace);
     try {
