@@ -1190,3 +1190,147 @@ placement removal. Tile Notes opens a draft editor: Save note or Cmd/Ctrl-Enter
 commits, Cancel discards that draft, and Escape/click-away retains it for return.
 Failed saves keep the draft available for retry. Reader and Inspector notes keep
 their existing autosave behavior; notes and favorites remain shared by references.
+
+### Guarded common saves
+
+New callers can POST an additive envelope to `/api/operations`, use the same JSON
+with `workspace op` / `workspace.apply`, or call `workspace.guarded` with its three
+arguments `operationId`, `operation`, and `baseline`:
+
+```json
+{"type":"guarded","operationId":"save-unique-id","operation":{"type":"review","itemId":"opening-idea","patch":{"note":"Try a shorter introduction."}},"baseline":{"version":1,"facts":[{"kind":"itemField","itemId":"opening-idea","field":"review.note","present":true,"value":""}]}}
+```
+
+The inner operation carries neither `operationId` nor `expectedRevision`. Keep the
+whole envelope, including its baseline and outer ID, immutable after dispatch.
+An identical acknowledged retry replays before checking current facts; conflicting
+ID reuse rejects. The existing bounded 64-operation retry window still applies.
+An older app rejects the unknown `guarded` operation or `workspace.guarded` tool;
+callers must preserve the draft and must never downgrade to an unguarded save.
+Existing operation shapes retain their revision checks and omission behavior.
+
+Facts come from the ordinary targeted board/item/feedback response already read
+by the editor; a separate baseline-fetch request is unnecessary. A fact is one of:
+
+- `{kind:"boardField",boardId,field,present,value?}` for `updateBoard` fields
+  `title`, `description`, `reviewOrder`, or `background`.
+- `{kind:"itemField",itemId,field,present,value?}` for `updateItem` fields `title`,
+  `description`, `number`, `content`, `preview`, `revisions`, or `build`, and `review`
+  fields `review.note` and `review.star`. Changing any content/preview/revisions/build
+  field requires facts for all four, because these form one logical edit group.
+- `{kind:"commentField",threadId,messageId?,field,present,value?}` for a root or
+  reply message's `body`, `refs`, and `deletedAt`; all three are required by
+  `editComment` and `deleteComment`. `setCommentStatus` and `resolveComment` require
+  root-thread `status` and `to` facts. Omit messageId for the root (its own ID is
+  equivalent). Other replies can change independently.
+
+The server derives required facts from the concrete patch, rejects missing,
+duplicate, unknown or differently scoped facts, then compares them under the same
+workspace lock as the commit. Use `present:false` and omit value for a missing
+field. A present null is `{present:true,value:null}` and differs from absence.
+Only the read model's established defaults normalize: `review.note` to `""`,
+`review.star` to false, a missing thread status to resolved/open from its boolean
+alias, missing `to` to null and missing message `refs` to `[]`. These normalized
+facts are always present. Response-only reference properties `exists`, `state`
+and `currentLabel` do not participate. Object key order is immaterial; arrays and
+all saved values remain exact. No workspace timestamp substitutes for facts.
+
+Unrelated revisions can succeed immediately. A changed fact or unavailable target
+returns 409 `code:"GUARDED_PRECONDITION_CHANGED"`, current `revision`, and compact
+`conflict:{kind,targetId,messageId?,field}`; retain the draft, refresh that target,
+and reconcile before a new save. Malformed or incomplete baselines return 400
+`code:"GUARDED_BASELINE_INVALID"`. Lock contention returns 409
+`code:"WORKSPACE_BUSY"`; retry the same frozen request when the writer finishes.
+Other target/author/source/validation errors keep their existing meanings and do
+not authorize replay with altered facts. Guarded status no-ops also check replay and guards under the lock before returning
+unchanged. Legacy status no-ops retain their existing early unchanged response.
+Version 2 adds the structural operations below. Version 1 keeps its exact common-save contract.
+
+
+### Guarded structural edits (baseline version 2)
+
+The same `guarded` envelope and `workspace.guarded` tool accept
+`baseline:{version:2,facts:[...]}`. Version 1 is unchanged. A modern targeted board
+read carries `structural:{version:2,scope:"board",items:{...}}`; the item map adds
+compact lifecycle facts for its immediate child-board placements, using documents
+already loaded for covers. Full workspace exports mark `scope:"workspace"`.
+Graph-view boards mark `scope:"identity"`: these support an additive destination,
+not source layout edits. These are response projections, never persisted metadata.
+An omitted decorations/review-order collection in an old or compact response is
+not evidence that it is empty.
+
+`public/structural-guard.js` exports the pure `structuralBaseline(operation,context)`
+helper used by browser and server. Context has `boards` (array or ID map), `items`
+(array or ID map), and `resourceRoots` when resources are referenced; retain each
+board's structural marker. Its result is null when the operation is unsupported
+or the actual read snapshot lacks required facts. Capture this result before
+optimistic changes, queuing or asynchronous clipboard/file work, and freeze the
+whole envelope for retry. The server derives and checks the same projection from
+its locked current graph before executing any mutation or writing import bytes.
+There is no preliminary revision rejection or replacement watermark.
+
+Version 2 currently covers:
+
+- Placement position, resize and presentation (`updatePlacement`), translation,
+  arrangement, restacking, occurrence duplication, grouping and ungrouping.
+- Drawing create/update/remove, container membership, and `updateBoard` with a
+  decorations-only replacement patch. Whole-array replacement deliberately guards
+  every existing decoration and its connected dependencies.
+- Placement `remove` (including mixed drawings) and `archive`, `createItem` onto an
+  existing board, and `pastePlacements` from its immutable copy-time clipboard.
+- `move` and `reference` with source placement IDs and an existing destination;
+  parent featuring requires the actual parent layout snapshot.
+- File and document creation through the separate guarded import transport below.
+
+Facts have exactly these forms:
+
+- `{kind:"boardStructure",boardId,value}`. For additive destinations value is
+  `{id,ownerItemId}`. A source layout projection adds `placements` and `decorations`
+  as sorted `[id,completeSavedValueOrNull]` pairs, `groups`, filtered `reviewOrder`,
+  `placementOrder`, and `decorationOrder`. It includes selected targets, incoming
+  and outgoing attached arrows, their endpoint targets, and complete connected
+  containers/groups. The relation walk uses an adjacency list and queue; chains
+  do not repeatedly rescan the board. Explicit restacking and drag-drop restacking
+  have board-wide dependencies because their side effects can change peers.
+- `{kind:"itemStructure",itemId,value:{id,childBoardId,archived,deleted}}` for board
+  owners and canonical items represented by the affected placements. Child-board
+  absence normalizes to null; archive/delete normalize to booleans. Shared aliases
+  therefore cannot hide canonical lifecycle/topology changes. Titles, note/star,
+  build and content edits stay independent of occurrence geometry.
+- `{kind:"resourceStructure",value:[[rootId,registrationOrNull],...]}` binds the
+  named roots referenced by a new item or pasted clipboard. Copies retain the
+  clipboard's content/review; they do not replace the current originals.
+
+Missing, added or changed dependency facts reject the whole operation with the
+same `GUARDED_PRECONDITION_CHANGED` conflict code. Missing required board facts,
+unknown kinds, duplicate facts, unknown operations and malformed envelopes fail
+closed with `GUARDED_BASELINE_INVALID`. Facts are capped at 20,000 and the store
+limits a guarded envelope to 4 MB; ordinary HTTP still has its 1 MB JSON limit.
+Normal live resource, attachment, containment-cycle, active-target and signed
+movement-history checks all still run. Exact acknowledged retries replay before
+fact checks, using the unchanged bounded operation receipt window.
+
+`POST /api/imports` metadata and `POST /api/documents` JSON may add
+`type:"guardedImport"` and `baseline` version 2, omit `expectedRevision`, and retain
+their required `operationId`, workspace/target and geometry fields. Build the
+baseline for `{type:"importFiles",targetBoardId}` from the destination read.
+The `files.import` CLI tool accepts the same addition. File descriptors and hashes,
+all metadata and target facts are validated before the batch writes any new
+resource bytes; one failed member rejects the entire batch. Existing legacy
+metadata with `expectedRevision` remains supported. Older servers reject the new
+`type`/`baseline` fields; never strip them and resend after rejection. Multipart
+metadata retains its 16 KiB limit. Existing I/O interruption recovery remains:
+originals already written before an I/O failure are retained for manual recovery.
+
+Exceptional modern paths retain an explicit revision captured with the actual
+source snapshot: canonical `duplicate`, `archiveItem` and `deleteItem`; board
+creation/child attachment; move/reference with `itemIds`, new-board or Home
+destinations; `updateWorkspace`; mixed board metadata/decorations patches; and
+any path whose snapshot is incomplete or whose guarded envelope exceeds the
+client's transport budget. Choose that strict revision path before dispatch,
+never after a rejected guarded request. Browser clients reserve 900,000 UTF-8
+bytes for operation JSON and 16 KiB for import metadata. A stale strict revision
+requires reconciliation, not a retry with a newer workspace watermark.
+`restoreMovement` continues to rely on its existing server-signed arrangement
+receipt. Canonical destructive operations remain outside movement Undo/Redo.
+The original raw operation shapes and their omission behavior remain compatible.

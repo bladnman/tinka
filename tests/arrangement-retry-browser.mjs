@@ -40,9 +40,10 @@ try{
   let armed=null,requests=[];
   await page.route('**/api/operations',async route=>{
     const body=route.request().postDataJSON();
-    if(armed&&body?.type===armed.type){const inject=armed.inject;armed=null;await inject();}
+    const type=body?.operation?.type || body?.type;
+    if(armed&&type===armed.type){const inject=armed.inject;armed=null;await inject();}
     await new Promise(r=>setTimeout(r,150));
-    const response=await route.fetch();requests.push({type:body?.type,status:response.status()});
+    const response=await route.fetch();requests.push({type,status:response.status(),envelope:body?.type,version:body?.baseline?.version});
     await route.fulfill({response});
   });
   const ready=async()=>{await page.locator('#live-status[data-connection="live"]').waitFor();await page.waitForTimeout(300);};
@@ -52,7 +53,7 @@ try{
   const settle=async()=>{await page.waitForFunction(()=>!document.querySelector('.workspace-dragging'));await page.waitForTimeout(400);};
   const closeDialog=async()=>{const open=await page.locator('dialog[open]').count();if(open){await page.keyboard.press('Escape');await page.locator('dialog[open]').waitFor({state:'detached'}).catch(()=>{});}return open;};
   const record=async(name,ok,extra={})=>{const shown=await closeDialog();results[name]={saved:ok,requests:requests.map(r=>`${r.type}:${r.status}`),dialogOpenAfter:shown,...extra};console.log(name.padEnd(30),JSON.stringify(results[name]));if(!ok)failures.push(`${name}: action was not saved after an unrelated revision change (${results[name].requests.join(', ')})`);await settle();};
-  const lost=async(name,type,action,check,extra)=>{requests=[];armed={type,inject:bump};await action();await record(name,await until(check),extra?await extra():{});armed=null;};
+  const lost=async(name,type,action,check,extra)=>{requests=[];armed={type,inject:bump};await action();await record(name,await until(check),extra?await extra():{});assert.equal(armed,null,'race was actually injected');if(type!=='restoreMovement'){assert.equal(requests.length,1,'guarded structure saves in one request');assert.equal(requests[0].envelope,'guarded');assert.equal(requests[0].version,2);}armed=null;};
   const drag=async(from,to,{hold=0}={})=>{await page.mouse.move(from.x,from.y);await page.mouse.down();if(hold){await page.waitForTimeout(hold);await page.locator('#workspace-child-drag').waitFor({timeout:3000});}await page.mouse.move(from.x+12,from.y+12,{steps:3});await page.mouse.move(to.x,to.y,{steps:10});await page.waitForTimeout(80);await page.mouse.up();};
   const select=async id=>{await page.locator(`[data-placement="${id}"] [data-placement-select]`).click();await page.evaluate(()=>document.activeElement?.blur());};
 

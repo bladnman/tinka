@@ -1348,12 +1348,18 @@ const noteGlyph='<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 3.5h9l3
 const moreGlyph='<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="5" cy="12" r="1.5"/><circle cx="12" cy="12" r="1.5"/><circle cx="19" cy="12" r="1.5"/></svg>';
 const tileNotes=new TileNotes({
   read:key=>notes[key]?.note||'',
+  baseline:key=>{
+    if(!graph)return notes[key]?.note || '';
+    const item=all.find(c=>c.key===key)?.graphItem;
+    return Object.hasOwn(graph.pendingReview.get(item?.id) || {},'note')
+      ? graph.reviewBaselines.get(item.id)?.note : item?.review?.note || '';
+  },
   draftKey:key=>`tinka/${workspaceId}/${boardId}/note-draft/${key}`,
-  save:async(key,value)=>{
+  save:async(key,value,baseline)=>{
     if(graph){
       const item=all.find(c=>c.key===key)?.graphItem;
       if(!item)throw Error('This item is no longer on the board.');
-      await graph.saveTileNote(item.id,value);
+      await graph.saveTileNote(item.id,value,baseline);
     } else {
       const updatedAt=Date.now();
       await persistLegacyNotes(saveSequence,()=>JSON.stringify({...notes,[key]:{...notes[key],note:value,updatedAt}}),()=>{

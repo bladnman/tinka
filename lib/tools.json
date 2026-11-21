@@ -1168,7 +1168,11 @@
                       "description": "Stroke weight. Use thin, medium or thick, or an exact integer width in board units.",
                       "oneOf": [
                         {
-                          "enum": ["thin", "medium", "thick"]
+                          "enum": [
+                            "thin",
+                            "medium",
+                            "thick"
+                          ]
                         },
                         {
                           "type": "integer",
@@ -2551,7 +2555,11 @@
                 "description": "Stroke weight. Use thin, medium or thick, or an exact integer width in board units.",
                 "oneOf": [
                   {
-                    "enum": ["thin", "medium", "thick"]
+                    "enum": [
+                      "thin",
+                      "medium",
+                      "thick"
+                    ]
                   },
                   {
                     "type": "integer",
@@ -3142,7 +3150,11 @@
                 "description": "Stroke weight. Use thin, medium or thick, or an exact integer width in board units.",
                 "oneOf": [
                   {
-                    "enum": ["thin", "medium", "thick"]
+                    "enum": [
+                      "thin",
+                      "medium",
+                      "thick"
+                    ]
                   },
                   {
                     "type": "integer",
@@ -3726,7 +3738,7 @@
     },
     {
       "name": "files.import",
-      "description": "Import 1–20 local image/PDF files through the same validated import transaction. Paths are CLI-only; resource files remain outside app.",
+      "description": "Import 1–20 local image/PDF files through the same validated import transaction. Paths are CLI-only; resource files remain outside app. Supply either the existing expectedRevision, or type:guardedImport with a version 2 structural baseline and no expectedRevision. Old servers reject the additive transport; never retry without its guard.",
       "inputSchema": {
         "type": "object",
         "additionalProperties": false,
@@ -3783,6 +3795,30 @@
             "items": {
               "type": "object"
             }
+          },
+          "type": {
+            "const": "guardedImport"
+          },
+          "baseline": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "version",
+              "facts"
+            ],
+            "properties": {
+              "version": {
+                "const": 2
+              },
+              "facts": {
+                "type": "array",
+                "minItems": 1,
+                "maxItems": 20000,
+                "items": {
+                  "type": "object"
+                }
+              }
+            }
           }
         },
         "required": [
@@ -3790,7 +3826,6 @@
           "targetBoardId",
           "targetPosition",
           "paths",
-          "expectedRevision",
           "operationId"
         ]
       },
@@ -3798,6 +3833,184 @@
       "transports": [
         "cli"
       ]
+    },
+    {
+      "name": "workspace.guarded",
+      "mutating": true,
+      "description": "Atomically save a common edit against explicit target facts, allowing unrelated workspace changes. Supply operationId, a concrete operation without expectedRevision/operationId and a version 1 baseline. Supported operations: updateBoard (title/description/reviewOrder/background), updateItem (title/description/number or the complete content/preview/revisions/build fact group), review (review.note/review.star facts), editComment/deleteComment (body/refs/deletedAt), setCommentStatus/resolveComment (status/to). Facts use present:false without value for absence. Review note/star and comment status/to/refs use read-model defaults. A changed target rejects without partial edits; retry the exact immutable envelope after an uncertain response. Never downgrade to an unguarded write. Version 2 structural baselines support updatePlacement, translatePlacements, arrangePlacements, restackOccurrences, duplicateOccurrences, groupOccurrences, ungroupOccurrences, createDecoration, updateDecoration, removeDecoration, moveContainerMember, remove, archive, updateBoard, createItem, pastePlacements, move, reference. Use projections from current modern read responses; omitted structure is never an empty baseline. Imports use the guardedImport multipart/document transport.",
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "operationId",
+          "operation",
+          "baseline"
+        ],
+        "properties": {
+          "operationId": {
+            "type": "string",
+            "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_-]{0,127}$",
+            "maxLength": 128
+          },
+          "operation": {
+            "type": "object"
+          },
+          "baseline": {
+            "oneOf": [
+              {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "version",
+                  "facts"
+                ],
+                "properties": {
+                  "version": {
+                    "const": 1
+                  },
+                  "facts": {
+                    "type": "array",
+                    "minItems": 1,
+                    "maxItems": 64,
+                    "items": {
+                      "oneOf": [
+                        {
+                          "type": "object",
+                          "additionalProperties": false,
+                          "required": [
+                            "kind",
+                            "boardId",
+                            "field",
+                            "present"
+                          ],
+                          "properties": {
+                            "kind": {
+                              "const": "boardField"
+                            },
+                            "boardId": {
+                              "type": "string",
+                              "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_-]{0,127}$",
+                              "maxLength": 128
+                            },
+                            "field": {
+                              "enum": [
+                                "title",
+                                "description",
+                                "reviewOrder",
+                                "background"
+                              ]
+                            },
+                            "present": {
+                              "type": "boolean"
+                            },
+                            "value": {}
+                          }
+                        },
+                        {
+                          "type": "object",
+                          "additionalProperties": false,
+                          "required": [
+                            "kind",
+                            "itemId",
+                            "field",
+                            "present"
+                          ],
+                          "properties": {
+                            "kind": {
+                              "const": "itemField"
+                            },
+                            "itemId": {
+                              "type": "string",
+                              "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_-]{0,127}$",
+                              "maxLength": 128
+                            },
+                            "field": {
+                              "enum": [
+                                "title",
+                                "description",
+                                "number",
+                                "content",
+                                "preview",
+                                "revisions",
+                                "build",
+                                "review.note",
+                                "review.star"
+                              ]
+                            },
+                            "present": {
+                              "type": "boolean"
+                            },
+                            "value": {}
+                          }
+                        },
+                        {
+                          "type": "object",
+                          "additionalProperties": false,
+                          "required": [
+                            "kind",
+                            "threadId",
+                            "field",
+                            "present"
+                          ],
+                          "properties": {
+                            "kind": {
+                              "const": "commentField"
+                            },
+                            "threadId": {
+                              "type": "string",
+                              "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_-]{0,127}$",
+                              "maxLength": 128
+                            },
+                            "messageId": {
+                              "type": "string",
+                              "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_-]{0,127}$",
+                              "maxLength": 128
+                            },
+                            "field": {
+                              "enum": [
+                                "body",
+                                "refs",
+                                "deletedAt",
+                                "status",
+                                "to"
+                              ]
+                            },
+                            "present": {
+                              "type": "boolean"
+                            },
+                            "value": {}
+                          }
+                        }
+                      ]
+                    }
+                  }
+                }
+              },
+              {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "version",
+                  "facts"
+                ],
+                "properties": {
+                  "version": {
+                    "const": 2
+                  },
+                  "facts": {
+                    "type": "array",
+                    "minItems": 1,
+                    "maxItems": 20000,
+                    "items": {
+                      "type": "object"
+                    }
+                  }
+                }
+              }
+            ]
+          }
+        }
+      }
     },
     {
       "name": "feedback.list",

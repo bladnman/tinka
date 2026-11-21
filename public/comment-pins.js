@@ -4,7 +4,7 @@
 // you") and "Send to agent", which marks open threads sent and copies a prompt.
 // Thread cards (reading, replying, new threads) live in comment-thread.js.
 import {pointAnchorAt, resolveCommentPoint, alongAnchorAt} from './feedback-geometry.js';
-import {toast, escape as esc} from './workspace.js';
+import {toast, escape as esc, commentFacts} from './workspace.js';
 import {decorationBounds} from './whiteboard-geometry.js';
 
 // ---- API adapter (comment API, Tinka 1.1). Field and operation names live only here.
@@ -25,7 +25,7 @@ export const commentApi = {
     return threads;
   },
   // "Send to agent" sets status sent and addresses the thread to the agent.
-  send: (client, threadId, actor) => client.write('setCommentStatus', {threadId, actor, status:'sent', to:{kind:'agent'}}),
+  send: (client, thread, actor) => client.guarded('setCommentStatus', {threadId:thread.id, actor, status:'sent', to:{kind:'agent'}}, commentFacts(thread,thread,['status','to'])),
   // Arrow pins ride along the line: `along` is a fraction (0–1) of its drawn length;
   // x/y keep the last place for when the arrow is gone.
   arrowAnchor: ({decorationId, along, offset, x, y}) => ({kind:'decoration', decorationId, along, ...(offset ? {offset} : {}), x, y}),
@@ -367,7 +367,7 @@ export class CommentPins {
     let copied = false;
     try { await navigator.clipboard.writeText(prompt);copied = true; } catch {}
     let marked = 0;
-    for (const t of threads) { try { await commentApi.send(this.client, t.id, actor);marked++; } catch (error) { toast(`Could not mark a comment sent. ${error.message}`); } }
+    for (const t of threads) { try { await commentApi.send(this.client, t, actor);marked++; } catch (error) { toast(`Could not mark a comment sent. ${error.message}`); } }
     await this.reload();
     if (copied) toast('Copied: paste into your agent');
     else showPromptFallback(prompt, marked);

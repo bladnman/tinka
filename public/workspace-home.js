@@ -370,12 +370,14 @@ export class WorkspaceHome {
   create(opener) {
     const invoker = opener.classList.contains("empty-card") ? ".new-board.empty-card" : ".new-board:not(.empty-card)";
     newBoardDialog(this.client, {
+      snapshot:this.workspace,
       opener: () => opener.isConnected ? opener : document.querySelector(invoker),
       refresh: () => this.refresh(),
     });
   }
   async bulk(type) {
     const ids = [...this.selected];
+    const source=structuredClone(this.workspace);
     try {
       if (type === "clear") {
         this.selected.clear();
@@ -398,15 +400,15 @@ export class WorkspaceHome {
           "Remove boards from home?",
           '<p>Remove these home placements. Their boards, items, references, notes and resource files remain intact. You can still reach them through existing links or references.</p><button type="submit" class="workspace-primary">Remove from home</button>',
           async () => {
-            const homes = this.workspace.homeBoardIds.filter(
+            const homes = source.homeBoardIds.filter(
               (id) =>
                 !ids.includes(
-                  this.workspace.boards.find((b) => b.id === id)?.ownerItemId,
+                  source.boards.find((b) => b.id === id)?.ownerItemId,
                 ),
             );
-            await this.client.write("updateWorkspace", {
+            await this.client.structural("updateWorkspace", {
               patch: { homeBoardIds: homes },
-            });
+            },source);
             this.selected.clear();
             await this.refresh();
           },
@@ -419,10 +421,10 @@ export class WorkspaceHome {
           : "Archive these boards everywhere?",
         `<p>${this.archive ? "Restore these canonical board items on home and every board where they are referenced." : "Archive these canonical board items on home and every board where they are referenced. Their content and resource files remain intact."}</p><button type="submit" class="workspace-primary">${this.archive ? "Restore everywhere" : "Archive everywhere"}</button>`,
         async () => {
-          await this.client.write("archiveItem", {
+          await this.client.structural("archiveItem", {
             itemIds: ids,
             archived: !this.archive,
-          });
+          },source);
           this.selected.clear();
           await this.refresh();
           toast(

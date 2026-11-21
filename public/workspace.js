@@ -1,4 +1,5 @@
 import {writesReady} from './update-hold.js';
+import {structuralBaseline} from './structural-guard.js';
 import {bindForm,restoreFocus,commitShortcutLabel} from './interaction.js';
 // Small shared primitives for graph workspaces; the legacy board stays independent.
 export const escape = (value) =>
@@ -36,6 +37,25 @@ export function contentURL(item, revision) {
     (revision?.resource || revision?.url ? revision : item.content);
   return remoteURL(c?.url) || resourceURL(c?.resource);
 }
+// Baselines are copied from the data the editor actually displayed, never the
+// client's mutable workspace revision. Absent and null are deliberately distinct.
+export function fieldFact(kind, scope, record, field) {
+  const present = Object.hasOwn(record || {}, field);
+  return {kind, ...scope, field, present, ...(present ? {value:structuredClone(record[field])} : {})};
+}
+export function reviewFacts(itemId, review, fields) {
+  return fields.map(field => ({kind:'itemField',itemId,field:`review.${field}`,present:true,
+    value:field === 'note' ? review?.note || '' : !!review?.star}));
+}
+export function commentFacts(thread, message, fields) {
+  return fields.map(field => {
+    const scope={threadId:thread.id,...(message && message.id !== thread.id ? {messageId:message.id} : {})};
+    if(field==='status')return {kind:'commentField',...scope,field,present:true,value:thread.status || (thread.resolved?'resolved':'open')};
+    if(field==='to')return {kind:'commentField',...scope,field,present:true,value:structuredClone(thread.to || null)};
+    if(field==='refs')return {kind:'commentField',...scope,field,present:true,value:(message?.refs || []).map(({exists,state,currentLabel,...ref})=>structuredClone(ref))};
+    return fieldFact('commentField',scope,message || thread,field);
+  });
+}
 export class WorkspaceClient {
   constructor(config, revision = 0, {readOnly=false} = {}) {
     this.config = config;
@@ -43,6 +63,7 @@ export class WorkspaceClient {
     this.readOnly = readOnly;
     this.queue = Promise.resolve();
     this.pendingWrites = 0;
+    this.guardedAttempts = new Map();
   }
   async get(url) {
     const r = await fetch(url, { cache: "no-store" });
@@ -50,15 +71,20 @@ export class WorkspaceClient {
     if (!r.ok) throw new Error(d.error || `Request failed (${r.status})`);
     return d;
   }
-  importFiles(files, metadata, signal) {
+  importFiles(files, metadata, signal, source) {
     if(this.readOnly)return Promise.reject(new Error("This board view is read-only."));
     const operationId = crypto.randomUUID();
+    metadata=structuredClone(metadata);
+    const captured=this.captureStructural('importFiles',{targetBoardId:metadata.targetBoardId},source);
+    let guarded=captured.baseline ? {type:'guardedImport',baseline:captured.baseline} : {expectedRevision:captured.revision};
+    if(captured.baseline&&new TextEncoder().encode(JSON.stringify({...metadata,...guarded,operationId})).length>15000)guarded={expectedRevision:captured.revision};
+    if(!captured.baseline&&!Number.isSafeInteger(captured.revision))return Promise.reject(new Error('This import has no displayed baseline. Reload its board before trying again.'));
     this.pendingWrites++;
     this.onState?.();
     const pending = this.queue.catch(()=>{}).then(async()=>{
       await writesReady();
       const body = new FormData();
-      body.append("metadata",JSON.stringify({...metadata,expectedRevision:this.revision,operationId}));
+      body.append("metadata",JSON.stringify({...metadata,...guarded,operationId}));
       for (const file of files) body.append("files",file,file.name || "Pasted image");
       const response = await fetch("/api/imports",{method:"POST",headers:{"x-tinka-workspace":this.config.workspaceId},body,signal});
       const data = await response.json();
@@ -89,7 +115,7 @@ export class WorkspaceClient {
           const r = await fetch("/api/operations", {
             method: "POST",
             headers: {"Content-Type":"application/json","x-tinka-workspace":this.config.workspaceId},
-            body: JSON.stringify({type,...data,expectedRevision:expectedRevision??this.revision,operationId}),
+            body: JSON.stringify({type,...data,...(type === 'guarded' ? {} : {expectedRevision:expectedRevision??this.revision}),operationId}),
           });
           d = await r.json();
           if(r.ok)break;
@@ -101,17 +127,58 @@ export class WorkspaceClient {
           }
           const e=new Error(appendOnly&&revisionOnly
             ? 'Work changed again while posting. Your draft is retained; try Post again.'
-            : r.status===409&&!appendOnly
+            : type === 'guarded'
+              ? d.code === 'GUARDED_PRECONDITION_CHANGED' ? data.baseline?.version===2 ? 'This arrangement or one of its targets changed elsewhere. Review the latest board before trying again.' : 'This field changed elsewhere. Your draft is retained. Review the latest value before saving again.' : d.error || `Change failed (${r.status})`
+              : revisionOnly&&!appendOnly
               ? 'This workspace changed elsewhere. Reload the board, review the latest version, then retry your change.'
               : d.error||`Change failed (${r.status})`);
           e.conflict=r.status===409;e.rejected=r.status>=400&&r.status<500;e.code=d.code;e.revision=d.revision;throw e;
         }
         this.revision = Math.max(this.revision,d.revision);
-        if (d.history && recordHistory && type !== "restoreMovement") this.onHistory?.(d.history,{type,data});
+        const historyOperation=type==='guarded' ? {type:data.operation.type,data:data.operation} : {type,data};
+        if (d.history && recordHistory && historyOperation.type !== "restoreMovement") this.onHistory?.(d.history,historyOperation);
         return includeHistory ? {result:d.result || d,history:d.history || null,replayed:!!d.replayed} : d.result || d;
       }).finally(() => { this.pendingWrites--; this.onState?.();this.onSettled?.(); });
     this.queue = pending;
     return pending;
+  }
+  guarded(type, data, facts, {operationId, ...options} = {}) {
+    // Freeze before queueing: another local write or refresh cannot authorize a
+    // stale form. A server without this contract must reject, never downgrade.
+    const operation = structuredClone({type,...data});
+    const baseline = {version:1,facts:structuredClone(facts)};
+    const key=JSON.stringify({operation,baseline});
+    operationId ||= this.guardedAttempts.get(key) || crypto.randomUUID();
+    this.guardedAttempts.set(key,operationId);
+    if(this.guardedAttempts.size>64)this.guardedAttempts.delete(this.guardedAttempts.keys().next().value);
+    return this.write('guarded',{operation,baseline},{...options,operationId}).then(result=>{this.guardedAttempts.delete(key);return result;});
+  }
+  captureStructural(type,data,source) {
+    const baseline=source?.baseline || structuralBaseline({type,...data},source);
+    return structuredClone({...(baseline?{baseline}:{}),revision:source?.revision});
+  }
+  structural(type, data, source, options = {}) {
+    // Capture before joining the queue: a newer unrelated acknowledgement never
+    // gives an older gesture or dialog permission to replace its target.
+    const operation = structuredClone({type,...data});
+    const snapshot = source;
+    const bytes=value=>new TextEncoder().encode(JSON.stringify(value)).length;
+    if(bytes({type,...data,operationId:options.operationId || '00000000-0000-0000-0000-000000000000',expectedRevision:snapshot?.revision})>900000)
+      return Promise.reject(new Error('This action is too large to save at once. Choose a smaller selection; nothing was changed.'));
+    let baseline = snapshot?.baseline || structuralBaseline(operation,snapshot);
+    // Decide before dispatch. A guard conflict never triggers a weaker retry.
+    if(baseline&&bytes({type:'guarded',operationId:options.operationId || '00000000-0000-0000-0000-000000000000',operation,baseline})>900000)baseline=null;
+    if (!baseline) {
+      if (!Number.isSafeInteger(snapshot?.revision) || snapshot.revision < 0)
+        return Promise.reject(new Error('This action has no displayed baseline. Reload its board before trying again.'));
+      return this.write(type,operation,{...options,expectedRevision:snapshot.revision});
+    }
+    const key=JSON.stringify({operation,baseline});
+    const operationId=options.operationId || this.guardedAttempts.get(key) || crypto.randomUUID();
+    this.guardedAttempts.set(key,operationId);
+    if(this.guardedAttempts.size>64)this.guardedAttempts.delete(this.guardedAttempts.keys().next().value);
+    return this.write('guarded',{operation,baseline},{...options,operationId})
+      .then(result=>{this.guardedAttempts.delete(key);return result;});
   }
   // Another writer advancing the workspace revision is not an arrangement
   // conflict. After a revision-only rejection, recheck(error) confirms that every
@@ -238,7 +305,8 @@ export function makeDialog(title, body, onSubmit, {
 }
 // Keep the draft on this page if creation is dismissed before it succeeds.
 const boardDrafts = new WeakMap();
-export function newBoardDialog(client, {parentBoardId, opener, refresh}) {
+export function newBoardDialog(client, {parentBoardId, opener, refresh, snapshot}) {
+  const source = structuredClone(snapshot || {revision:client.revision});
   const draft = boardDrafts.get(client) || {title:""};
   boardDrafts.set(client, draft);
   return makeDialog("New board",
@@ -247,7 +315,7 @@ export function newBoardDialog(client, {parentBoardId, opener, refresh}) {
       const title = data.get("title").trim();
       if (!title) throw new Error("Enter a name for this board.");
       if (draft.attempt?.title !== title) draft.attempt = {title, id:crypto.randomUUID()};
-      await client.write("createBoard", {title, ...(parentBoardId ? {parentBoardId} : {})}, {operationId:draft.attempt.id});
+      await client.structural("createBoard", {title, ...(parentBoardId ? {parentBoardId} : {})}, source, {operationId:draft.attempt.id});
       boardDrafts.delete(client);
       try {
         await refresh();
@@ -288,7 +356,13 @@ export async function destinationDialog(
   client,
   { sourceBoardId, placementIds, itemIds, kind = "move", refresh },
 ) {
-  const ws = await client.get("/api/workspace?view=graph&covers=0");
+  const [ws,displayedSource]=await Promise.all([
+    client.get("/api/workspace?view=graph&covers=0"),
+    sourceBoardId ? client.get(`/api/boards/${encodeURIComponent(sourceBoardId)}`) : null,
+  ]);
+  const guardSource=structuredClone({...ws,
+    boards:ws.boards.map(board=>board.id===displayedSource?.id?displayedSource:board),
+    items:{...Object.fromEntries(ws.items.map(item=>[item.id,item])),...displayedSource?.items}});
   const source = ws.boards.find((b) => b.id === sourceBoardId),
     selectedItems =
       itemIds ||
@@ -322,7 +396,7 @@ export async function destinationDialog(
       const target = f.get("target");
       if (target === newBoard && !f.get("title").trim())
         throw new Error("Name the new board.");
-      await client.write(kind, {
+      await client.structural(kind, {
         ...(sourceBoardId ? { sourceBoardId } : {}),
         ...(placementIds ? { placementIds } : { itemIds }),
         ...(target === newBoard
@@ -330,7 +404,7 @@ export async function destinationDialog(
           : target === home
             ? {}
             : { targetBoardId: target }),
-      });
+      }, guardSource);
       await refresh();
       toast(
         isMove
@@ -360,6 +434,13 @@ export async function featureOnParentDialog(client, {sourceBoardId, placementIds
   }
   const from = new URLSearchParams(location.search).get('from');
   const current = parents.find(board => board.id === from)?.id || parents[0].id;
+  const displayedSource=await client.get(`/api/boards/${encodeURIComponent(sourceBoardId)}`);
+  const parentReads=new Map();
+  const readParent=id=>{
+    if(!parentReads.has(id))parentReads.set(id,client.get(`/api/boards/${encodeURIComponent(id)}`));
+    return parentReads.get(id);
+  };
+  readParent(current).catch(()=>{});
   let attempt = null;
   const dialog = makeDialog('Show on parent board',
     `<p>Place the same items beside this board on a parent.</p>${boardChoices(parents, current)}<button class="workspace-primary" type="submit">Show on parent</button>`,
@@ -368,7 +449,9 @@ export async function featureOnParentDialog(client, {sourceBoardId, placementIds
       const targetBoardId = choices.querySelector('[name=target]:checked').value;
       if (!attempt || attempt.targetBoardId !== targetBoardId) attempt = {targetBoardId,operationId:crypto.randomUUID()};
       try {
-        await client.write('reference',{sourceBoardId,placementIds,targetBoardId,featureOnParent:true},{operationId:attempt.operationId});
+        const parent=await readParent(targetBoardId);
+        const source={...ws,boards:[...ws.boards.filter(b=>b.id!==sourceBoardId&&b.id!==targetBoardId),displayedSource,parent],items:{...Object.fromEntries(ws.items.map(i=>[i.id,i])),...displayedSource.items,...parent.items}};
+        await client.structural('reference',{sourceBoardId,placementIds,targetBoardId,featureOnParent:true},source,{operationId:attempt.operationId});
       } catch (error) {
         if (!error.rejected) {
           choices.disabled = true;
@@ -385,6 +468,7 @@ export async function featureOnParentDialog(client, {sourceBoardId, placementIds
         toast('Work was added to the parent. Reload this board to see the latest state.');
       }
     });
+  dialog.querySelector('.workspace-board-choices').addEventListener('change',event=>{readParent(event.target.value).catch(()=>{});});
   return dialog;
 }
 const itemStatuses = [
@@ -405,7 +489,9 @@ function itemChoices(name, label, choices, selected) {
     `<label><input type="radio" name="${name}" value="${value}"${selected === value ? " checked" : ""}><span>${title}</span></label>`).join("")}</fieldset>`;
 }
 
-export function itemForm(client, { item, boardId, refresh, opener }) {
+export function itemForm(client, { item, boardId, refresh, opener, snapshot }) {
+  const creationSource = structuredClone(snapshot || {revision:client.revision});
+  item = item ? structuredClone(Object.fromEntries(['id','title','description','content','preview','revisions','build'].filter(field=>Object.hasOwn(item,field)).map(field=>[field,item[field]]))) : item;
   const c = item?.content || {}, p = item?.preview || {};
   const sectionChoices = [["details", "Details"], ["content", "Content"], ["preview", "Preview"]];
   const sections = `<div class="workspace-item-sections" role="group" aria-label="Item editor sections">${sectionChoices.map(([id, text]) =>
@@ -465,7 +551,19 @@ export function itemForm(client, { item, boardId, refresh, opener }) {
         else delete preview.resource;
       }
       if (Object.keys(preview).length || item?.preview) patch.preview = preview;
-      await client.write(item ? "updateItem" : "createItem", item ? {itemId:item.id, patch} : {boardId, item:patch});
+      if (item) {
+        // Compare the displayed defaults as well as exact canonical fields. An
+        // untouched status or absent description must not become a replacement.
+        if (title === item.title) delete patch.title;
+        if (data.get('description') === (item.description ?? '')) delete patch.description;
+        if (data.get('status') === (item.build?.state || 'ready')) delete patch.build;
+        if (JSON.stringify(patch.content) === JSON.stringify(item.content) || (!item.content && !patch.content)) delete patch.content;
+        if (JSON.stringify(patch.preview) === JSON.stringify(item.preview) || (!item.preview && !Object.keys(patch.preview || {}).length)) delete patch.preview;
+        const fields = Object.keys(patch);
+        const guardedFields = fields.some(field => ['content','preview','revisions','build'].includes(field))
+          ? [...new Set([...fields,'content','preview','revisions','build'])] : fields;
+        if (fields.length) await client.guarded('updateItem',{itemId:item.id,patch},guardedFields.map(field => fieldFact('itemField',{itemId:item.id},item,field)));
+      } else await client.structural('createItem',{boardId,item:patch},creationSource);
       await refresh();
       toast(item ? "Item updated." : "Idea added.");
     }, {opener});

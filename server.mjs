@@ -42,7 +42,7 @@ export function closeAppServer(server){
 }
 function sendJson(res,status,value){res.writeHead(status,{'Content-Type':'application/json; charset=utf-8',...noStore});res.end(JSON.stringify(value));}
 function decodeSegment(value){try{return decodeURIComponent(value);}catch{throw new HttpError(400,'Invalid URL encoding.');}}
-function sendError(res,error){if(res.headersSent){res.destroy();return;}const status=Number.isInteger(error.status)&&error.status>=400&&error.status<=599?error.status:500;sendJson(res,status,{error:status===500?'Request failed.':error.message,...(error.revision!==undefined?{revision:error.revision}:{}),...(typeof error.currentRevision==='string'?{currentRevision:error.currentRevision}:{}),...(error.code==='WORKSPACE_REVISION_CHANGED'?{code:error.code}:{})});}
+function sendError(res,error){if(res.headersSent){res.destroy();return;}const status=Number.isInteger(error.status)&&error.status>=400&&error.status<=599?error.status:500;sendJson(res,status,{error:status===500?'Request failed.':error.message,...(error.revision!==undefined?{revision:error.revision}:{}),...(typeof error.currentRevision==='string'?{currentRevision:error.currentRevision}:{}),...(['WORKSPACE_REVISION_CHANGED','GUARDED_BASELINE_INVALID','GUARDED_PRECONDITION_CHANGED','WORKSPACE_BUSY'].includes(error.code)?{code:error.code}:{}),...(error.conflict?{conflict:error.conflict}:{})});}
 async function requestJson(req){
   if(!/^application\/json(?:\s*;|$)/i.test(req.headers['content-type']||''))throw new HttpError(415,'Content-Type must be application/json.');
   let total=0;const chunks=[];

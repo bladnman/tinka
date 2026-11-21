@@ -7,6 +7,8 @@
 // replyComment, setCommentStatus, editComment, deleteComment; GET /api/feedback).
 import {esc, attachPicker, bindChips, chipElement, chipLabel, composerEmpty, composerValue, renderBody, setComposerValue, decorationLabel, itemLabel, refState} from "./comment-refs.js";
 
+import {commentFacts} from "./workspace.js";
+
 const STATUS = {open:"Open", sent:"Sent to agent", working:"Agent working", addressed:"Addressed · check it", question:"Agent asks you", resolved:"Resolved"};
 const ICON = {
   check:'<svg viewBox="0 0 16 16" aria-hidden="true"><path d="m3.5 8.5 3 3 6-7"/></svg>',
@@ -177,16 +179,10 @@ function showCard(board, {threadId = null, anchor = null, anchorRect = null, ite
   async function write(type, data) {
     if (busy) return null; busy = true; card.setAttribute("aria-busy", "true");
     try {
-      // Thread writes touch only this thread: a revision that moved on elsewhere (an agent
-      // working on the board) is not a conflict, so retry once at the latest revision.
-      const operationId = crypto.randomUUID();
-      let result;
-      try { result = await board.client.write(type, data, {operationId}); }
-      catch (error) {
-        if (error.code !== "WORKSPACE_REVISION_CHANGED" || !Number.isSafeInteger(error.revision)) throw error;
-        board.client.revision = Math.max(board.client.revision || 0, error.revision);
-        result = await board.client.write(type, data, {operationId});
-      }
+      const guarded = ['setCommentStatus','editComment','deleteComment'].includes(type);
+      const message = data.messageId ? thread.replies?.find(m=>m.id===data.messageId) : thread;
+      const facts = guarded ? commentFacts(thread,message,type === 'setCommentStatus' ? ['status','to'] : ['body','refs','deletedAt']) : null;
+      const result = guarded ? await board.client.guarded(type,data,facts) : await board.client.write(type,data);
       board.onCommentsChanged?.(); board.feedback?.reload?.().catch?.(() => {});
       return result || {};
     } catch (error) { status(error.message, true); return null; }

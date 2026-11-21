@@ -45,7 +45,7 @@ export function bindTileMenu(menu, {close, returnFocus, anchor}) {
 }
 
 export class TileNotes {
-  constructor({read, save, discard = async()=>{}, draftKey}) {this.read=read;this.save=save;this.discard=discard;this.draftKey=draftKey;this.drafts=new Map();}
+  constructor({read, baseline, save, discard = async()=>{}, draftKey}) {this.baseline=baseline;this.read=read;this.save=save;this.discard=discard;this.draftKey=draftKey;this.drafts=new Map();}
   close({cancel=false, focus=false}={}) {
     if (!this.element || this.binding.pending) return false;
     const {key}=this;
@@ -70,7 +70,7 @@ export class TileNotes {
   remember() {
     const value=this.field.value;
     if(value===this.read(this.key)){this.drafts.delete(this.key);try{localStorage.removeItem(this.draftKey(this.key));}catch{}}
-    else {this.drafts.set(this.key,value);try{localStorage.setItem(this.draftKey(this.key),value);}catch{}}
+    else {const draft=this.baseline?{version:1,value,baseline:this.originalBaseline}:value;this.drafts.set(this.key,draft);try{localStorage.setItem(this.draftKey(this.key),this.baseline?JSON.stringify(draft):value);}catch{}}
   }
   async open({key,title,anchor}) {
     if(this.cancelPromise)await this.cancelPromise;
@@ -83,10 +83,14 @@ export class TileNotes {
     form.innerHTML='<header><strong>Notes</strong><button type="button" data-note-close aria-label="Close notes">×</button></header><textarea name="note" data-tile-note aria-label="Note"></textarea><div class="tile-note-actions"><small></small><button type="button" data-note-cancel>Cancel</button><button type="submit" class="tk-btn tk-primary">Save note</button></div><p data-form-status role="status"></p>';
     const field=form.querySelector('textarea');field.setAttribute('aria-label',`Notes on ${title}`);field.setAttribute('aria-keyshortcuts','Meta+Enter Control+Enter');
     let draft=this.drafts.get(key);try{draft??=localStorage.getItem(this.draftKey(key))??undefined;}catch{}
-    field.value=draft??this.read(key);this.field=field;this.element=form;
+    if(this.baseline){
+      if(typeof draft==='string'){try{const stored=JSON.parse(draft);if(stored?.version===1&&typeof stored.value==='string')draft=stored;}catch{}}
+      this.originalBaseline=draft===undefined?this.baseline(key):typeof draft==='object'?draft.baseline:undefined;
+    }
+    field.value=(draft&&typeof draft==='object'?draft.value:draft)??this.read(key);this.field=field;this.element=form;
     form.querySelector('small').textContent=`${commitShortcutLabel()} to save`;
     let saved=false;
-    this.binding=bindForm(form,{submit:async()=>{await this.save(key,field.value);},onSuccess:()=>{saved=true;},onError:error=>{this.remember();const status=form.querySelector('[data-form-status]');status.textContent=error.message||'Note not saved. Try again.';status.setAttribute('role','alert');},onPendingChange:pending=>{field.readOnly=pending;form.querySelectorAll('[data-note-close],[data-note-cancel]').forEach(b=>b.disabled=pending);if(!pending&&saved)this.close({cancel:true,focus:true});}});
+    this.binding=bindForm(form,{submit:async()=>{await this.save(key,field.value,this.originalBaseline);},onSuccess:()=>{saved=true;},onError:error=>{this.remember();const status=form.querySelector('[data-form-status]');status.textContent=error.message||'Note not saved. Try again.';status.setAttribute('role','alert');},onPendingChange:pending=>{field.readOnly=pending;form.querySelectorAll('[data-note-close],[data-note-cancel]').forEach(b=>b.disabled=pending);if(!pending&&saved)this.close({cancel:true,focus:true});}});
     form.querySelector('[data-note-close]').onclick=()=>this.close({focus:true});
     form.querySelector('[data-note-cancel]').onclick=()=>this.cancel({focus:true});
     field.oninput=()=>this.remember();

@@ -29,6 +29,8 @@ import {copyCardPreview} from "./copy-preview.js";
 import {fileVersion, fileVersions, modifiedTime, nearbyFileVersions} from "./version-stack.js";
 import {
   WorkspaceClient,
+  fieldFact,
+  reviewFacts,
   escape as esc,
   resourceURL,
   remoteURL,
@@ -118,16 +120,16 @@ function inspectorColorMarkup(label,value,role) {
     ${colorDot(value,role)}<span>${esc(label)}</span></button>
     <div id="${panelId}" class="text-format-controls inspector-color-palette" data-inspector-palette hidden></div>`;
 }
-function bindInspectorColor(host,{label,read,save,options,role}) {
+function bindInspectorColor(host,{label,read,save,options,role,capture}) {
   const trigger=host.querySelector("[data-inspector-color]"),panel=host.querySelector("[data-inspector-palette]");
   panel.innerHTML=paletteMarkup(["fill"],{options,resolve:(id,_channel,theme)=>renderDrawingColor(literalFill(id),role,theme)});
   const palette=panel.querySelector("[data-color-swatches]");
-  let writing=false,painted=read();
+  let writing=false,painted=read(),original=capture?.();
   const setValue=bindDrawingPalette(palette,{channel:"fill",label,value:painted,toValue:literalFill,previewRole:role,
     choose:async value=>{
       if(writing||value===read())return;
       writing=true;
-      try { await save(value); }
+      try { await save(value,original);original=capture?.(); }
       catch(error) { showFailure(error); }
       finally { writing=false;sync(true); }
     },
@@ -142,6 +144,7 @@ function bindInspectorColor(host,{label,read,save,options,role}) {
     panel.hidden=!open;
     trigger.setAttribute("aria-expanded",String(open));
     if(open){
+      original=capture?.();
       sync(true);
       (palette.querySelector("[aria-pressed=true]")||palette.querySelector("button"))?.focus({preventScroll:true});
     }
@@ -207,6 +210,10 @@ export class WorkspaceBoard {
       drafts = JSON.parse(localStorage.getItem(this.draftKey) || "{}");
     } catch {}
     this.pendingReview = new Map(Object.entries(drafts));
+    this.reviewBaselineKey = `${this.draftKey}/baselines`;
+    let baselines = {};
+    try { baselines = JSON.parse(localStorage.getItem(this.reviewBaselineKey) || '{}'); } catch {}
+    this.reviewBaselines = new Map(Object.entries(baselines));
     this.inFlightReview = new Map();
     this.saving = false;
     this.savePromise = null;
@@ -512,7 +519,8 @@ export class WorkspaceBoard {
     const storedColor = () => this.snapshot.background?.color || "#e7e8e1";
     boardBackground.innerHTML = `${inspectorColorMarkup("Board color",storedColor(),"board")}<button type="button" class="tk-btn tk-sm tk-tonal" data-background-image>Background image…</button>`;
     this.boardColorSync=bindInspectorColor(boardBackground,{label:"Board color palette",read:storedColor,role:"board",
-      save:color=>this.saveBackground({...this.snapshot.background,color})});
+      capture:()=>structuredClone({id:this.snapshot.id,...(Object.hasOwn(this.snapshot,'background')?{background:this.snapshot.background}:{})}),
+      save:(color,original)=>this.saveBackground({...original.background,color},original)});
     const image = boardBackground.querySelector("[data-background-image]");
     image.onclick = () => this.backgroundImageDialog(image);
     const view = section("View", "", [choice("Layout", segments), choice("Canvas pattern", pattern), boardBackground], "inspector-view");
@@ -720,14 +728,26 @@ export class WorkspaceBoard {
       this.whiteboard?.editing || this.whiteboard?.finishing || this.client.pendingWrites || this.historyBusy || this.history?.busy || this.pasteBusy || this.saving ||
       document.activeElement?.closest("input,textarea,select,[contenteditable]") || document.querySelector("dialog.workspace-dialog[open]"));
   }
-  // Arrangement writes survive an unrelated revision change: after a revision-only
-  // rejection the affected board is re-read once, and the same operation is
-  // resubmitted only if unchanged(latest) confirms the action's starting state.
-  writeArrangement(type, data, unchanged, {boardId = this.snapshot.id, ...options} = {}) {
-    return this.client.writeRechecked(type, data, async () => {
-      const latest = await this.client.get(`/api/boards/${encodeURIComponent(boardId)}`);
-      return unchanged(latest) ? latest.revision : null;
-    }, options);
+  structuralSource(snapshot = this.snapshot) {
+    // The displayed board wins over graph/catalog records. Graph data supplies
+    // destination identity; targeted snapshots retain full dependency facts.
+    const graph=this.workspaceGraph || {};
+    const boards=new Map((graph.boards || []).map(board=>[board.id,board]));
+    for(const child of Object.values(snapshot.childBoards || {}))boards.set(child.id,child);
+    boards.set(snapshot.id,snapshot);
+    const items=Object.fromEntries((graph.items || []).map(item=>[item.id,item]));
+    Object.assign(items,snapshot.items || {});
+    return structuredClone({boards:[...boards.values()],items,revision:snapshot.revision,
+      ...(snapshot.structural ? {structural:snapshot.structural} : {}),resourceRoots:snapshot.resourceRoots,metadata:graph});
+  }
+  writeStructural(type, data, options = {}, source = this.structuralSource()) {
+    return this.client.structural(type,data,source,options);
+  }
+  writeArrangement(type, data, unchanged, {boardId = this.snapshot.id, source, ...options} = {}) {
+    // Explicit source is used by lifted children; the normal board defers live
+    // reconciliation throughout its gesture. Legacy snapshots fail closed at
+    // their original revision instead of consulting the mutable client watermark.
+    return this.writeStructural(type,data,options,source || this.structuralSource());
   }
   syncGeometry(overrides) {
     this.whiteboard?.sync(overrides);
@@ -1177,7 +1197,7 @@ export class WorkspaceBoard {
         this.moveCommitting=true;
         let response;
         try {
-          response=await this.client.write("move",operation,{recordHistory:false,includeHistory:true,operationId:intent.operationId});
+          response=await this.writeStructural("move",operation,{recordHistory:false,includeHistory:true,operationId:intent.operationId});
         } catch(error) {
           this.cutIntent.update(intent,error.rejected ? {state:"pending",operation:null,operationId:null} : {state:"uncertain"});
           throw error;
@@ -1246,6 +1266,7 @@ export class WorkspaceBoard {
     window.addEventListener("pagehide",clear);
   }
   async importMedia(files, point) {
+    const source=this.structuralSource();
     this.pasteBusy = true;
     this.pasteCancelled = false;
     this.movePending = true;
@@ -1260,7 +1281,7 @@ export class WorkspaceBoard {
       if (this.pasteCancelled) return;
       const targetPosition = point || this.pastePosition({placements});
       this.moveCommitting = true;
-      const result = await this.client.importFiles(files,{workspaceId:this.snapshot.workspaceId,targetBoardId:this.snapshot.id,targetPosition,placements},this.pasteController.signal);
+      const result = await this.client.importFiles(files,{workspaceId:this.snapshot.workspaceId,targetBoardId:this.snapshot.id,targetPosition,placements},this.pasteController.signal,source);
       written = true;
       this.moveCommitting = false;
       this.filters = {search:"",favorites:false,recent:false,archive:false};
@@ -1359,10 +1380,10 @@ export class WorkspaceBoard {
       this.moveCommitting = true;
       let result;
       if (source.kind === "duplicate") {
-        const response = await this.client.write("pastePlacements",operation,{recordHistory:false,includeHistory:true});
+        const response = await this.writeStructural("pastePlacements",operation,{recordHistory:false,includeHistory:true});
         result = response.result;
         if (response.history) this.history.record(response.history,{type:"duplicate",data:operation});
-      } else result = await this.client.write("pastePlacements",operation);
+      } else result = await this.writeStructural("pastePlacements",operation);
       written = true;
       if (source.kind === "duplicate") this.cutIntent.clear(cut);
       this.moveCommitting = false;
@@ -1785,7 +1806,7 @@ export class WorkspaceBoard {
         );
         return;
       }
-      await this.client.write("archive", {
+      await this.writeStructural("archive", {
         boardId: this.snapshot.id,
         placementIds: ids,
         archived: !this.filters.archive,
@@ -1814,7 +1835,7 @@ export class WorkspaceBoard {
     let confirmedRemoved = false;
     try {
       // A mixed group's drawn elements are deleted in the same write, so one Undo restores all.
-      await this.client.write("remove", {boardId:this.snapshot.id,placementIds:ids,...(drawn.length ? {decorationIds:drawn} : {})});
+      await this.writeStructural("remove", {boardId:this.snapshot.id,placementIds:ids,...(drawn.length ? {decorationIds:drawn} : {})});
       confirmedRemoved = true;
       if (drawn.length) { this.mixedGroup = false; this.decorationSelection = new Set(); }
       // Clear only the intent captured before this request, never a newer tab's cut.
@@ -1835,18 +1856,19 @@ export class WorkspaceBoard {
     }
   }
   newBoardAround(ids) {
+    const source=this.structuralSource();
     makeDialog(
       "New board from selection",
       '<label>Board name<input name="title" required maxlength="1000" autofocus></label><button type="submit" class="workspace-primary">Create board and move</button>',
       async (f) => {
-        await this.client.write("move", {
+        await this.writeStructural("move", {
           sourceBoardId: this.snapshot.id,
           placementIds: ids,
           newBoard: {
             title: f.get("title").trim(),
             parentBoardId: this.snapshot.id,
           },
-        });
+        }, {}, source);
         this.selection.clear();
         await this.refresh();
         toast("Board created around your selection.");
@@ -1856,20 +1878,22 @@ export class WorkspaceBoard {
   newBoard() {
     newBoardDialog(this.client, {
       parentBoardId: this.snapshot.id,
+      snapshot:this.structuralSource(),
       opener: $("workspace-add"),
       refresh: () => this.refresh(),
     });
   }
   addChildren(item) {
     if (!item) return;
+    const source=this.structuralSource();
     makeDialog(
       "Add a board to this item",
       `<label>Board name<input name="title" required maxlength="1000" autofocus value="${esc(item.title)}"></label><button type="submit" class="workspace-primary">Add board</button>`,
       async (f) => {
-        await this.client.write("createBoard", {
+        await this.writeStructural("createBoard", {
           itemId: item.id,
           title: f.get("title").trim(),
-        });
+        }, {}, source);
         await this.refresh();
         this.reader(item);
         toast("Board added. Primary content is still on Content.");
@@ -1965,8 +1989,10 @@ export class WorkspaceBoard {
     };
     popover.querySelector("[data-context-open]").onclick = () => { const open = document.querySelector(`[data-placement="${CSS.escape(id)}"] [data-open]:not(:disabled)`); this.closeContext(); open?.click(); };
     popover.querySelector("[data-context-board]")?.addEventListener("click", () => { this.closeContext(); this.navigate(item.childBoardId); });
+    let presentationSource=this.structuralSource();
+    let presentationRecord=structuredClone(this.snapshot.placements.find(p=>p.id===id));
     popover.querySelectorAll("[data-presentation]").forEach(button => button.onclick = async () => {
-      const placement = this.snapshot.placements.find(p => p.id === id);
+      const placement = presentationRecord;
       const presentation = { mode: "card", ...(placement.presentation || {}), mode:button.dataset.presentation };
       const patch = { presentation };
       if (button.dataset.presentation && button.dataset.presentation !== (placement.presentation?.mode || "card")) {
@@ -1974,22 +2000,27 @@ export class WorkspaceBoard {
         Object.assign(patch, { width, height });
       }
       try {
-        await this.client.write("updatePlacement", { boardId: this.snapshot.id, placementId: id, patch });
+        await this.writeStructural("updatePlacement", { boardId: this.snapshot.id, placementId: id, patch },{},presentationSource);
         Object.assign(placement, patch);
         popover.querySelectorAll("[data-presentation]").forEach(b => b.setAttribute("aria-pressed", String(b.dataset.presentation === (presentation.mode || "card"))));
         await this.refresh();
+        presentationSource=this.structuralSource();
+        presentationRecord=structuredClone(this.snapshot.placements.find(p=>p.id===id));
       } catch (error) { showFailure(error); }
     });
     const latestPlacement=()=>this.snapshot.placements.find(entry=>entry.id===id);
     this.contextPaperSync=bindInspectorColor(popover.querySelector(".inspector-paper"),{
       label:"Paper color palette",options:[...tilePaperChoices,...drawingPalette],role:"paper",
       read:()=>latestPlacement()?.presentation?.paper||"#f6f7f1",
-      save:async paper=>{
-        const placement=latestPlacement();
+      capture:()=>({source:this.structuralSource(),placement:structuredClone(latestPlacement())}),
+      save:async (paper,original)=>{
+        const placement=original.placement;
         if(!placement)return;
         const presentation={mode:"card",...placement.presentation,paper};
-        await this.client.write("updatePlacement",{boardId:this.snapshot.id,placementId:id,patch:{presentation}});
+        await this.writeStructural("updatePlacement",{boardId:this.snapshot.id,placementId:id,patch:{presentation}},{},original.source);
         await this.refresh({saveReview:false});
+        presentationSource=this.structuralSource();
+        presentationRecord=structuredClone(this.snapshot.placements.find(p=>p.id===id));
       },
     });
     const actions = popover.querySelector(".inspector-acts");
@@ -2510,7 +2541,7 @@ export class WorkspaceBoard {
         proxy.innerHTML = `<span aria-hidden="true">↗</span><div><strong>${esc(item.title)}</strong><small>From ${esc(board.title)}</small></div>`;
         document.body.append(proxy);
         positionProxy(proxy, gesture.x, gesture.y);
-        gesture.lifted = {boardId:board.id,p:{...p},item,tile,proxy};
+        gesture.lifted = {boardId:board.id,p:{...p},item,tile,proxy,source:this.structuralSource()};
         tile.classList.add("workspace-cover-lifted");
         activate(gesture);
         setHint(`Lifted ${item.title} · drag to place`);
@@ -2891,7 +2922,7 @@ export class WorkspaceBoard {
               placementIds:movedIds,
               targetBoardId: target.boardId,
               ...(target.targetPosition ? {targetPosition:target.targetPosition} : {}),
-            }, latest => placementsUnchanged(latest, sources), {boardId:subject.boardId});
+            }, latest => placementsUnchanged(latest, sources), {boardId:subject.boardId,...(done.lifted?{source:done.lifted.source}:{})});
             this.moveCommitting = false;
             moved = true;
             if (!done.lifted) {
@@ -3047,7 +3078,7 @@ export class WorkspaceBoard {
       else if (type === "sticker") this.openStickerPicker(anchor || $("workspace-add"),point);
       else if (type === "document") this.createDocument(point);
       else if (type === "board") this.newBoard();
-      else if (type === "idea") itemForm(this.client, {boardId:this.snapshot.id, opener:anchor || $("workspace-add"), refresh:() => this.refresh()});
+      else if (type === "idea") itemForm(this.client, {snapshot:this.structuralSource(),boardId:this.snapshot.id, opener:anchor || $("workspace-add"), refresh:() => this.refresh()});
     });
     menu.onkeydown = e => {
       const buttons = [...menu.querySelectorAll("button")], index = buttons.indexOf(document.activeElement);
@@ -3123,7 +3154,7 @@ export class WorkspaceBoard {
     this.decorationCommitting=true;
     try {
       this.hooks.holdView?.();
-      await this.client.write('createDecoration',{boardId:this.snapshot.id,decoration},{operationId});
+      await this.writeStructural('createDecoration',{boardId:this.snapshot.id,decoration},{operationId});
       await this.refresh({saveReview:false});
       this.whiteboard.select(decoration.id);
       $("world").querySelector(`[data-decoration="${CSS.escape(decoration.id)}"]`)?.focus({preventScroll:true});
@@ -3269,7 +3300,7 @@ export class WorkspaceBoard {
         d.from={x:from.x,y:from.y}; d.to={x:to.x,y:to.y};
         d.route="curved"; d.bend=defaultArrowBend(from,to);
       }
-      await this.client.write("createDecoration",{boardId:this.snapshot.id,decoration:d});
+      await this.writeStructural("createDecoration",{boardId:this.snapshot.id,decoration:d});
       await this.refresh({saveReview:false});
       const element = document.querySelector(`[data-decoration="${CSS.escape(d.id)}"]`);
       element?.scrollIntoView({ block: "nearest", inline: "nearest" });
@@ -3823,21 +3854,23 @@ export class WorkspaceBoard {
     }, true);
   }
   async deleteDecoration() { return this.whiteboard.remove(); }
-  async saveBackground(background) {
-    await this.client.write("updateBoard", {boardId:this.snapshot.id,patch:{background}});
+  async saveBackground(background, original = this.snapshot) {
+    await this.client.guarded('updateBoard', {boardId:original.id,patch:{background}},
+      [fieldFact('boardField',{boardId:original.id},original,'background')]);
     await this.refresh({saveReview:false});
   }
   backgroundImageDialog(opener) {
-    const resource = this.snapshot.background?.resource;
+    const original = structuredClone({id:this.snapshot.id,...(Object.hasOwn(this.snapshot,'background')?{background:this.snapshot.background}:{})});
+    const resource = original.background?.resource;
     const dialog = makeDialog(
       "Background image",
       `<label>Resource root<input name="root" value="${esc(resource?.rootId)}" autofocus></label><label>Image path<input name="path" value="${esc(resource?.path)}"></label>${resource ? '<button type="button" data-remove-image>Remove image</button>' : ''}<button type="submit" class="workspace-primary">Save image</button>`,
       async (f) => {
         const rootId = f.get("root").trim(), path = f.get("path").trim();
         if (Boolean(rootId) !== Boolean(path)) throw new Error("Enter both the resource root and image path.");
-        const {resource, ...background} = this.snapshot.background || {};
+        const {resource, ...background} = original.background || {};
         if (rootId) background.resource = {rootId,path};
-        await this.saveBackground(background);
+        await this.saveBackground(background, original);
       }, {opener,compact:true},
     );
     dialog.querySelector("[data-remove-image]")?.addEventListener("click", () => {
@@ -3847,6 +3880,7 @@ export class WorkspaceBoard {
     });
   }
   orderForm() {
+    const original = {id:this.snapshot.id,reviewOrder:[...this.snapshot.reviewOrder]};
     const placements = this.snapshot.reviewOrder
       .map((id) => this.snapshot.placements.find((p) => p.id === id))
       .filter((p) => p && !p.removedAt);
@@ -3854,10 +3888,10 @@ export class WorkspaceBoard {
       "Comparison order",
       `<p>Set which item opens next in the reader.</p><div id="workspace-order"></div><button type="submit" class="workspace-primary">Save order</button>`,
       async () => {
-        await this.client.write("updateBoard", {
-          boardId: this.snapshot.id,
+        await this.client.guarded('updateBoard', {
+          boardId: original.id,
           patch: { reviewOrder: placements.map((p) => p.id) },
-        });
+        }, [fieldFact('boardField',{boardId:original.id},original,'reviewOrder')]);
         await this.refresh();
       },
     );
@@ -3886,6 +3920,7 @@ export class WorkspaceBoard {
         this.draftKey,
         JSON.stringify(Object.fromEntries(this.pendingReview)),
       );
+      localStorage.setItem(this.reviewBaselineKey, JSON.stringify(Object.fromEntries(this.reviewBaselines)));
     } catch {
       this.hooks.saveStatus(
         "Feedback is pending · browser storage unavailable",
@@ -3911,9 +3946,19 @@ export class WorkspaceBoard {
         if (
           value !== baseline ||
           (Object.hasOwn(inFlight, field) && value !== inFlight[field])
-        )
+        ) {
           patch[field] = value;
-        else delete patch[field];
+          const saved = this.reviewBaselines.get(id) || {};
+          // A restored legacy draft with no baseline cannot safely claim current
+          // state. Keep it available, but require deliberate reconciliation.
+          if (!Object.hasOwn(saved,field) && !Object.hasOwn(this.pendingReview.get(id) || {},field))
+            this.reviewBaselines.set(id,{...saved,[field]:baseline});
+        }
+        else {
+          delete patch[field];
+          const saved={...this.reviewBaselines.get(id)};delete saved[field];
+          if(Object.keys(saved).length)this.reviewBaselines.set(id,saved);else this.reviewBaselines.delete(id);
+        }
       }
       if (!Object.keys(patch).length) this.pendingReview.delete(id);
       else if (
@@ -3925,14 +3970,15 @@ export class WorkspaceBoard {
   }
   // Explicit tile editors own their draft until ACK. A failed attempt never
   // enters the shared autosave queue, so Cancel cannot leak it through a star.
-  async saveTileNote(itemId, note) {
+  async saveTileNote(itemId, note, baseline) {
     if(this.saving)await this.savePromise;
     const priorNote=this.pendingReview.get(itemId)?.note;
     let failure;
     this.saving=true;
     this.savePromise=(async()=>{
       try {
-        await this.client.write('review',{itemId,patch:{note}});
+        if(typeof baseline !== 'string')throw new Error('This retained note has no original baseline. Copy your draft, Cancel, and reopen Notes to review the latest note.');
+        await this.client.guarded('review',{itemId,patch:{note}},reviewFacts(itemId,{note:baseline},['note']));
         const item=this.snapshot.items[itemId];
         if(item)item.review={...item.review,note};
         for(const c of this.hooks.concepts())if(c.graphItem.id===itemId)c.graphItem.review={...c.graphItem.review,note};
@@ -3941,6 +3987,8 @@ export class WorkspaceBoard {
         // or the independent star field in this or another item's pending patch.
         if(pending && Object.hasOwn(pending,'note') && pending.note===priorNote){
           const remaining={...pending};delete remaining.note;
+          const saved={...this.reviewBaselines.get(itemId)};delete saved.note;
+          if(Object.keys(saved).length)this.reviewBaselines.set(itemId,saved);else this.reviewBaselines.delete(itemId);
           if(Object.keys(remaining).length)this.pendingReview.set(itemId,remaining);else this.pendingReview.delete(itemId);
         }
         this.persistDrafts();this.rebuild();
@@ -3954,24 +4002,60 @@ export class WorkspaceBoard {
     if(this.pendingReview.size)void this.saveReview([],{});
     if(!saved)throw failure;
   }
+  reviewConflict(error, attempted) {
+    if (!attempted) return showFailure(error);
+    const {id,patch}=attempted;
+    const note=Object.hasOwn(patch,'note') ? `<label>Your retained note<textarea rows="4" readonly>${esc(patch.note)}</textarea></label>` : '';
+    const dialog=makeDialog('Change not saved',
+      `<p>${esc(error.message)}</p>${note}<p>Keep this draft to copy or review it. Discard loads the latest saved feedback for the fields in this attempt.</p><button type="button" data-keep-review autofocus>Keep draft</button><button type="submit">Discard this draft and load latest</button>`,
+      async()=>{
+        // Fetch first. Losing the connection or dismissing this dialog never
+        // discards text. A newer local edit is also outside this attempt.
+        const snapshot=await this.client.get(`/api/boards/${encodeURIComponent(this.snapshot.id)}`);
+        if(snapshot.revision<this.client.revision)throw new Error('Work changed while loading. Your draft is retained; try again.');
+        const remaining={...this.pendingReview.get(id)},baseline={...this.reviewBaselines.get(id)};
+        for(const field of Object.keys(patch))if(Object.hasOwn(remaining,field)&&remaining[field]===patch[field]){
+          delete remaining[field];delete baseline[field];
+        }
+        if(Object.keys(remaining).length)this.pendingReview.set(id,remaining);else this.pendingReview.delete(id);
+        if(Object.keys(baseline).length)this.reviewBaselines.set(id,baseline);else this.reviewBaselines.delete(id);
+        this.persistDrafts();this.hooks.data(this.adapt(snapshot));
+        this.hooks.saveStatus(this.pendingReview.size?'Other feedback drafts remain in this browser':'Latest item feedback loaded',this.pendingReview.size?'local':'saved');
+      });
+    dialog.querySelector('[data-keep-review]').onclick=()=>dialog.querySelector('.workspace-close').click();
+    return dialog;
+  }
   async saveReview(concepts = [], notes = {}) {
     this.captureReview(concepts, notes);
     if (this.saving) return this.savePromise;
     this.saving = true;
     this.savePromise = (async () => {
+      let attempted;
       try {
         while (this.pendingReview.size) {
           const [id, patch] = this.pendingReview.entries().next().value;
+          attempted={id,patch};
           this.inFlightReview.set(id, patch);
-          await this.client.write("review", { itemId: id, patch });
+          const baseline=this.reviewBaselines.get(id);
+          if (!baseline || Object.keys(patch).some(field => !Object.hasOwn(baseline,field))) {
+            const error=new Error('This retained feedback has no original baseline. Keep or copy your draft, then load the latest saved feedback before editing again.');
+            error.code='REVIEW_BASELINE_MISSING';throw error;
+          }
+          await this.client.guarded('review',{itemId:id,patch},reviewFacts(id,baseline,Object.keys(patch)));
           const item = this.snapshot.items[id];
           if (item) item.review = { ...item.review, ...patch };
           for (const c of this.hooks.concepts())
             if (c.graphItem.id === id)
               c.graphItem.review = { ...c.graphItem.review, ...patch };
           this.inFlightReview.delete(id);
-          if (this.pendingReview.get(id) === patch)
-            this.pendingReview.delete(id);
+          if (this.pendingReview.get(id) === patch) {
+            this.pendingReview.delete(id);this.reviewBaselines.delete(id);
+          } else {
+            // Later typing starts from this confirmed ACK, not an unrelated read.
+            const baseline={...this.reviewBaselines.get(id)};
+            for(const field of Object.keys(patch))baseline[field]=patch[field];
+            this.reviewBaselines.set(id,baseline);
+          }
           this.persistDrafts();
         }
         this.hooks.saveStatus("Item notes saved on this Mac", "saved");
@@ -3985,7 +4069,8 @@ export class WorkspaceBoard {
         );
         // A conflict offers the latest board; other failures report quietly
         // without stealing focus from the note being written.
-        if (e.conflict) showFailure(e);
+        if (['GUARDED_PRECONDITION_CHANGED','REVIEW_BASELINE_MISSING'].includes(e.code)) this.reviewConflict(e,attempted);
+        else if (e.conflict) showFailure(e);
         else toast(`Notes remain in this browser. ${e.message}`);
         return false;
       } finally {

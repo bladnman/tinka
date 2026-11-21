@@ -845,7 +845,7 @@ export class Whiteboard {
     const fitted=this.fitAutoText(id,patch),text=this.find(id);
     const operation={boardId:this.host.snapshot.id,decorationId:id,patch:fitted,...extra};
     if(fitted!==patch&&text)this.syncDragGeometry(text,{...text,...fitted});
-    try{await (unchanged?this.host.writeArrangement('updateDecoration',operation,unchanged):this.host.client.write('updateDecoration',operation,options));await this.host.refresh({saveReview:false});}
+    try{await (unchanged?this.host.writeArrangement('updateDecoration',operation,unchanged):this.host.writeStructural('updateDecoration',operation,options));await this.host.refresh({saveReview:false});}
     catch(error){if(fitted!==patch)this.host.syncGeometry();throw error;}
     finally{this.host.decorationCommitting=false;this.host.hooks.liveReady?.();}
   }
@@ -1050,7 +1050,7 @@ export class Whiteboard {
     }
     const id=this.host.activeDecoration;if(!id)return;
     this.cancelEdit({focus:false});this.host.activeDecoration=null;this.connectMode=false;this.pendingFrom=null;
-    await this.host.client.write('removeDecoration',{boardId:this.host.snapshot.id,decorationId:id});await this.host.refresh({saveReview:false});this.sync();
+    await this.host.writeStructural('removeDecoration',{boardId:this.host.snapshot.id,decorationId:id});await this.host.refresh({saveReview:false});this.sync();
   }
   persistDrafts() {
     try { localStorage.setItem(this.draftKey,JSON.stringify(Object.fromEntries([...this.drafts].map(([id,draft])=>[id,{...draft,pending:false}])))); } catch {}
@@ -1081,7 +1081,7 @@ export class Whiteboard {
     }
     const original=d.text??'', next=toggleDecorationTask(original,Number(task.dataset.decoTask));
     if(next===null)return;
-    this.drafts.set(d.id,{text:next,original,nativeText:true,operationId:crypto.randomUUID(),pending:false,error:null});
+    this.drafts.set(d.id,{text:next,original,nativeText:true,source:this.host.client.captureStructural('updateDecoration',{boardId:this.host.snapshot.id,decorationId:d.id,patch:{text:''}},this.host.structuralSource()),operationId:crypto.randomUUID(),pending:false,error:null});
     await this.saveDraft(d.id);
   }
   setTextPreview(session,show) {
@@ -1110,7 +1110,7 @@ export class Whiteboard {
     const form=document.createElement('form');form.className='whiteboard-editor';
     form.innerHTML=`<textarea name="text" aria-label="${esc(rich?'Text block':d.type==='line'?'Arrow label':d.shape==='rectangle'?'Sticky note text':'Object text')}" spellcheck="true"></textarea>`;
     const textarea=form.querySelector('textarea');textarea.value=original;
-    const session={id,original,baseText:existingDraft?.original??d.text??'',initialValue:textarea.value,form,textarea,rich,composing:false,requested:false,finishing:false,finishFocus:false};
+    const session={id,original,source:this.host.client.captureStructural('updateDecoration',{boardId:this.host.snapshot.id,decorationId:d.id,patch:{text:''}},this.host.structuralSource()),baseText:existingDraft?.original??d.text??'',initialValue:textarea.value,form,textarea,rich,composing:false,requested:false,finishing:false,finishFocus:false};
     if(rich){
       form.classList.add('whiteboard-markdown-editor');textarea.placeholder='Write something';
       const preview=document.createElement('div');preview.className='deco-body whiteboard-text-preview';preview.hidden=true;
@@ -1172,7 +1172,7 @@ export class Whiteboard {
     document.querySelector(selector(session.id))?.classList.remove('whiteboard-editing');
     if(text!==session.original||this.drafts.has(session.id)) {
       const prior=this.drafts.get(session.id);
-      this.drafts.set(session.id,{text,original:prior?.original??session.baseText,nativeText:session.rich,
+      this.drafts.set(session.id,{text,original:prior?.original??session.baseText,nativeText:session.rich,source:prior ? prior.source : session.source,
         operationId:prior?.text===text?prior.operationId:crypto.randomUUID(),pending:false,error:null});
       this.persistDrafts();
     }
@@ -1200,9 +1200,9 @@ export class Whiteboard {
       if(draft.nativeText&&this.find(id)?.type!=='text'){this.sync();return;}
       const saved=this.find(id)?.text??'';
       if(saved===draft.text){this.drafts.delete(id);this.persistDrafts();this.sync();return;}
-      if(saved!==draft.original&&!reviewed) {
-        makeDialog('Review changed text',`<p>This object's saved text changed elsewhere. Review both versions before saving.</p><label>Saved text<textarea readonly>${esc(saved)}</textarea></label><label>Your text<textarea name="text">${esc(draft.text)}</textarea></label><button type="submit" class="workspace-primary">Save reviewed text</button>`,async values=>{
-          draft.text=String(values.get('text')??'');draft.original=saved;draft.operationId=crypto.randomUUID();draft.error=null;
+      if((saved!==draft.original||draft.conflict||!draft.source)&&!reviewed) {
+        makeDialog('Review changed text',`<p>${!draft.source ? 'This draft has no saved conflict facts. Review the current text before saving.' : saved!==draft.original ? "This object's saved text changed elsewhere. Review both versions before saving." : "This object's arrangement changed elsewhere. Review its current board before saving this text."}</p><label>Saved text<textarea readonly>${esc(saved)}</textarea></label><label>Your text<textarea name="text">${esc(draft.text)}</textarea></label><button type="submit" class="workspace-primary">Save reviewed text</button>`,async values=>{
+          draft.text=String(values.get('text')??'');draft.original=saved;draft.source=this.host.client.captureStructural('updateDecoration',{boardId:this.host.snapshot.id,decorationId:id,patch:{text:''}},this.host.structuralSource());draft.operationId=crypto.randomUUID();draft.error=null;draft.conflict=false;
           await this.saveDraft(id,{reviewed:true});
           if(draft.error)throw new Error(draft.error);
         });return;
@@ -1211,19 +1211,19 @@ export class Whiteboard {
     const d=this.find(id), nativeText=draft.nativeText||d?.type==='text';
     if(nativeText&&d?.type!=='text'){this.sync();return;}
     if(nativeText&&(d.text??'')!==draft.original){
-      draft.error='Text changed elsewhere. Review before retrying.';this.persistDrafts();this.sync();return;
+      draft.error='Text changed elsewhere. Review before retrying.';draft.conflict=true;this.persistDrafts();this.sync();return;
     }
-    const expectedRevision=nativeText?this.host.snapshot.revision:undefined;
+    const source=draft.source || {revision:-1};
     draft.pending=true;draft.error=null;this.persistDrafts();this.sync();
     try {
       const patch=this.fitAutoText(id,{text:draft.text});
       if(patch.height!==undefined)this.syncDragGeometry(d,{...d,...patch});
-      await this.host.client.write('updateDecoration',{boardId:this.host.snapshot.id,decorationId:id,patch},{operationId:draft.operationId,expectedRevision});
+      await this.host.writeStructural('updateDecoration',{boardId:this.host.snapshot.id,decorationId:id,patch},{operationId:draft.operationId},source);
       if(this.find(id))Object.assign(this.find(id),patch);
       if(this.drafts.get(id)===draft)this.drafts.delete(id);
       await this.host.refresh({saveReview:false});
     }catch(error){
-      draft.pending=false;draft.error=error.conflict?'Text changed elsewhere. Review before retrying.':'Could not save text. Retry when the connection is available.';
+      draft.pending=false;draft.conflict=!!error.conflict;draft.error=error.conflict?'Text changed elsewhere. Review before retrying.':'Could not save text. Retry when the connection is available.';
       if(nativeText&&error.conflict){
         try { await this.host.refresh({saveReview:false}); } catch {}
         if(this.find(id)?.type!=='text')toast('Open Inspector → Edit to recover your unsaved text.');

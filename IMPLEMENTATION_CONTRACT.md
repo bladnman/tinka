@@ -590,3 +590,50 @@ placement removal. Tile Notes opens a draft editor: Save note or Cmd/Ctrl-Enter
 commits, Cancel discards that draft, and Escape/click-away retains it for return.
 Failed saves keep the draft available for retry. Reader and Inspector notes keep
 their existing autosave behavior; notes and favorites remain shared by references.
+
+Guarded common saves (`lib/guarded-write.mjs`) add a fail-closed
+`{type:"guarded",operationId,operation,baseline:{version:1,facts}}` envelope and
+`workspace.guarded` tool. The inner operation has no retry ID or expectedRevision.
+Graph and scoped transactions share exact outer retry identity and fact comparison
+under their existing lock; replay precedes current guard comparison. Server-derived
+minimum fields cover updateBoard title/description/reviewOrder/background, updateItem
+scalar details and the content/preview/revisions/build group, review note/star and
+comment edit/delete/status/resolve. Unsupported operations reject. Facts identify
+board/item/comment fields with explicit presence and value; documented read defaults
+normalize, while absence and null remain distinct. Missing facts never weaken a
+patch. Ordinary targeted responses provide baseline data without a new read request.
+Guarded fact conflicts, invalid baselines and busy locks have distinct machine codes;
+legacy revision conflicts retain WORKSPACE_REVISION_CHANGED. Guarded no-op comment
+status handling validates replay/guards inside the scoped transaction before
+returning unchanged; legacy status no-ops retain their existing early response. Old operation/tool contracts remain available and older
+servers reject the new type/tool without executing an unguarded replacement. See
+PROTOCOL "Guarded common saves" for the wire fields and recovery behavior.
+
+
+Structural guarded saves add explicit baseline version 2 using one pure
+`public/structural-guard.js` projection shared by browser and `lib/guarded-write.mjs`.
+Modern read responses identify full board versus compact identity projections;
+missing collections in old/compact snapshots cannot establish empty dependencies.
+The locked transaction compares touched placements/drawings plus connected arrow,
+container and group dependencies, canonical lifecycle/child ownership, and resource
+root registrations used by copies. A linear adjacency/queue walk bounds relation
+traversal; explicit drop/restack operations guard their board-wide side effects.
+Geometry stays independent of canonical content/review edits, while shared-item
+archive/delete and topology changes conflict. No graph schema migration or new
+runtime service is introduced. Graph load/clone/validation remains the existing
+full-graph transaction; the new guard does not claim a scoped graph write engine.
+
+Covered operations and strict fallbacks are enumerated in PROTOCOL "Guarded
+structural edits". Canonical duplicate/archive/delete, board creation, new-board/
+Home moves and workspace settings retain strict frozen expectedRevision in modern
+clients. Unsupported, incomplete and oversized projections choose that path before
+dispatch; a rejected guarded write never downgrades or refreshes a global watermark.
+Existing signed movement receipts preserve Undo/Redo and exact retry identity.
+Guarded file/document creation uses explicit `type:"guardedImport"` plus version 2
+baseline metadata, retaining operationId without expectedRevision. All target,
+metadata and batch file validation precedes resource writes; the existing retained
+originals policy on interrupted I/O remains. Old transports reject this additive
+shape. The common version 1 contract and legacy raw operation behavior remain.
+Scoped common guards and their actions reuse independent clones of one clean
+per-document locked snapshot, avoiding a duplicate cached stat without changing
+canonical reads, lock ownership or journal recovery.

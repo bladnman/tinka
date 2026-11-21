@@ -124,7 +124,7 @@ export function openQuickJot(board) {
       if (!layout) layout = { anchor: findAnchor(board, form), index: 0 };
       const cell = nextCell(board, layout);
       const d = { id: crypto.randomUUID(), ...STICKY, x: cell.x, y: cell.y, width: JOT_W, height: JOT_H, text };
-      await board.client.write("createDecoration", { boardId: board.snapshot.id, decoration: d });
+      await board.writeStructural("createDecoration", { boardId: board.snapshot.id, decoration: d });
       // No lingering selection or handles: nothing is active after a jot.
       board.whiteboard?.clearSelection?.({ finishEdit: false });
       board.activeDecoration = null; board.selection?.clear?.();

@@ -1,4 +1,4 @@
-import {escape as esc,toast} from './workspace.js';
+import {escape as esc,toast,commentFacts} from './workspace.js';
 import {pointAnchorAt,resolveCommentPoint} from './feedback-geometry.js';
 import {bindForm,restoreFocus,commitShortcutLabel} from './interaction.js';
 export function voteTotals(votes={}){const result={yes:0,no:0,abstain:0};for(const vote of Object.values(votes||{}))if(Object.hasOwn(result,vote.value))result[vote.value]++;return result;}
@@ -120,7 +120,7 @@ export class FeedbackController {
       try{await this.refresh();await this.reload();await this.onCommitted({boardId:d.boardId,itemId:d.itemId,threadId:result.threadId||d.replyTo,kind:'comment'});}catch{this.postStatus('Posted. Refresh comments to see the latest conversation.');}
     }catch(error){if(this.draft===d)this.postStatus(error.message,true);throw error;}finally{d.pending=false;}
   }
-  async resolve(threadId,resolved){try{await this.client.write('resolveComment',{threadId,resolved});await this.refresh();await this.reload();await this.onCommitted({boardId:this.getBoard().id,itemId:this.itemId,threadId,kind:'comment'});}catch(error){this.failure(error);}}
+  async resolve(threadId,resolved){try{const thread=this.threads.find(t=>t.id===threadId);if(!thread)throw Error('Reload comments before changing this thread.');await this.client.guarded('resolveComment',{threadId,resolved},commentFacts(thread,thread,['status','to']));await this.refresh();await this.reload();await this.onCommitted({boardId:this.getBoard().id,itemId:this.itemId,threadId,kind:'comment'});}catch(error){this.failure(error);}}
   async reload({more=false}={}){
     const request=++this.request,boardId=this.getBoard().id,itemId=this.visible?this.itemId:null,params=new URLSearchParams({boardId,includeBodies:'true',limit:'50'});
     if(itemId)params.set('itemId',itemId);if(this.onlyUnresolved)params.set('resolved','false');if(more&&this.nextCursor)params.set('cursor',this.nextCursor);

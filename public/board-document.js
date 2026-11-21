@@ -2,7 +2,7 @@
 // Markdown document in place on its card. The card's own page (media.html) does the editing
 // (document-editor.js) and saves through PUT /api/documents/:itemId; this side starts and ends
 // it, shows a small Saving/Saved hint, and applies the auto title. No modal, no toolbar.
-import {toast} from "./workspace.js";
+import {toast,fieldFact} from "./workspace.js";
 
 const DEFAULT_TITLE = "Untitled";
 const STARTER = `# ${DEFAULT_TITLE}\n\n`;
@@ -29,22 +29,16 @@ export async function createBoardDocument(board, point) {
   const at = board.canvasPoint(point);
   const targetPosition = {x:Math.round(at.x - SIZE.width / 2), y:Math.round(at.y - 40)};
   const operationId = crypto.randomUUID();
+  const captured=board.client.captureStructural('importFiles',{targetBoardId:board.snapshot.id},board.structuralSource());
+  const body={workspaceId:board.snapshot.workspaceId,targetBoardId:board.snapshot.id,targetPosition,
+    ...(captured.baseline?{type:'guardedImport',baseline:captured.baseline}:{expectedRevision:captured.revision}),
+    operationId,title:"Untitled",text:STARTER,...SIZE};
   let data;
   try {
     data = await queued(board, async () => {
-      for (let attempt = 0; ; attempt++) {
-        const body = {workspaceId:board.snapshot.workspaceId, targetBoardId:board.snapshot.id, targetPosition,
-          expectedRevision:board.client.revision, operationId, title:"Untitled", text:STARTER, ...SIZE};
-        try {
-          const result = await json(await fetch("/api/documents", {method:"POST", headers:headers(board), body:JSON.stringify(body)}));
-          board.client.revision = result.revision;
-          return result;
-        } catch (error) {
-          // Same operation ID, so a revision-only retry cannot duplicate the document.
-          if (attempt === 0 && error.data?.code === "WORKSPACE_REVISION_CHANGED" && Number.isSafeInteger(error.data.revision)) { board.client.revision = error.data.revision; continue; }
-          throw error;
-        }
-      }
+      const result = await json(await fetch("/api/documents", {method:"POST", headers:headers(board), body:JSON.stringify(body)}));
+      board.client.revision = Math.max(board.client.revision,result.revision);
+      return result;
     });
   } catch (error) { toast(`Document not created. ${error.message}`); return null; }
   if (data.history) board.history?.record(data.history, {type:"pastePlacements", data:{placementIds:data.result.placementIds}}, operationId);
@@ -182,7 +176,7 @@ export async function afterEdit(board, itemId, result, sourceFrame) {
   if (!result?.saved) { try { await board.refresh({saveReview:false}); } catch {} return; }
   const item = documentItem(board, itemId);
   if (result.title && item?.title === DEFAULT_TITLE && result.title !== DEFAULT_TITLE) {
-    try { await board.client.write("updateItem", {itemId, patch:{title:result.title}}); } catch (error) { toast(`Saved, but the title was not updated. ${error.message}`); }
+    try { await board.client.guarded("updateItem", {itemId, patch:{title:result.title}},[fieldFact("itemField",{itemId},item,"title")]); } catch (error) { toast(`Saved, but the title was not updated. ${error.message}`); }
   }
   try { await board.refresh({saveReview:false}); } catch {}
   if (item?.content?.resource) reloadCards(item.content.resource, sourceFrame);
