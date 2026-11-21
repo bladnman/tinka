@@ -226,13 +226,18 @@ content sits on a canvas of its own: ⌘/Ctrl-scroll or pinch zooms it about the
 pointer, also over Tinka's own local content, and the page never zooms; drag the
 background, or hold Space and drag, to pan. Scrolling pans over the background, and
 over content with nothing to scroll, such as an image zoomed in to fill the view;
-documents and pages that scroll keep scrolling themselves. Fit (F or ⇧1) shows the whole resource
-again, never past 100%, and Back returns to the view before it. HTML starts at
-its saved preview viewport (1000 × 720 when unspecified); images use their natural
-dimensions. The resource has no outer card, and pan stops at its bounds. Canvas zoom
+documents and pages that scroll keep scrolling themselves. HTML opens filling the
+window below the header at 100%, so the page lays out at the window's real size and
+scrolls itself, as Open standalone shows it; it follows window, Notes and Inspector
+changes, and every Tinka and file version opens this way. Fit (F or ⇧1), Actual size
+(⇧0) and zoom show it at its saved preview viewport instead (1000 × 720 when
+unspecified); **Fill** beside Fit in the pill, or Fill the window in the % menu,
+returns. Fit shows the whole resource, never past 100%, and Back returns to the view
+before it. Images use their natural dimensions. The resource has no outer card, and pan stops at its bounds. Canvas zoom
 magnifies; Window and Type size reflow. The % menu also holds what the old View
 panel did: Window (Fit, Compact, Standard, Wide or a custom size dragged from the
-window's corner) and Version, Light (Paper/Night), Type size and Open standalone.
+window's corner; a chosen size carries over while stepping) and Version, Light
+(Paper/Night), Type size and Open standalone.
 The Inspector (⌘/Ctrl-I) starts with **Where it lives**, with two separate ways out.
 *In a browser tab* has **Open standalone** (the file served by Tinka, so Tinka must be
 running) and Copy link. *The file itself* shows the full absolute path with **Copy

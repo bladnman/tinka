@@ -272,7 +272,8 @@ try{
   await intoExperiment();
   await a.page.keyboard.press('ArrowRight');
   assert.equal(await keyboardFrame.locator('output').textContent(),'1');
-  assert.equal(await a.page.locator('#reader-window').getAttribute('data-size'),'fit');
+  // A legacy HTML concept fills the window below the header, as its standalone page would.
+  assert.equal(await a.page.locator('#reader-window').getAttribute('data-size'),'fill');
   await a.page.screenshot({path:path.join(evidence,'reader-keyboard-focus.png')});
   await openView(a.page);
   for(const id of ['reader-type','reader-theme','reader-standalone'])assert.equal(await a.page.locator(`#${id}`).isVisible(),true,id);

@@ -503,9 +503,20 @@ Grid and Canvas use the same placements. Review order is separate from freeform 
 
 ### Opened resource surface
 
-HTML opens at the placement's authored `presentation.viewport` (1000×720 when
-omitted). An image uses its decoded natural dimensions, bounded to 16384 per side
-while keeping its aspect ratio. Fit frames the whole surface at no more than
+HTML (graph and legacy items alike) opens in Fill: the frame takes the whole stage
+below the header and file-version strip at 100%, less an open Notes or comment panel
+and, above 720 px wide, the Inspector floating over its right edge, so the page lays
+out at the real available size and scrolls natively, as its standalone link shows it.
+It follows window and panel changes, and each Tinka or file version opens in Fill
+again; a reload keeps the current view. Fit, Actual size and any zoom switch to the
+saved-size surface below; Fill (pill and % menu) returns. A chosen Window size
+(Compact, Standard, Wide, Custom) carries over while stepping, as before. Fill is a
+browser view only: nothing is stored and no metadata changes.
+
+On the saved-size surface HTML uses the placement's authored `presentation.viewport`
+(1000×720 when omitted). An image uses its decoded natural dimensions, bounded to
+16384 per side while keeping its aspect ratio; images, PDFs, documents and other
+kinds have no Fill. Fit frames the whole surface at no more than
 100%; pan clamps to its bounds, with smaller content centered. There is no outer
 card border or padding. The native header, conditional file-version strip,
 Inspector, notes and floating view controls remain available.

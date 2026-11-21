@@ -3,6 +3,9 @@
 // page and Tinka's own chrome never zoom. Fit returns to the fitted view (the whole
 // window in sight, never past 100%) and Back returns to the view before that fit.
 // Canvas zoom magnifies; it never reflows the content (Window and Type size do).
+// Fill (HTML's default) is the other view: the window is the whole stage, at 100%, so the
+// page lays out at the real available size as it does standalone. Fit or any zoom leaves it
+// for the saved-size surface.
 import {clampZoom, sameView, wheelZoomFactor} from './canvas-zoom.js';
 
 // A fitted Tinka shows its window at its true size or smaller.
@@ -51,10 +54,11 @@ export function resourceSize(width, height) {
 }
 
 export class ReaderCanvas {
-  constructor(stage, plane, sheet, { onChange = () => {}, onBack = () => {}, reserveBottom = () => 0 } = {}) {
-    Object.assign(this, { stage, plane, sheet, onChange, onBack, reserveBottom });
+  constructor(stage, plane, sheet, { onChange = () => {}, onBack = () => {}, reserveBottom = () => 0, reserveRight = () => 0, onLeaveFill = () => {} } = {}) {
+    Object.assign(this, { stage, plane, sheet, onChange, onBack, reserveBottom, reserveRight, onLeaveFill });
     this.view = { zoom: 1, x: 0, y: 0 };
     this.fitted = true;
+    this.fill = false;
     this.backView = null;
     this.glide = 0;
     this.pointers = new Map();
@@ -78,8 +82,17 @@ export class ReaderCanvas {
     this.resize();
   }
   area() { return { width: this.stage.clientWidth, height: this.stage.clientHeight }; }
+  // Fill: the window takes the whole stage (less a side panel floating over its right edge).
+  setFill(on) { this.fill = !!on; this.dropBack(); }
+  fillSize() {
+    const { width, height } = this.area(), right = Math.max(0, Math.round(this.reserveRight() || 0));
+    return { width: Math.max(240, Math.floor(width - right)), height: Math.max(200, Math.floor(height)) };
+  }
+  // Fit and zoom act on the saved-size surface, so they leave Fill first.
+  leaveFill() { if (!this.fill) return false; this.onLeaveFill(); this.fill = false; return true; }
   // Fit uses authored resource dimensions, or the responsive stage for documents.
   fitSize() {
+    if (this.fill) return this.fillSize();
     if (this.resourceSize) return this.resourceSize;
     const { width, height } = this.area(), i = this.insets();
     return { width: Math.max(240, Math.floor(width - i.left - i.right)), height: Math.max(200, Math.floor(height - i.top - i.bottom)) };
@@ -90,6 +103,7 @@ export class ReaderCanvas {
     this.stage.style.setProperty('--reader-fit-h', `${height}px`);
   }
   fittedView() {
+    if (this.fill) return { zoom: 1, x: 0, y: 0 };
     const { width, height } = this.area(), i = this.insets();
     const w = Math.max(1, this.sheet.offsetWidth), h = Math.max(1, this.sheet.offsetHeight);
     const room = { width: width - i.left - i.right, height: height - i.top - i.bottom };
@@ -99,6 +113,8 @@ export class ReaderCanvas {
   clamp({ zoom, x, y }) {
     const { width, height } = this.area();
     const w = this.sheet.offsetWidth * zoom, h = this.sheet.offsetHeight * zoom;
+    // A filled window stays at 100%, pinned to the stage's top left.
+    if (this.fill) return { zoom: 1, x: Math.min(0, Math.max(width - this.sheet.offsetWidth, x)), y: Math.min(0, Math.max(height - this.sheet.offsetHeight, y)) };
     return { zoom, x: w <= width ? (width - w) / 2 : Math.min(0, Math.max(width - w, x)), y: h <= height ? (height - h) / 2 : Math.min(0, Math.max(height - h, y)) };
   }
   apply() {
@@ -123,6 +139,7 @@ export class ReaderCanvas {
   isFitted() { return sameView(this.view, this.fittedView()); }
   fit() {
     this.stopGlide();
+    if (this.leaveFill()) return true;
     const before = { ...this.view };
     this.syncFitSize();
     const target = this.fittedView();
@@ -157,7 +174,7 @@ export class ReaderCanvas {
   }
   // Zoom to `zoom` keeping the stage point (sx, sy) still.
   zoomTo(zoom, sx = this.stage.clientWidth / 2, sy = this.stage.clientHeight / 2) {
-    this.stopGlide(); this.dropBack();
+    this.stopGlide(); this.leaveFill(); this.dropBack();
     const { zoom: z0, x, y } = this.view, z = clampZoom(zoom);
     this.fitted = false;
     this.view = { zoom: z, x: sx - (sx - x) * z / z0, y: sy - (sy - y) * z / z0 };
@@ -176,7 +193,7 @@ export class ReaderCanvas {
     this.view = { ...this.view, x: this.view.x + dx, y: this.view.y + dy };
     this.apply();
   }
-  resize() { this.syncFitSize(); if (this.fitted) this.rest(); else this.apply(); }
+  resize() { this.syncFitSize(); if (this.fitted || this.fill) this.rest(); else this.apply(); }
   // Holding Space over the stage lets a drag anywhere pan, even when the sheet fills it.
   setSpacePan(on) { this.shield.hidden = !on; this.stage.classList.toggle('space-pan', !!on); }
   background(target) { return target === this.stage || target === this.plane || target === this.shield; }

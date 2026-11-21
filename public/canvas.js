@@ -30,7 +30,7 @@ const dialog = $('reader-dialog');
 const slider = $('zoom-slider');
 const sizeMenu = $('size-menu');
 const geometry = { pad: 70, gap: 68, cardWidth: 1000, rowHeight: 1220 };
-const SIZE_NAMES = { fit: 'Fit', custom: 'Custom', compact: 'Compact', standard: 'Standard', wide: 'Wide' };
+const SIZE_NAMES = { fill: 'Fill', fit: 'Fit', custom: 'Custom', compact: 'Compact', standard: 'Standard', wide: 'Wide' };
 const boardMatch = location.pathname.match(/^\/boards\/([a-z0-9][a-z0-9-]*)\/?$/);
 const boardId = boardMatch?.[1];
 const boardApi = `/api/boards/${encodeURIComponent(boardId || '')}`;
@@ -624,6 +624,13 @@ const readerCanvas = new ReaderCanvas(readerStage, $('reader-plane'), $('reader-
   onChange: syncReaderZoom,
   onBack: shown => { $('reader-view-back').hidden = !shown; },
   reserveBottom: () => { const pill = dialog.querySelector('.reader-footer .zoom-pill'); return pill ? pill.offsetHeight + 20 : 0; },
+  // A filled page stops short of the open Inspector, which floats over the stage's right edge
+  // (on a phone the Inspector covers the width, so the page keeps it).
+  reserveRight: () => {
+    if (readerInfo.hidden || innerWidth <= 720) return 0;
+    return Math.max(0, readerStage.getBoundingClientRect().right - readerInfo.getBoundingClientRect().left + 8);
+  },
+  onLeaveFill: () => setReaderSize('fit'),
 });
 const readerResource = new ReaderResourceSurface($('active-reader'), {
   isActive: () => dialog.open,
@@ -651,27 +658,39 @@ function sendPreferences() {
   $('active-reader').contentWindow?.postMessage({ type: 'reader-preferences', theme: readerView.theme, scale: readerView.type }, location.origin);
 }
 
-// Window size and Version live in the % menu.
+// HTML can fill the window below the header, laid out at its real size, as Open standalone shows it.
+function readerFillable() {
+  return !!active && descriptor(active, currentVariant()).kind === 'html';
+}
+
+// Window size and Version live in the % menu; Fill sits beside Fit in the pill.
 function renderSizeControls() {
   const viewer = $('reader-window');
   const size = readerView.size;
   const customText = `${Math.round(viewer.offsetWidth)} × ${Math.round(viewer.offsetHeight)}`;
   const variant = currentVariant();
+  const fillable = readerFillable();
   sizeMenu.querySelectorAll('[data-size]').forEach(button => button.setAttribute('aria-pressed', String(button.dataset.size === size)));
   sizeMenu.querySelector('[data-size="custom"]').hidden = size !== 'custom';
+  for (const fill of [$('reader-fill'), $('reader-fill-item')]) {
+    fill.hidden = !fillable;
+    fill.setAttribute('aria-pressed', String(size === 'fill'));
+  }
+  $('reader-fit').title = size === 'fill' ? 'Show it at its saved size, fitted in view (F or ⇧1)' : 'Fit this Tinka in view (F or ⇧1)';
   $('custom-size').textContent = customText;
   $('reader-zoom-toggle').title = `Zoom and view · Window: ${SIZE_NAMES[size]}${size === 'custom' ? ` ${customText}` : ''}${variant ? ` · Version: ${variant.name}` : ''}`;
 }
 
 function setReaderSize(size) {
   const viewer = $('reader-window');
-  readerView.size = SIZE_NAMES[size] ? size : 'fit';
+  readerView.size = SIZE_NAMES[size] && (size !== 'fill' || readerFillable()) ? size : 'fit';
+  readerCanvas.setFill(readerView.size === 'fill');
   if (readerView.size !== 'custom') {
     viewer.style.removeProperty('width');
     viewer.style.removeProperty('height');
     viewer.dataset.size = readerView.size;
   }
-  viewer.title = readerView.size === 'fit' ? 'Resource surface' : 'Drag the lower-right corner to resize';
+  viewer.title = ['fit', 'fill'].includes(readerView.size) ? 'Resource surface' : 'Drag the lower-right corner to resize';
   renderSizeControls();
   // A new window size shows whole again; canvas zoom never reflows it.
   if (dialog.open) readerCanvas.rest();
@@ -899,11 +918,13 @@ function openReader(key, revision = null, { history: mode = 'push', focus = 'tin
   if (opening) {
     setTheme(active.tone === 'night' ? 'night' : 'paper', false);
     setType(100, false);
-    setReaderSize('fit');
     setReaderMenuOpen(false);
     setReaderInfoOpen(false);
     setNotesOpen(notesOpen, { focus: false });
   }
+  // Each Tinka or version opens in its default view: HTML fills the window, other kinds fit.
+  // A chosen Window size (Compact, Standard, Wide, Custom) carries over while stepping.
+  if (opening || ['fill', 'fit'].includes(readerView.size)) setReaderSize('fill');
   renderRevisionOptions();
   renderReaderHeader();
   renderSizeControls();
@@ -1095,6 +1116,7 @@ function setReaderInfoOpen(open, { focus = false } = {}) {
   if (open) { readerLookups.clear(); renderReaderInfo(); }
   readerInfo.hidden = !open;
   $('reader-info-toggle').setAttribute('aria-expanded', String(open));
+  if (dialog.open && readerCanvas.fill) readerCanvas.resize();
   if (open && focus) readerInfo.querySelector('[data-reader-act="close"]')?.focus({ preventScroll: true });
   else if (!open && focus) $('reader-info-toggle').focus({ preventScroll: true });
 }
@@ -2045,6 +2067,7 @@ $('reader-zoom-minus').onclick = () => readerCanvas.zoomTo(readerCanvas.view.zoo
 $('reader-zoom-plus').onclick = () => readerCanvas.zoomTo(readerCanvas.view.zoom * 1.25);
 bindZoomSlider($('reader-zoom-slider'),value=>readerCanvas.zoomTo(value));
 $('reader-fit').onclick = () => readerCanvas.fit();
+$('reader-fill').onclick = () => setReaderSize('fill');
 $('reader-view-back').onclick = () => readerCanvas.back();
 $('reader-zoom-menu').addEventListener('click', event => {
   const zoomChoice = event.target.closest('[data-reader-zoom]');
@@ -2052,7 +2075,8 @@ $('reader-zoom-menu').addEventListener('click', event => {
   const light = event.target.closest('[data-reader-light]');
   if (zoomChoice) {
     setReaderMenuOpen(false, { focus: true });
-    if (zoomChoice.dataset.readerZoom === 'fit') readerCanvas.fit(); else readerCanvas.zoomTo(Number(zoomChoice.dataset.readerZoom));
+    const choice = zoomChoice.dataset.readerZoom;
+    if (choice === 'fit') readerCanvas.fit(); else if (choice === 'fill') setReaderSize('fill'); else readerCanvas.zoomTo(Number(choice));
   }
   if (size) setReaderSize(size.dataset.size);
   if (light) setTheme(light.dataset.readerLight);

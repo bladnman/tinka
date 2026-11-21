@@ -79,7 +79,7 @@ try{
  ok(await page.locator('#reader-view-back').isHidden(),'Back is hidden before any fit');
  eq(await page.evaluate(()=>document.activeElement?.id),'reader-stage','Opening leaves focus on Tinka, not inside the content');
  const fitted=await plane();
- eq(fitted.zoom,1,'A Fit-size window opens at 100%');
+ eq([fitted,await page.locator('#reader-window').getAttribute('data-size')],[{zoom:1,x:0,y:0},'fill'],'An HTML Tinka opens filling its window at 100%');
  const winBox=await page.locator('#reader-window').boundingBox(),pillBox=await page.locator('#reader-dialog .zoom-pill').boundingBox();
  ok(winBox.x>=0&&pillBox.y+pillBox.height<=900,'The resource fits the canvas and its floating pill remains reachable');
  eq(await page.locator('#reader-window').evaluate(e=>getComputedStyle(e).resize),'none','The resource surface has no outer resize corner in Fit');
@@ -112,11 +112,13 @@ try{
  eq(await page.locator('#reader-zoom-toggle').textContent(),`${Math.round(z2.zoom*100)}%`,'The % readout follows the canvas');
  // Fit returns to the fitted view; Back returns to the zoom before it, then goes away.
  await page.locator('#reader-fit').click();
- eq(await plane(),fitted,'Fit returns to the fitted view');
+ const savedFit={zoom:1,x:Math.round((stage.width-1000)/2),y:Math.round((stage.height-720)/2)};
+ eq(await plane(),savedFit,'Fit returns to the fitted saved-size view');
  ok(await page.locator('#reader-view-back').isVisible(),'Back appears after a fit');
  await page.locator('#reader-view-back').click();await page.waitForTimeout(40);
  const back=await plane();ok(Math.abs(back.zoom-z2.zoom)<1e-6&&Math.abs(back.x-z2.x)<1,'Back restores the view before the fit (instantly with reduced motion)');
  ok(await page.locator('#reader-view-back').isHidden(),'Back goes away once used');
+ eq(await page.locator('#reader-window').getAttribute('data-size'),'fit','Zooming left Fill for the saved-size surface');
  await page.locator('#reader-stage').focus();await page.keyboard.press('f');
  eq((await plane()).zoom,1,'F fits too');
  await page.keyboard.press('Shift+Digit0');eq((await plane()).zoom,1,'Shift-0 is 100%');
@@ -307,7 +309,8 @@ try{
  const popOpen=()=>page.locator('#reader-path-pop').isVisible();
  await page.locator('#reader-path').click();ok(await popOpen(),'The title opens the path');
  const wb=await page.locator('#reader-window').boundingBox();
- const outside={x:wb.x+wb.width-24,y:wb.y+wb.height-24};
+ // A filled page reaches under the pill at the lower right, so click its lower left.
+ const outside={x:wb.x+24,y:wb.y+wb.height-24};
  eq(await page.evaluate(({x,y})=>document.elementFromPoint(x,y)?.id,outside),'active-reader','The click-away point hits content rather than a path row');
  await page.mouse.click(outside.x,outside.y);await page.waitForTimeout(250);
  ok(!(await popOpen()),'A click on the content closes the path');

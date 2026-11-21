@@ -200,6 +200,11 @@
   .reader-path-pop, #reader-info.calm-side { animation: none; }
 }
 
-/* Explicit Window choices keep corner resizing; Fit is the borderless resource. */
-#reader-dialog #reader-window[data-size="fit"] { resize: none; }
-#reader-dialog #reader-window:not([data-size="fit"]) { min-width: 240px; min-height: 200px; }
+/* Explicit Window choices keep corner resizing; Fit and Fill are the borderless resource. */
+#reader-dialog #reader-window:is([data-size="fit"], [data-size="fill"]) { resize: none; }
+#reader-dialog #reader-window:not([data-size="fit"]):not([data-size="fill"]) { min-width: 240px; min-height: 200px; }
+/* Fill, beside Fit in the pill: on while the page fills the window. */
+#reader-dialog .zoom-pill .reader-fill[hidden], #reader-dialog .reader-zoom-menu .reader-fill-item[hidden] { display: none; }
+#reader-dialog .zoom-pill .reader-fill[aria-pressed="true"], #reader-dialog .reader-zoom-menu .reader-fill-item[aria-pressed="true"] { background: var(--accent-soft); color: var(--accent-text); }
+/* Fill moves the % button 44px left; the menu keeps its place over the pill's right end. */
+#reader-dialog .zoom-pill:has(.reader-fill:not([hidden])) .reader-zoom-menu { right: -84px; }
