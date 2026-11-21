@@ -1982,6 +1982,7 @@ document.addEventListener('tinka:selection', () => { readSelection(); syncFitCon
 function placeSelectionBar() {
   const bar = $('workspace-selection'), pill = document.querySelector('.canvas-footer .zoom-pill'), root = document.documentElement;
   const footer = document.querySelector('.canvas-footer'), tools = $('edit-tools');
+  if (footer) root.style.setProperty('--update-footer-height', `${Math.ceil(footer.getBoundingClientRect().height)}px`);
   if (!bar || !footer) return;
   if (!barObserved) { barObserved = true; footerObserver.observe(bar); }
   for (const property of ['left', 'max-width', 'bottom']) bar.style.removeProperty(property);

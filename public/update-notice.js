@@ -21,6 +21,7 @@ const line = $('.canvas-footer .status-line');
 const surface = line ? 'board' : $('.masthead .live') ? 'home' : null;
 let config = {}, view = null, pageVersion = null;
 let phase = 'idle', target = null, localFailure = null, pollTimer = null, giveUpAt = 0, popover = null, aboutMessage = '';
+let refreshTimer = null, refreshing = null, refreshRetryAt = 0, refreshError = null, viewEpoch = 0;
 
 async function getView() {
   const response = await fetch('/api/update', {cache: 'no-store'});
@@ -33,7 +34,13 @@ async function post(url, body) {
   if (!response.ok) throw new Error(data.error || `Request failed (${response.status}).`);
   return data;
 }
-const preference = body => post('/api/update/preference', body).then(next => { view = next; render(); return next; });
+const preference = body => {
+  const epoch = ++viewEpoch;
+  return post('/api/update/preference', body).then(next => {
+    if (epoch === viewEpoch) { view = next; refreshError = null; refreshRetryAt = 0; render(); }
+    return next;
+  });
+};
 
 // What the status line shows, if anything.
 function current() {
@@ -42,8 +49,19 @@ function current() {
   if (phase === 'updating') return {kind: 'busy', display: target};
   if (localFailure) return localFailure;
   const notice = view.notice;
-  return notice && !notice.snoozed && notice.kind !== 'deferred' && notice.version ? notice : null;
+  if (notice && !notice.snoozed && notice.kind !== 'deferred' && notice.version) return notice;
+  if (notice?.snoozed) return null;
+  return view.policy !== 'off' && (view.checkFailed || refreshError) ? {kind:'check-failed'} : null;
 }
+
+function checkStatus() {
+  const failed = view?.checkFailed || refreshError;
+  const at = view?.lastSuccessfulCheckAt || (!view?.checkFailed && view?.checkedAt);
+  const date = Number.isFinite(at) && at > 0 ? new Date(at) : null;
+  const successful = date ? `Last successful check: ${date.toLocaleString(undefined,{year:'numeric',month:'short',day:'numeric',hour:'numeric',minute:'2-digit'})}.` : 'No successful update check yet.';
+  return failed ? `Could not refresh update information. ${successful}` : date ? successful : '';
+}
+const checkStatusHtml = () => checkStatus() ? `<p class="update-check-status">${esc(checkStatus())}</p>` : '';
 
 // ---- Agent requests: the user's words, with the exact command ----------------
 function request(notice) {
@@ -79,6 +97,7 @@ function openPopover(anchor, html, label) {
   element.className = 'tk-menu update-pop workspace-popover';
   element.setAttribute('role', 'dialog'); element.setAttribute('aria-label', label);
   element.innerHTML = html;
+  element.querySelector('.update-pop-body')?.insertAdjacentHTML('beforeend', checkStatusHtml());
   document.body.append(element);
   const box = anchor.getBoundingClientRect(), width = Math.min(340, innerWidth - 16);
   element.style.width = `${width}px`;
@@ -135,6 +154,18 @@ function failedPopover(anchor, notice) {
   pop.querySelector('[data-update=retry]')?.addEventListener('click', event => install(notice, {status, button: event.currentTarget, consent: notice.major}));
   pop.querySelector('[data-update=agent]').onclick = () => copy(request({...notice, kind: 'failed'}), status, 'Details copied. Paste them into your agent conversation.');
 }
+function checkFailedPopover(anchor) {
+  const pop = openPopover(anchor, `<div class="update-pop-body">${eyebrow()}<h4>Could not check for updates</h4><p class="update-copy">Tinka will try again while this project is open. You can keep working.</p><button class="tk-btn tk-tonal" type="button" data-update="check">Check now</button><p class="update-status" role="status"></p></div>`, 'Update check unavailable');
+  pop.querySelector('[data-update=check]').onclick = async event => {
+    event.currentTarget.disabled = true;
+    try {
+      await preference({action:'check'});
+      if (!view.checkFailed) closePopover();
+      else pop.querySelector('.update-status').textContent = 'The update check is still unavailable.';
+    } catch(error) { pop.querySelector('.update-status').textContent = error.message; }
+    finally { if(pop.isConnected)pop.querySelector('[data-update=check]').disabled = false; }
+  };
+}
 async function later(status) {
   try { await preference({action: 'later'}); closePopover({focus: false}); }
   catch (error) { status.textContent = error.message; }
@@ -172,6 +203,7 @@ function consent(notice) {
 
 // ---- Installing: editing waits, then Refresh ---------------------------------
 async function install(notice, {status, button, consent: yes = false, dialog} = {}) {
+  ++viewEpoch;
   if (button) button.disabled = true;
   try {
     const result = await post('/api/update/install', {version: notice.version, ...(notice.major && yes ? {consent: 'major'} : {})});
@@ -218,9 +250,11 @@ async function poll() {
 function chipHtml(state) {
   if (state.kind === 'busy') return `<span class="update-pulse" aria-hidden="true"></span><span>Updating to ${esc(state.display)}…<span class="update-long"> changes wait</span></span>`;
   if (state.kind === 'failed') return `<span>Update didn't finish</span>`;
+  if (state.kind === 'check-failed') return '<span>Check failed</span>';
   return `${state.major ? '' : ICON.up}<span>Tinka ${esc(state.display)}<span class="update-long"> available</span></span>`;
 }
 function open(state, anchor) {
+  if (state.kind === 'check-failed') return checkFailedPopover(anchor);
   if (state.kind === 'failed') return failedPopover(anchor, state);
   if (state.kind === 'review') return reviewPopover(anchor, state);
   if (state.major) return consent(state);
@@ -228,9 +262,12 @@ function open(state, anchor) {
 }
 function render() {
   const state = current();
-  document.querySelectorAll('.update-chip, .update-sep, .update-refresh').forEach(element => element.remove());
+  document.querySelectorAll('.update-refresh').forEach(element => element.remove());
   const host = surface === 'board' ? line : $('.masthead .live');
   host?.classList.toggle('update-busy', state?.kind === 'busy');
+  if (!state || state.kind === 'ready') {
+    document.querySelectorAll('.update-chip, .update-sep').forEach(element => element.remove());
+  }
   if (state?.kind === 'ready') {
     const refresh = $('#live-refresh');
     if (surface === 'board' && refresh) {
@@ -246,16 +283,20 @@ function render() {
       host.append(button);
     }
   } else if (state && host) {
-    const kind = state.kind === 'busy' ? 'busy' : state.kind === 'failed' ? 'failed' : state.kind === 'review' ? 'review' : state.major ? 'major' : 'minor';
-    if (surface === 'board') host.insertAdjacentHTML('beforeend', '<span class="update-sep" aria-hidden="true"></span>');
-    const chip = document.createElement('button');
+    const kind = state.kind === 'busy' ? 'busy' : state.kind === 'failed' ? 'failed' : state.kind === 'review' ? 'review' : state.kind === 'check-failed' ? 'check' : state.major ? 'major' : 'minor';
+    if (surface === 'board' && !host.querySelector('.update-sep')) host.insertAdjacentHTML('beforeend', '<span class="update-sep" aria-hidden="true"></span>');
+    const chip = host.querySelector('.update-chip') || document.createElement('button');
     chip.type = 'button'; chip.className = 'update-chip'; chip.dataset.kind = kind;
     chip.innerHTML = chipHtml(state);
+    chip.title = checkStatus();
+    chip.removeAttribute('aria-disabled');chip.removeAttribute('aria-live');
+    chip.removeAttribute('aria-haspopup');chip.removeAttribute('aria-expanded');chip.onclick = null;
     if (kind === 'busy') { chip.setAttribute('aria-disabled', 'true'); chip.setAttribute('aria-live', 'polite'); }
-    else { chip.setAttribute('aria-haspopup', 'dialog'); chip.setAttribute('aria-expanded', 'false'); chip.onclick = () => open(state, chip); }
+    else { chip.setAttribute('aria-haspopup', 'dialog'); chip.setAttribute('aria-expanded', String(popover?.anchor === chip)); chip.onclick = () => open(state, chip); }
     host.append(chip);
   }
   renderAbout();
+  scheduleRefresh();
 }
 // The board Inspector's small Tinka section: the version and the update policy.
 function aboutStatus() {
@@ -270,7 +311,7 @@ function aboutStatus() {
   if (notice) return `${have} · ${esc(notice.display)} available`;
   if (latest && view.policy === 'off') return `${have} · ${esc(latest.display)} available; updates are off`;
   if (view.policy === 'off') return `${have} · updates are off`;
-  return `${have} · ${view.checkFailed ? 'could not check for updates' : 'up to date'}`;
+  return `${have} · ${view.checkFailed || refreshError ? 'could not check for updates' : view.checkedAt ? 'up to date' : 'not checked yet'}`;
 }
 function renderAbout() {
   const inspector = surface === 'board' ? $('#board-info') : null;
@@ -283,6 +324,7 @@ function renderAbout() {
   <div class="update-about-row"><span class="update-about-status">${aboutStatus()}</span>${view.installed && phase === 'idle' ? `<button class="tk-btn tk-sm" type="button" data-update="${actionable ? 'open' : 'check'}">${actionable ? 'Update…' : 'Check now'}</button>` : ''}</div>
   ${view.installed ? `<div class="update-about-row"><span>Updates</span><div class="tk-seg" role="group" aria-label="Tinka updates for this project">${[['notify', 'Ask first'], ['auto', 'Automatic'], ['off', 'Off']].map(([value, label]) => `<button type="button" data-policy="${value}" aria-pressed="${view.policy === value}"${phase !== 'idle' ? ' disabled' : ''}>${label}</button>`).join('')}</div></div>
   <small>Automatic installs compatible updates as Tinka starts. Major updates always ask.</small>` : '<small>A source checkout updates through Git, not from here.</small>'}
+  ${view.installed && view.policy !== 'off' ? `<small class="update-check-status">${esc(checkStatus())}</small>` : ''}
   ${updated && view.pin ? `<small>Updated from ${esc(view.install.from)} on this Mac. Commit the changed tinka/project.json with your project.</small>` : ''}
   <small class="update-about-message" role="status">${esc(aboutMessage)}</small>`;
   section.querySelector('[data-update=check]')?.addEventListener('click', async event => {
@@ -305,15 +347,43 @@ function renderAbout() {
   }));
 }
 
+// The server owns the per-project throttle across tabs. This page only wakes
+// while visible, using the updater's next due time; installs keep their own poll.
+function scheduleRefresh() {
+  clearTimeout(refreshTimer);refreshTimer = null;
+  if (document.hidden || phase !== 'idle' || !view?.refreshEnabled || view.install?.state === 'running' || refreshing) return;
+  const due = Number.isFinite(view.nextCheckAt) ? view.nextCheckAt : 0;
+  refreshTimer = setTimeout(discover, Math.max(0, due - Date.now(), refreshRetryAt - Date.now()));
+}
+async function discover() {
+  refreshTimer = null;
+  if (document.hidden || phase !== 'idle' || !view?.refreshEnabled || refreshing) return;
+  const epoch = viewEpoch;
+  refreshing = post('/api/update/preference', {action:'refresh'});
+  try {
+    const next = await refreshing;
+    if (epoch !== viewEpoch) return;
+    view = next;refreshError = null;
+    // A busy lock or an unchanged old server response must not spin this tab.
+    refreshRetryAt = next.nextCheckAt > Date.now() ? 0 : Date.now() + 60000;
+    if (next.install?.state === 'running') return startWaiting(next.install);
+    if (next.version !== pageVersion) { phase = 'ready';target = next.display; }
+    render();
+  } catch(error) {
+    if (epoch === viewEpoch) { refreshError = error.message;refreshRetryAt = Date.now() + 60000;render(); }
+  } finally { refreshing = null;scheduleRefresh(); }
+}
 async function refreshView() {
-  if (phase !== 'idle') return;
+  if (phase !== 'idle' || document.hidden || refreshing) return;
+  const epoch = viewEpoch;
   try {
     const next = await getView();
+    if (epoch !== viewEpoch) return;
     view = next;
     if (next.install?.state === 'running') return startWaiting(next.install);
     if (next.version !== pageVersion) { phase = 'ready'; target = next.display; }
     render();
-  } catch {}
+  } catch { scheduleRefresh(); }
 }
 async function start() {
   if (!surface || new URLSearchParams(location.search).has('overview')) return;
@@ -322,6 +392,9 @@ async function start() {
   if (view.install?.state === 'running') startWaiting(view.install);
   else render();
   // Returning to the tab picks up an update made meanwhile, by an agent or another tab.
-  document.addEventListener('visibilitychange', () => { if (!document.hidden) refreshView(); });
+  document.addEventListener('visibilitychange', () => {
+    clearTimeout(refreshTimer);refreshTimer = null;
+    if (!document.hidden) refreshView();
+  });
 }
 start();

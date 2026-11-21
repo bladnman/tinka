@@ -66,7 +66,7 @@ const latest = () => ({version: candidateVersion, compatibility: {...embedded, a
 const source = async () => ({...archive, compatibility: embedded});
 async function policy(f, value) { await updateCommand(f.config, 'policy', value, {context: f.context}); }
 
-test('daily attempts include failures; reminders occur once per release with explicit snooze', async t => {
+test('throttled attempts include failures; reminders occur once per release with explicit snooze', async t => {
   const f = await fixture(t); let calls = 0;
   const fetchLatest = async () => {calls++; return latest();};
   const check = now => checkForUpdates(f.config, {context: f.context, now, fetchLatest});
@@ -86,9 +86,9 @@ test('daily attempts include failures; reminders occur once per release with exp
   assert.equal((await json(f.context.statePath)).checkError, 'Latest release check unavailable.');
 });
 
-test('forced check never downloads, attempts installation, or suppresses a later automatic update', async t => {
+test('forced check and running refresh never install or suppress a later automatic update', async t => {
   const f = await fixture(t); await policy(f, 'auto'); let downloads = 0;
-  await updateCommand(f.config, 'check', null, {context: f.context, fetchLatest: async () => latest(), downloadRelease: async () => {downloads++; return source();}});
+  for(const action of ['refresh','check'])await updateCommand(f.config, action, null, {context: f.context, fetchLatest: async () => latest(), downloadRelease: async () => {downloads++; return source();}});
   assert.equal(downloads, 0); assert.equal((await json(f.context.statePath)).attemptedVersion, undefined);
   const result = await withAppLock(f.app, lockToken => checkForUpdates(f.config, {context: f.context, fetchLatest: async () => latest(), downloadRelease: source, lockToken}));
   assert.equal(result.replaced, true);
@@ -240,15 +240,13 @@ test('package metadata mismatch rejects before touching app or pin', async t => 
 
 test('published metadata is data-only, current version uses one request, archive binding is enforced',async t=>{
   const f=await fixture(t); const originalFetch=globalThis.fetch; const calls=[]; let badDigest=true;
-  const asset=id=>`https://api.github.com/repos/bladnman/tinka/releases/assets/${id}`;
-  const assets=[{name:archive.zipName,url:asset(1)},{name:`${archive.zipName}.sha256`,url:asset(2)},{name:`tinka-v${candidateVersion}.compatibility.json`,url:asset(3)}];
   globalThis.fetch=async(input,options)=>{
-    const url=String(input); if(!url.startsWith('https://api.github.com/'))return originalFetch(input,options);
+    const url=String(input); if(!url.startsWith('https://tinka.metal-sole.com/')&&!url.startsWith('https://github.com/'))return originalFetch(input,options);
     calls.push(url);
-    if(url.endsWith('/latest'))return new Response(JSON.stringify({tag_name:`v${candidateVersion}`,assets,body:'Untrusted prose is ignored.'}));
-    if(url===asset(1))return new Response(archive.zipBytes);
-    if(url===asset(2))return new Response(archive.checksumText);
-    if(url===asset(3))return new Response(JSON.stringify({...embedded,archiveSha256:badDigest?'0'.repeat(64):createHash('sha256').update(archive.zipBytes).digest('hex')}));
+    if(url.endsWith('/version.txt'))return new Response(`${candidateVersion}\n`);
+    if(url.endsWith(`/${archive.zipName}`))return new Response(archive.zipBytes);
+    if(url.endsWith(`/${archive.zipName}.sha256`))return new Response(archive.checksumText);
+    if(url.endsWith(`/tinka-v${candidateVersion}.compatibility.json`))return new Response(JSON.stringify({...embedded,archiveSha256:badDigest?'0'.repeat(64):createHash('sha256').update(archive.zipBytes).digest('hex')}));
     throw new Error('Unexpected test URL');
   };
   try{
@@ -267,7 +265,7 @@ test('unresponsive latest endpoint has a bounded check timeout',async()=>{
   const originalFetch=globalThis.fetch;
   globalThis.fetch=(_input,options)=>originalFetch(`http://127.0.0.1:${server.address().port}/`,options);
   const started=Date.now();
-  try{await assert.rejects(publishedLatest('bladnman/tinka',priorVersion));assert(Date.now()-started<3500);}
+  try{await assert.rejects(publishedLatest('bladnman/tinka',priorVersion));assert(Date.now()-started<5000);}
   finally{globalThis.fetch=originalFetch;server.closeAllConnections();await new Promise(resolve=>server.close(resolve));}
 });
 

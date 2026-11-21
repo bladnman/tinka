@@ -383,9 +383,15 @@ An opened Tinka (the experiment viewer, `#reader-dialog`, for graph and legacy b
 
 ## Project-local updates
 
-Installed normal start checks latest release at most once per 24h, including
-failed checks and an already-running instance. It reuses a live process only after
-ownership and health/config/version checks. Source checkouts skip automatic checks.
+Installed normal start checks latest release when due under a shared per-project
+app lock: 15 minutes after success, 2 minutes after failure. Visible Home/board
+pages refresh metadata on open, foreground return and when due, with no hidden-tab
+release polling or installation into a running UI. GET /api/update remains read-only;
+POST preference action refresh is unforced and shares that throttle across tabs.
+Attempt and last-success timestamps remain distinct; a failed refresh retains the
+prior newer offer and reports its last successful date. Start reuses a live process
+only after ownership and health/config/version checks. Source checkouts and Off
+skip automatic checks.
 Default notify reminds once per release; later snoozes 24h. Local auto consent
 allows replacement only before a stopped start, with no repeated failed automatic
 attempt for a release. Off disables automatic checks. No daemon/model/registry.
@@ -639,3 +645,5 @@ per-document locked snapshot, avoiding a duplicate cached stat without changing
 canonical reads, lock ownership or journal recovery.
 
 Home's optional workspace-owned `homeLayout` stores board-card x/y/width/height without changing `homeBoardIds` or creating graph placements. The responsive Grid remains the default for an unsaved project; Arrange is discoverable from its active multi-selection and enters Canvas, with saved dragging/nudging and geometry-only Undo/Redo. Shared `public/arrange.js` supplies the same calculations and menu as normal boards. Home uses strict actual-read revision saves via `updateWorkspace`; stale attempts fail closed without an updated-watermark retry. Grid and old readers preserve the optional geometry. See PROTOCOL "Home card arrangement" for bounds and exclusions.
+
+Home and board selection bars hug their rendered controls at every viewport width; the available viewport/canvas width clamps that intrinsic size, and controls wrap only when they no longer fit.

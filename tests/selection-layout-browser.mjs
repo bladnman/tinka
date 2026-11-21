@@ -9,6 +9,7 @@ import {main} from '../cli.mjs';
 import {loadConfig} from '../lib/config.mjs';
 import {applyOperation,getBoardSnapshot} from '../lib/workspace.mjs';
 import {listen,closeAppServer} from '../server.mjs';
+import {sliderFromZoom} from '../public/canvas-zoom.js';
 const {chromium}=await import(process.env.PLAYWRIGHT_MODULE?pathToFileURL(process.env.PLAYWRIGHT_MODULE).href:'playwright');
 const root=await mkdtemp(path.join(os.tmpdir(),'tinka-selection-layout-fixture-'));
 const evidence=process.env.TINKA_EVIDENCE_DIR||await mkdtemp(path.join(os.tmpdir(),'tinka-selection-layout-evidence-'));
@@ -28,8 +29,36 @@ try {
   const b=box(bar);const children=[...bar.children].filter(el=>el.getClientRects().length).map(el=>({name:el.getAttribute('aria-label')||el.textContent.trim(),...box(el),scroll:el.scrollWidth,client:el.clientWidth}));
   const overlaps=[];for(let a=0;a<children.length;a++)for(let c=a+1;c<children.length;c++){const x=children[a],y=children[c];if(x.x<y.right-.5&&x.right>y.x+.5&&x.y<y.bottom-.5&&x.bottom>y.y+.5)overlaps.push([x.name,y.name]);}
   const collisions=[];for(const sel of ['.canvas-footer .zoom-pill','#edit-tools','#board-map']){const el=document.querySelector(sel);if(!el||el.hidden||!el.getClientRects().length)continue;const r=box(el);if(b.x<r.right&&b.right>r.x&&b.y<r.bottom&&b.bottom>r.y)collisions.push(sel);}
-  return {bar:b,children,overlaps,collisions,overflow:children.filter(c=>c.scroll>c.client+2).map(c=>c.name),inViewport:b.x>=0&&b.right<=innerWidth+.5&&b.y>=0&&b.bottom<=innerHeight+.5};
+  const occupiedWidth=children.reduce((width,child)=>width+child.width,0);
+  return {bar:b,children,occupiedWidth,excessWidth:b.width-occupiedWidth,overlaps,collisions,overflow:children.filter(c=>c.scroll>c.client+2).map(c=>c.name),inViewport:b.x>=0&&b.right<=innerWidth+.5&&b.y>=0&&b.bottom<=innerHeight+.5};
  });
+ const compactCheck=(result,surface,width)=>{
+  // Count actual rendered controls, not just their outer bounding union: an auto
+  // margin on Clear could make a stretched Home bar appear fully occupied.
+  // 48px allows the existing padding, count/divider margins and gaps, never a blank lane.
+  if(result.occupiedWidth+48<=width-16)assert(result.excessWidth<=48,`${surface} bar has ${result.excessWidth.toFixed(1)}px beyond its controls at ${width}`);
+ };
+ // Two full visual cards at their saved geometry reproduce the narrow, zoomed
+ // composition where four actions previously stretched across the whole window.
+ const resourceRoot=path.join(root,'visuals');await mkdir(resourceRoot);
+ for(const [name,color,title] of [['landscape','#182834','A small scene. A shared direction.'],['signal','#e5ebf1','A quiet signal.']])await writeFile(path.join(resourceRoot,`${name}.html`),`<!doctype html><style>body{margin:0;padding:36px;background:${color};color:${name==='landscape'?'#e5eef5':'#25364a'};font:18px system-ui}h1{font-size:36px;line-height:1.1;max-width:330px}.scene{margin:48px auto;width:180px;height:420px;border-radius:24px;background:linear-gradient(165deg,#29424c,#50796b);border:1px solid #ffffff30;padding:24px;box-sizing:border-box}small{opacity:.7}</style><b>Design studio</b><h1>${title}</h1><p>See the next idea take shape.</p><small>A visual direction for the next review.</small><div class="scene">Current activity<br><br>20 min</div>`);
+ await op('updateWorkspace',{patch:{resourceRoots:{visuals:{path:path.relative(path.join(root,'boards','.tinka'),resourceRoot)}}}});
+ await op('createBoard',{id:'visual-review',title:'Visual review · three stories'});
+ for(const [n,name] of ['landscape','signal'].entries())await op('createItem',{boardId:'visual-review',item:{title:n?'Signal study':'Living landscape',content:{kind:'html',resource:{rootId:'visuals',path:`${name}.html`}}},placement:{x:80+n*450,y:160,width:420,height:620,presentation:{mode:'panel',viewport:{width:392,height:552}}}});
+ for(const width of [608,320,390,560,700,720,721,1244]){
+  await page.setViewportSize({width,height:764});await page.goto(base+'/boards/visual-review/');await page.locator('.workspace-card').first().waitFor();
+  await page.locator('#zoom-menu-toggle').click();await page.locator('#zoom-slider').evaluate((slider,value)=>{slider.value=value;slider.dispatchEvent(new Event('input',{bubbles:true}));},sliderFromZoom(.94));await page.keyboard.press('Escape');
+  await page.locator('#viewport').focus();await page.keyboard.press('ControlOrMeta+a');if(await page.locator('#edit-tools').isHidden())await page.keyboard.press('a');await page.waitForTimeout(150);
+  const result=await inspect('#workspace-selection');observations.push({surface:'two-card-board',width,height:764,zoom:await page.locator('#zoom-menu-toggle').textContent(),...result});
+  await page.screenshot({path:path.join(evidence,`two-card-board-${width}.png`)});
+  await writeFile(path.join(evidence,'two-card-observations.json'),JSON.stringify(observations,null,2));
+  compactCheck(result,'Two-card board',width);assert.deepEqual(result.collisions,[]);assert.deepEqual(result.overlaps,[]);assert.deepEqual(result.overflow,[]);assert(result.inViewport);
+  if(width<=720)assert(Math.abs(result.bar.x+result.bar.width/2-width/2)<1,'Narrow board bar stays centered');
+  if(width===608||width===320){await page.locator('#fit').click();await page.waitForTimeout(100);const fitted=await inspect('#workspace-selection');compactCheck(fitted,'Fitted board',width);assert.deepEqual(fitted.collisions,[]);assert(fitted.inViewport);await page.screenshot({path:path.join(evidence,`two-card-fit-${width}.png`)});}
+  if(width===320){await page.locator('#workspace-selection strong').evaluate(el=>el.textContent='123,456 selected');await page.waitForTimeout(100);const wrapped=await inspect('#workspace-selection');observations.push({surface:'long-count-board',width,height:764,...wrapped});assert(wrapped.bar.height>result.bar.height,'Oversized controls wrap only at the viewport clamp');assert(wrapped.inViewport);assert.deepEqual(wrapped.collisions,[]);assert.deepEqual(wrapped.overlaps,[]);assert.deepEqual(wrapped.overflow,[]);await page.screenshot({path:path.join(evidence,'wrapped-count-board-320.png')});}
+  if(width===608){await page.locator('#board-map-toggle').click();await page.locator('#board-map').waitFor({state:'visible'});await page.waitForTimeout(100);assert.deepEqual((await inspect('#workspace-selection')).collisions,[],'Narrow map stacks clear of selection bar');await page.screenshot({path:path.join(evidence,'two-card-map-608.png')});}
+ }
+ await page.setViewportSize({width:608,height:764});await page.goto(base+'/');await page.locator('.home-select-dot').first().waitFor();for(let i=0;i<2;i++)await page.locator('.home-select-dot').nth(i).click();await page.waitForTimeout(100);const twoHome=await inspect('.home-selection-bar');observations.push({surface:'two-card-home',width:608,height:764,...twoHome});await page.screenshot({path:path.join(evidence,'two-card-home-608.png')});compactCheck(twoHome,'Two-card Home',608);assert(Math.abs(twoHome.bar.x+twoHome.bar.width/2-304)<1,'Narrow Home bar stays centered');
  const menuCheck=async(surface,width)=>{
   const more=page.locator(surface==='home'?'[data-home-action="more"]':'[data-selection-more]');
   const move=page.locator(surface==='home'?'.home-selection-bar [data-home-action="move"]':'#workspace-selection [data-bulk="move"]');
@@ -54,6 +83,7 @@ try {
   await page.locator('#viewport').focus();await page.keyboard.press('ControlOrMeta+a');
   if(await page.locator('#edit-tools').isHidden())await page.keyboard.press('a');
   await page.waitForTimeout(250);const result=await inspect('#workspace-selection');observations.push({surface:'board',width,...result});
+  compactCheck(result,'Board',width);
   await page.screenshot({path:path.join(evidence,`after-board-${width}.png`)});
   assert.deepEqual(await page.locator('#workspace-selection button').evaluateAll(buttons=>buttons.map(button=>button.getAttribute('aria-label')||button.textContent.trim())),['Arrange','Move…','More selection actions','Clear selection']);
   if(width===1244||width===390)await menuCheck('board',width);
@@ -69,6 +99,7 @@ try {
   for(let i=0;i<7;i++)await page.locator('.home-select-dot').nth(i).click();
   await page.waitForTimeout(100);
   const home=await inspect('.home-selection-bar');observations.push({surface:'home',width,...home});
+  compactCheck(home,'Home',width);
   assert.deepEqual(home.overlaps,[]);assert.deepEqual(home.overflow,[]);assert(home.inViewport);
   await page.screenshot({path:path.join(evidence,`after-home-${width}.png`)});
   assert.deepEqual(await page.locator('.home-selection-bar button').evaluateAll(buttons=>buttons.map(button=>button.getAttribute('aria-label')||button.textContent.trim())),['Arrange','Move…','More selection actions','Clear selection']);

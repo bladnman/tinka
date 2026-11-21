@@ -3352,7 +3352,9 @@ export class WorkspaceBoard {
     const palette = $("edit-tools"), selection = $("workspace-selection");
     if (!palette || palette.hidden) return;
     const selectedTop = selection && !selection.hidden ? selection.getBoundingClientRect().top : innerHeight;
-    palette.style.bottom = `${Math.max(60,innerHeight-selectedTop+8)}px`;
+    const footer = document.querySelector('.canvas-footer');
+    const footerSpace = innerWidth <= 720 && footer?.querySelector('.update-chip') ? innerHeight-footer.getBoundingClientRect().top+4 : 60;
+    palette.style.bottom = `${Math.max(footerSpace,innerHeight-selectedTop+8)}px`;
   }
   syncEditTools() {
     const palette = $("edit-tools"), toggle = $("edit-tools-toggle");

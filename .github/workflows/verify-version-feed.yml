@@ -1,0 +1,135 @@
+name: Verify public version feed
+
+# Publication is the trigger: a tag/source push alone is not a release.
+# Manual runs verify an already published stable tag, never publish anything.
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Published stable release tag (vX.Y.Z)
+        required: true
+        type: string
+
+# Public HEAD requests need no GitHub token or checkout/action dependency.
+permissions: {}
+
+jobs:
+  verify:
+    if: github.repository == 'bladnman/tinka' && (github.event_name != 'release' || (!github.event.release.draft && !github.event.release.prerelease))
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Check stable GitHub latest and site version metadata
+        shell: bash
+        run: |
+          node --input-type=module <<'NODE'
+          import { readFileSync } from 'node:fs';
+          import { setTimeout as delay } from 'node:timers/promises';
+
+          const latestURL = 'https://github.com/bladnman/tinka/releases/latest';
+          const siteURL = 'https://tinka.metal-sole.com/version.txt';
+          const stable = '(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)';
+          const versionPattern = new RegExp(`^${stable}$`);
+          const tagPattern = new RegExp(`^v${stable}$`);
+          const targetPattern = new RegExp(`^https://github\\.com/bladnman/tinka/releases/tag/v(${stable})$`);
+
+          function version(value) {
+            if (typeof value !== 'string' || versionPattern.exec(value)?.[0] !== value) {
+              throw new Error('Missing or malformed stable version metadata');
+            }
+            return value;
+          }
+
+          function compare(a, b) {
+            const left = a.split('.').map(BigInt), right = b.split('.').map(BigInt);
+            for (let i = 0; i < 3; i++) {
+              if (left[i] !== right[i]) return left[i] > right[i] ? 1 : -1;
+            }
+            return 0;
+          }
+
+          function expectedTag(eventName, event) {
+            if (eventName === 'release') {
+              if (event.release?.draft || event.release?.prerelease) return null;
+              if (event.action !== 'published') throw new Error('Expected a published release event');
+            } else if (eventName !== 'workflow_dispatch') {
+              throw new Error('Only published release and manual verification events are supported');
+            }
+            const tag = eventName === 'release' ? event.release?.tag_name : event.inputs?.tag;
+            if (typeof tag !== 'string' || tagPattern.exec(tag)?.[0] !== tag) {
+              throw new Error('Expected an exact stable tag vX.Y.Z');
+            }
+            return tag.slice(1);
+          }
+
+          async function head(url, fetchImpl, timeoutMs) {
+            // Never follow a server-provided URL or send credentials/cookies/tokens.
+            return fetchImpl(url, {
+              method: 'HEAD', redirect: 'manual', credentials: 'omit',
+              headers: { 'User-Agent': 'tinka-updater', Accept: 'text/plain' },
+              signal: AbortSignal.timeout(timeoutMs),
+            });
+          }
+
+          function latestVersion(response) {
+            if (![301, 302, 303, 307, 308].includes(response.status)) {
+              throw new Error(`GitHub latest HEAD returned HTTP ${response.status}`);
+            }
+            const match = targetPattern.exec(response.headers.get('location') ?? '');
+            if (!match || match[0] !== response.headers.get('location')) throw new Error('GitHub latest did not redirect to an official stable release tag');
+            return version(match[1]);
+          }
+
+          function siteVersion(response) {
+            if (response.status !== 200) throw new Error(`Site version HEAD returned HTTP ${response.status}`);
+            return version(response.headers.get('x-tinka-version'));
+          }
+
+          async function verify(expected, {
+            fetchImpl = fetch, now = Date.now, wait = delay,
+            log = console.log, budgetMs = 180_000, intervalMs = 15_000,
+            allowSuperseded = false,
+          } = {}) {
+            version(expected);
+            const deadline = now() + budgetMs;
+            let last = 'No completed observation';
+            // The edge caches upstream metadata for 60 seconds. Allow propagation
+            // and transient network failure, with a 10s request/180s overall bound.
+            while (now() < deadline) {
+              try {
+                const request = async (url) => {
+                  const remaining = deadline - now();
+                  if (remaining <= 0) throw new Error('Verification deadline reached');
+                  return head(url, fetchImpl, Math.min(10_000, remaining));
+                };
+                const github = latestVersion(await request(latestURL));
+                const site = siteVersion(await request(siteURL));
+                if (site === github && (github === expected || (allowSuperseded && compare(github, expected) > 0))) {
+                  const result = github === expected ? 'Verified' : 'Superseded';
+                  log(`${result}: expected v${expected}; GitHub latest and site agree on v${github}`);
+                  return { result, expected, latest: github };
+                }
+                last = `Expected v${expected}; GitHub latest v${github}; site v${site}`;
+              } catch (error) {
+                // Print our own validation messages only; network errors may carry URLs.
+                last = error instanceof TypeError || error.name === 'TimeoutError' || error.name === 'AbortError'
+                  ? 'Public HEAD request failed or timed out' : error.message;
+              }
+              log(`Waiting for public release metadata: ${last}`);
+              const remaining = deadline - now();
+              if (remaining > 0) await wait(Math.min(intervalMs, remaining));
+            }
+            throw new Error(`Public version feed did not converge within ${budgetMs / 1000}s. ${last}`);
+          }
+
+          async function main() {
+            const event = JSON.parse(readFileSync(process.env.GITHUB_EVENT_PATH, 'utf8'));
+            const expected = expectedTag(process.env.GITHUB_EVENT_NAME, event);
+            if (expected === null) { console.log('Skipped draft/prerelease'); return; }
+            await verify(expected, { allowSuperseded: process.env.GITHUB_EVENT_NAME === 'release' });
+          }
+
+          await main();
+          NODE

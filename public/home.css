@@ -172,9 +172,8 @@ dialog textarea{min-height:68px;resize:vertical}
   .masthead .appearance-control span{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%)}
   footer{flex-direction:column;gap:6px}
   dialog{padding:26px 22px}
-  .home-selection-bar{left:8px;right:8px;bottom:8px;transform:none;width:auto;max-width:none;flex-wrap:wrap;justify-content:flex-start;row-gap:2px;overflow-x:visible;animation:none}
+  .home-selection-bar{bottom:8px;max-width:calc(100vw - 16px);flex-wrap:wrap;justify-content:flex-start;row-gap:2px;overflow-x:visible;animation:none}
   .home-selection-bar .tk-divider{display:none}
-  .home-selection-bar [data-home-action="clear"]{margin-left:auto}
   body.home-selecting main{padding-bottom:104px}
   dialog h2{font-size:25px}
   .dialog-bottom{align-items:flex-start}

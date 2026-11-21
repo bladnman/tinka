@@ -406,7 +406,7 @@ body dialog::backdrop { background: var(--scrim); }
   body .canvas-footer .status-line:has(#live-refresh:not([hidden])) { display: flex; }
   body .canvas-footer { justify-content: flex-end; }
   .zoom-percent { min-width: 52px; }
-  #workspace-selection.workspace-selection { left: 8px; right: 8px; bottom: 66px; transform: none; width: auto; max-width: none; justify-content: flex-start; animation: none; }
+  #workspace-selection.workspace-selection { bottom: 66px; max-width: calc(100vw - 16px); justify-content: flex-start; animation: none; }
   #workspace-selection .selection-wide { display: none; }
 }
 

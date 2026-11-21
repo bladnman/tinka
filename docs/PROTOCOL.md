@@ -941,8 +941,11 @@ The sections below describe schema 1 folders. They remain readable without migra
 
 Run `node /absolute/app/cli.mjs start --config /absolute/config.json` whenever
 returning to boards. It verifies/reuses a healthy owned instance and checks latest
-release information at most once daily per installed instance. Default notify
-reminds once per new release. `update later` snoozes 24h; `update policy
+release information when due under this project's shared throttle: 15 minutes
+after success, 2 minutes after failure. Visible Home and board pages refresh on
+open, foreground return and when due; hidden tabs do not poll for releases.
+Running-page checks fetch metadata only and retain prior offers and the last
+successful date after failure. Default notify reminds once per new release. `update later` snoozes 24h; `update policy
 auto|notify|off` controls local consent and `update now` explicitly installs/retries.
 Use the same `--config` for every command. `update check` refreshes metadata only.
 Auto replacement requires explicit version-bound runtime/schema compatibility,
@@ -957,7 +960,7 @@ reported explicitly. Fixed and legacy ports stay fixed. Always use the actual
 URL printed by start rather than an old bookmark.
 
 The browser's notice uses three routes. GET `/api/update` is read-only:
-`{installed,version,display,project,pin,agentCommand,policy,checkedAt,checkFailed,latest,notice,install}`,
+`{installed,version,display,project,pin,agentCommand,policy,checkedAt,lastSuccessfulCheckAt,nextCheckAt,checkFailed,refreshEnabled,latest,notice,install}`,
 where `latest` is `{version,display,major,notes}`, `notice` is
 `{kind:compatible|major|review|failed|deferred,version,display,major,reason,snoozed}`
 and `install` is `{state:running|updated|failed,from,to,display,major,startedAt,reason?}`.
@@ -969,8 +972,12 @@ updates are off, an install is running, the copy is modified or compatibility ne
 review, then starts `update now [--major] --to VERSION` detached and answers 202;
 the record beside the update state (`updates.install.json`, log `updates.install.log`)
 lets the restarted server report the outcome. POST `/api/update/preference` takes
-`{action:"later"}`, `{action:"check"}` or `{action:"policy",policy}` and returns the
-new state. Both writes use the ordinary JSON, Host/Origin and `x-tinka-workspace`
+`{action:"later"}`, `{action:"check"}`, `{action:"refresh"}` or `{action:"policy",policy}`
+and returns the new state. `refresh` is an unforced metadata-only check under the
+app lock, sharing the per-project throttle across tabs; `check` is forced and
+metadata-only. Neither installs into the running UI. `refreshEnabled` is false
+for source checkouts and Off; `checkedAt` records attempts while
+`lastSuccessfulCheckAt` records successful discovery. Both writes use the ordinary JSON, Host/Origin and `x-tinka-workspace`
 guards.
 
 ## Start a board

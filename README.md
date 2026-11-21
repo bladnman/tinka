@@ -661,8 +661,16 @@ node tinka/app/cli.mjs start --config tinka/local/config.json
 ```
 
 Start verifies and returns the existing instance's URL, or starts it when stopped.
-Installed copies check the published latest release at most once per 24 hours per
-instance. Failed/offline checks are cached too and have a short bounded timeout.
+Installed copies share a release-check throttle across this project's tabs:
+15 minutes after success, or 2 minutes after a failed attempt. Start checks when
+due; visible Home and board pages also check on opening, returning to the
+foreground and when the next check is due. Hidden tabs do not poll for releases.
+A failed refresh retains any prior newer offer and shows the last successful date.
+Checks have a short bounded timeout and never install into a running UI.
+
+Official release discovery reads `https://tinka.metal-sole.com/version.txt` first,
+with GitHub as the fallback. The site counts checks per UTC day without storing
+IP addresses; the app sends no project paths, project IDs or client identifiers.
 The default is **notify**: one concise agent-readable notice per new release,
 with commands for the following choices:
 
@@ -675,7 +683,7 @@ node tinka/app/cli.mjs update policy off --config tinka/local/config.json
 node tinka/app/cli.mjs update status --config tinka/local/config.json
 ```
 
-`later` reminds again after 24 hours; it does not change the daily check interval.
+`later` reminds again after 24 hours; it does not change the release-check interval.
 `auto` is this machine's explicit consent to install compatible updates before
 starting a stopped instance. A running board is left running, with the update
 deferred. Failed automatic installs are attempted once per release; `update now`
@@ -687,7 +695,7 @@ refreshes release information without downloading or installing an app.
 Preferences/cache stay in ignored `tinka/local/updates.json`. Manual and dotfolder
 layouts retain their config locations and use `CONFIG_PATH.updates.json` beside
 each config, so different configs never silently share consent. No background
-service, scheduler, model or registry is involved. Source checkouts do not perform
+service, daemon, model or registry is involved. Source checkouts do not perform
 automatic release checks.
 
 Automatic eligibility requires explicit published compatibility from the installed
