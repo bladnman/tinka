@@ -102,12 +102,12 @@
                 <button class="tk-mi" type="button" data-reader-zoom="1">Zoom to 100%<kbd class="tk-kbd" aria-hidden="true">⇧0</kbd></button>
                 <button class="tk-mi" type="button" data-reader-zoom="2">Zoom to 200%</button>
                 <label class="zoom-slider-row"><span>Zoom</span><input id="reader-zoom-slider" type="range" min="0" max="1000" step="1" value="518" aria-label="Tinka zoom"></label>
-                <button class="tk-mi" type="button" data-reader-zoom="fit">Fit this Tinka<kbd class="tk-kbd" aria-hidden="true">F</kbd></button>
+                <button class="tk-mi" type="button" data-reader-zoom="fit"><span id="reader-fit-item-label">Fit page</span><kbd class="tk-kbd" aria-hidden="true">F</kbd></button>
                 <button id="reader-fill-item" class="tk-mi reader-fill-item" type="button" data-reader-zoom="fill" aria-pressed="false" title="The page lays out at the window's size, as Open standalone shows it" hidden>Fill the window</button>
                 <div class="tk-msep"></div>
                 <div id="size-menu" class="reader-menu-group" role="group" aria-labelledby="reader-window-label">
                   <div class="tk-mlabel" id="reader-window-label">Window</div>
-                  <div class="tk-seg reader-sizes"><button type="button" data-size="fit" aria-pressed="true" title="Fits the authored resource viewport">Fit</button><button type="button" data-size="compact" aria-pressed="false" title="440 × 620">Compact</button><button type="button" data-size="standard" aria-pressed="false" title="1000 × 720">Standard</button><button type="button" data-size="wide" aria-pressed="false" title="1380 × 840">Wide</button></div>
+                  <div class="tk-seg reader-sizes"><button type="button" data-size="fit" aria-pressed="true" title="Its saved size: the preview viewport saved for HTML (1000 × 720 when unspecified), an image's own size">Saved size</button><button type="button" data-size="compact" aria-pressed="false" title="440 × 620">Compact</button><button type="button" data-size="standard" aria-pressed="false" title="1000 × 720">Standard</button><button type="button" data-size="wide" aria-pressed="false" title="1380 × 840">Wide</button></div>
                   <button type="button" class="tk-mi reader-custom-size" data-size="custom" aria-pressed="false" hidden><span>Custom</span><small id="custom-size"></small></button>
                   <p class="reader-menu-hint">Choose a Window size to reflow HTML; drag its lower-right corner for a custom size.</p>
                   <div id="revision-group" class="revision-group" role="group" aria-labelledby="revision-label" hidden><div class="tk-mlabel" id="revision-label">Version</div><div id="revision-options"></div></div>
@@ -124,7 +124,7 @@
             <span class="tk-divider" aria-hidden="true"></span>
             <button id="reader-view-back" class="tk-btn view-back" type="button" aria-label="Back to the previous view" title="Back to where you were before this fit" hidden><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M8 5 4.5 8.5 8 12"/><path d="M5 8.5h7a4 4 0 0 1 0 8h-2"/></svg><span class="view-back-label">Back</span></button>
             <button id="reader-fill" class="fit reader-fill tk-btn" type="button" aria-pressed="false" aria-label="Fill the window" title="Fill the window below the header, as Open standalone shows it" hidden><svg viewBox="0 0 20 20" aria-hidden="true"><rect x="2.75" y="4.25" width="14.5" height="11.5" rx="2"/><path d="M6.5 10h7M8.5 8 6.5 10l2 2M11.5 8l2 2-2 2"/></svg><span class="fit-label">Fill</span></button>
-            <button id="reader-fit" class="fit tk-btn" type="button" aria-label="Fit this Tinka" aria-keyshortcuts="F Shift+1" title="Fit this Tinka in view (F or ⇧1)"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M3.5 7.5v-4h4M16.5 7.5v-4h-4M3.5 12.5v4h4M16.5 12.5v4h-4"/></svg><span class="fit-label">Fit</span></button>
+            <button id="reader-fit" class="fit tk-btn" type="button" aria-label="Fit page" aria-keyshortcuts="F Shift+1" title="Fit all of this Tinka in view (F or ⇧1)"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M3.5 7.5v-4h4M16.5 7.5v-4h-4M3.5 12.5v4h4M16.5 12.5v4h-4"/></svg><span class="fit-label">Fit page</span></button>
           </section>
         </footer>
       </div>

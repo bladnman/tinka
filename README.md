@@ -232,10 +232,13 @@ scrolls itself, as Open standalone shows it; it follows window, Notes and Inspec
 changes, and every Tinka and file version opens this way. Fit (F or ⇧1), Actual size
 (⇧0) and zoom show it at its saved preview viewport instead (1000 × 720 when
 unspecified); **Fill** beside Fit in the pill, or Fill the window in the % menu,
-returns. Fit shows the whole resource, never past 100%, and Back returns to the view
-before it. Images use their natural dimensions. The resource has no outer card, and pan stops at its bounds. Canvas zoom
+returns. Fit never goes past 100% and fits by kind: pages and documents get **Fit
+width**, their full width in view from the top, with the rest a scroll or pan away;
+images, PDFs and video get **Fit page**, all of it in view. The pill names the one that
+applies, and Back returns to the view before it. Images use their natural dimensions.
+The resource has no outer card, and pan stops at its bounds. Canvas zoom
 magnifies; Window and Type size reflow. The % menu also holds what the old View
-panel did: Window (Fit, Compact, Standard, Wide or a custom size dragged from the
+panel did: Window (Saved size, Compact, Standard, Wide or a custom size dragged from the
 window's corner; a chosen size carries over while stepping) and Version, Light
 (Paper/Night), Type size and Open standalone.
 The Inspector (⌘/Ctrl-I) starts with **Where it lives**, with two separate ways out.

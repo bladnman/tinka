@@ -1,7 +1,9 @@
 // The opened Tinka's canvas: the content window is a sheet on a plane that pans and
 // zooms like a board. ⌘/Ctrl-scroll and pinch zoom the sheet about the pointer; the
-// page and Tinka's own chrome never zoom. Fit returns to the fitted view (the whole
-// window in sight, never past 100%) and Back returns to the view before that fit.
+// page and Tinka's own chrome never zoom. Fit returns to the fitted view, never past 100%:
+// Fit width for pages and documents (the window's width in sight, from its top; pan or
+// scroll for the rest) and Fit page for images, PDFs and video (the whole window in sight).
+// Back returns to the view before that fit.
 // Canvas zoom magnifies; it never reflows the content (Window and Type size do).
 // Fill (HTML's default) is the other view: the window is the whole stage, at 100%, so the
 // page lays out at the real available size as it does standalone. Fit or any zoom leaves it
@@ -59,6 +61,8 @@ export class ReaderCanvas {
     this.view = { zoom: 1, x: 0, y: 0 };
     this.fitted = true;
     this.fill = false;
+    // 'width' fits the window's width (pages, documents); 'page' fits all of it (images, PDFs).
+    this.fitMode = 'page';
     this.backView = null;
     this.glide = 0;
     this.pointers = new Map();
@@ -107,8 +111,11 @@ export class ReaderCanvas {
     const { width, height } = this.area(), i = this.insets();
     const w = Math.max(1, this.sheet.offsetWidth), h = Math.max(1, this.sheet.offsetHeight);
     const room = { width: width - i.left - i.right, height: height - i.top - i.bottom };
-    const zoom = clampZoom(Math.min(READER_FIT_MAX_ZOOM, room.width / w, room.height / h));
-    return { zoom, x: Math.round(i.left + (room.width - w * zoom) / 2), y: Math.round(i.top + (room.height - h * zoom) / 2) };
+    const byWidth = this.fitMode === 'width';
+    const zoom = clampZoom(Math.min(READER_FIT_MAX_ZOOM, room.width / w, byWidth ? Infinity : room.height / h));
+    // A page taller than the view starts at its top; anything that fits is centered.
+    const y = byWidth && h * zoom > room.height ? i.top : Math.round(i.top + (room.height - h * zoom) / 2);
+    return { zoom, x: Math.round(i.left + (room.width - w * zoom) / 2), y };
   }
   clamp({ zoom, x, y }) {
     const { width, height } = this.area();

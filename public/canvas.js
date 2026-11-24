@@ -30,7 +30,7 @@ const dialog = $('reader-dialog');
 const slider = $('zoom-slider');
 const sizeMenu = $('size-menu');
 const geometry = { pad: 70, gap: 68, cardWidth: 1000, rowHeight: 1220 };
-const SIZE_NAMES = { fill: 'Fill', fit: 'Fit', custom: 'Custom', compact: 'Compact', standard: 'Standard', wide: 'Wide' };
+const SIZE_NAMES = { fill: 'Fill', fit: 'Saved size', custom: 'Custom', compact: 'Compact', standard: 'Standard', wide: 'Wide' };
 const boardMatch = location.pathname.match(/^\/boards\/([a-z0-9][a-z0-9-]*)\/?$/);
 const boardId = boardMatch?.[1];
 const boardApi = `/api/boards/${encodeURIComponent(boardId || '')}`;
@@ -658,6 +658,13 @@ function sendPreferences() {
   $('active-reader').contentWindow?.postMessage({ type: 'reader-preferences', theme: readerView.theme, scale: readerView.type }, location.origin);
 }
 
+// Fit width for pages and documents (their width in view, from the top; pan or scroll for the
+// rest); Fit page for images, PDFs, video and other media (all of it in view).
+const FIT_WIDTH_KINDS = new Set(['html', 'markdown', 'note', 'text', 'url']);
+function readerFitMode() {
+  return active && FIT_WIDTH_KINDS.has(descriptor(active, currentVariant()).kind) ? 'width' : 'page';
+}
+
 // HTML can fill the window below the header, laid out at its real size, as Open standalone shows it.
 function readerFillable() {
   return !!active && descriptor(active, currentVariant()).kind === 'html';
@@ -676,7 +683,14 @@ function renderSizeControls() {
     fill.hidden = !fillable;
     fill.setAttribute('aria-pressed', String(size === 'fill'));
   }
-  $('reader-fit').title = size === 'fill' ? 'Show it at its saved size, fitted in view (F or ⇧1)' : 'Fit this Tinka in view (F or ⇧1)';
+  const byWidth = readerFitMode() === 'width', fitName = byWidth ? 'Fit width' : 'Fit page';
+  const fit = $('reader-fit');
+  fit.querySelector('.fit-label').textContent = fitName;
+  fit.setAttribute('aria-label', fitName);
+  fit.title = size === 'fill'
+    ? `Show it at its saved size, ${byWidth ? 'fitted to the width' : 'all of it in view'} (F or ⇧1)`
+    : byWidth ? 'Fit the width in view, from the top; scroll for the rest (F or ⇧1)' : 'Fit all of this Tinka in view (F or ⇧1)';
+  $('reader-fit-item-label').textContent = fitName;
   $('custom-size').textContent = customText;
   $('reader-zoom-toggle').title = `Zoom and view · Window: ${SIZE_NAMES[size]}${size === 'custom' ? ` ${customText}` : ''}${variant ? ` · Version: ${variant.name}` : ''}`;
 }
@@ -798,6 +812,7 @@ function loadRevision({ focus = false } = {}) {
   readerCanvas.fitted = true;
   const kind = descriptor(active, variant).kind;
   const viewport = active.placement?.presentation?.viewport;
+  readerCanvas.fitMode = readerFitMode();
   // Documents retain native scrolling; visual resources use their authored viewport.
   readerCanvas.setResourceSize(...(['html', 'image'].includes(kind)
     ? [viewport?.width || 1000, viewport?.height || 720] : [null, null]));
@@ -922,7 +937,8 @@ function openReader(key, revision = null, { history: mode = 'push', focus = 'tin
     setReaderInfoOpen(false);
     setNotesOpen(notesOpen, { focus: false });
   }
-  // Each Tinka or version opens in its default view: HTML fills the window, other kinds fit.
+  // Each Tinka or version opens in its default view: HTML fills the window, other kinds fit
+  // (images and PDFs all of them, documents their width).
   // A chosen Window size (Compact, Standard, Wide, Custom) carries over while stepping.
   if (opening || ['fill', 'fit'].includes(readerView.size)) setReaderSize('fill');
   renderRevisionOptions();
@@ -1161,7 +1177,7 @@ function readerShortcuts() {
     <dt>← · →</dt><dd>Previous · next, while Tinka (not the content) has focus</dd>
     <dt>${MOD}↑ · Escape</dt><dd>Up to the board</dd>
     <dt>${MOD}↓</dt><dd>Down into this Tinka's own board, when it has one</dd>
-    <dt>F · Shift-1</dt><dd>Fit this Tinka</dd>
+    <dt>F · Shift-1</dt><dd>Fit: a page or document to its width, an image or PDF whole</dd>
     <dt>Shift-0 · + · −</dt><dd>Zoom to 100% · zoom in · zoom out</dd>
     <dt>⌘/Ctrl-scroll · pinch</dt><dd>Zoom the Tinka, also over local content; the page never zooms</dd>
     <dt>Drag the background · Space-drag</dt><dd>Pan</dd>

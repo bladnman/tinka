@@ -509,15 +509,21 @@ and, above 720 px wide, the Inspector floating over its right edge, so the page 
 out at the real available size and scrolls natively, as its standalone link shows it.
 It follows window and panel changes, and each Tinka or file version opens in Fill
 again; a reload keeps the current view. Fit, Actual size and any zoom switch to the
-saved-size surface below; Fill (pill and % menu) returns. A chosen Window size
+saved-size surface below; Fill (pill and % menu) returns. The % menu's Window
+**Saved size** shows that surface without zooming. A chosen Window size
 (Compact, Standard, Wide, Custom) carries over while stepping, as before. Fill is a
 browser view only: nothing is stored and no metadata changes.
 
 On the saved-size surface HTML uses the placement's authored `presentation.viewport`
 (1000×720 when omitted). An image uses its decoded natural dimensions, bounded to
 16384 per side while keeping its aspect ratio; images, PDFs, documents and other
-kinds have no Fill. Fit frames the whole surface at no more than
-100%; pan clamps to its bounds, with smaller content centered. There is no outer
+kinds have no Fill. Fit never magnifies past 100% and follows the kind. HTML, Markdown,
+notes, text and links use **Fit width**: the surface's width fills the stage, and a
+surface taller than the stage starts at its top, with the rest a pan or native scroll
+away. Images, PDFs, video and other media use **Fit page**, framing the whole surface.
+The pill's Fit button and the % menu name the one that applies. No item field selects
+it; an HTML chart fits its width like any page, and zooming out (−) shows all of it. Pan
+clamps to the surface's bounds, with smaller content centered. There is no outer
 card border or padding. The native header, conditional file-version strip,
 Inspector, notes and floating view controls remain available.
 

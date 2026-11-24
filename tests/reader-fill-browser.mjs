@@ -76,6 +76,8 @@ try{
  eq(await laidOut(),stage,'The page sees the window\'s real width and height');
  eq(await pressed(),['true','true'],'Fill is on in the pill and in the % menu');
  ok(await page.locator('#reader-fill').isVisible()&&await page.locator('#reader-fit').isVisible(),'Fill sits beside Fit in the pill');
+ const fitLabel=()=>page.locator('#reader-fit .fit-label').textContent();
+ eq(await fitLabel(),'Fit width','A page offers Fit width');
  eq(await page.locator('#reader-zoom-toggle').textContent(),'100%','The readout says 100%');
  await page.screenshot({path:path.join(evidence,'reader-fill-1920.png')});
 
@@ -124,8 +126,10 @@ try{
  await filled('An older file version opens filled');eq(await laidOut(),versioned,'The version lays out at the window size');
  await page.locator('#reader-next').click();await page.waitForFunction(()=>document.querySelector('#reader-window').offsetWidth===800);
  eq([await mode(),await size(),await page.locator('#reader-fill').isHidden(),await page.locator('#reader-fill-item').isHidden()],['fit',[800,500],true,true],'An image keeps its natural size and offers no Fill');
+ eq(await fitLabel(),'Fit page','An image offers Fit page');
  await page.locator('#reader-next').click();await page.waitForFunction(()=>document.querySelector('#reader-name').textContent==='Notes');await frames();
  eq([await mode(),await size(),await page.locator('#reader-fill').isHidden()],['fit',await stageSize(),true],'A document keeps its responsive Fit view and offers no Fill');
+ eq(await fitLabel(),'Fit width','A document offers Fit width');
  await page.locator('#reader-previous').click();await page.locator('#reader-previous').click();await inner().locator('h1').filter({hasText:'Opening'}).waitFor();
  await filled('Stepping back to HTML fills again');
  // A chosen Window size carries over while stepping, as before.

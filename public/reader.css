@@ -121,6 +121,8 @@
 #reader-dialog .reader-footer > * { pointer-events: auto; }
 #reader-dialog .reader-zoom-menu { width: 288px; max-height: calc(100dvh - var(--reader-header-h, 56px) - 84px); overflow: auto; overscroll-behavior: contain; }
 #reader-dialog .reader-zoom-menu .reader-sizes { display: flex; }
+/* "Saved size" is the longest Window choice: each keeps its words on one line and shares the rest. */
+#reader-dialog .reader-zoom-menu .reader-sizes > button { flex: 1 1 auto; padding: 0 4px; white-space: nowrap; }
 #reader-dialog .reader-zoom-menu .reader-custom-size small { margin-left: auto; color: var(--ink-3); font-size: var(--t-xs); }
 #reader-dialog .reader-zoom-menu .reader-custom-size[aria-pressed="true"] { background: var(--accent-soft); color: var(--accent-text); }
 #reader-dialog .reader-zoom-menu a.tk-mi { text-decoration: none; }

@@ -32,3 +32,21 @@ test('Fill takes the whole stage at 100%, less a reserved right edge, and Fit or
   canvas.resourceSize = {width:1000, height:720};
   assert.deepEqual(call('fitSize'), {width:1000, height:720});
 });
+test('Fit width fills a page to its width from the top; Fit page frames all of it; neither passes 100%', () => {
+  const fitted = (fitMode, w, h, area = {width:1440, height:948}) => ReaderCanvas.prototype.fittedView.call({fill:false, fitMode, area:() => area, insets:() => ({top:0,right:0,bottom:0,left:0}), sheet:{offsetWidth:w, offsetHeight:h}});
+  // A tall page saved at 1440 × 6000 reads at 100% from its top, instead of 15.8% whole.
+  assert.deepEqual(fitted('width', 1440, 6000), {zoom:1, x:0, y:0});
+  assert.ok(Math.abs(fitted('page', 1440, 6000).zoom - 948/6000) < 1e-9);
+  // A 2360 × 1822 HTML chart fits its width (61%), top first; as a page it would be height-bound (52%).
+  const chart = fitted('width', 2360, 1822);
+  assert.ok(Math.abs(chart.zoom - 1440/2360) < 1e-9);
+  assert.deepEqual([chart.x, chart.y], [0, 0]);
+  assert.ok(Math.abs(fitted('page', 2360, 1822).zoom - 948/1822) < 1e-9);
+  // Something that fits either way is centered, and small content never magnifies.
+  assert.deepEqual(fitted('width', 1000, 720), {zoom:1, x:220, y:114});
+  assert.deepEqual(fitted('width', 1000, 720), fitted('page', 1000, 720));
+  // Wide, short content is width-bound in both modes; on a phone the fitted chart is short enough to center.
+  assert.deepEqual(fitted('width', 3000, 600), fitted('page', 3000, 600));
+  const phone = fitted('width', 2360, 1822, {width:390, height:700});
+  assert.ok(Math.abs(phone.zoom - 390/2360) < 1e-9 && phone.y === Math.round((700 - 1822 * 390/2360) / 2));
+});
