@@ -118,7 +118,7 @@ try{
  await page.locator('#reader-view-back').click();await page.waitForTimeout(40);
  const back=await plane();ok(Math.abs(back.zoom-z2.zoom)<1e-6&&Math.abs(back.x-z2.x)<1,'Back restores the view before the fit (instantly with reduced motion)');
  ok(await page.locator('#reader-view-back').isHidden(),'Back goes away once used');
- eq(await page.locator('#reader-window').getAttribute('data-size'),'fit','Zooming left Fill for the saved-size surface');
+ eq(await page.locator('#reader-window').getAttribute('data-size'),'fill','Zooming kept the page filled (⌘+), and Back returns to it');
  await page.locator('#reader-stage').focus();await page.keyboard.press('f');
  eq((await plane()).zoom,1,'F fits too');
  await page.keyboard.press('Shift+Digit0');eq((await plane()).zoom,1,'Shift-0 is 100%');

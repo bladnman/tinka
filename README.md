@@ -229,15 +229,19 @@ over content with nothing to scroll, such as an image zoomed in to fill the view
 documents and pages that scroll keep scrolling themselves. HTML opens filling the
 window below the header at 100%, so the page lays out at the window's real size and
 scrolls itself, as Open standalone shows it; it follows window, Notes and Inspector
-changes, and every Tinka and file version opens this way. Fit (F or ⇧1), Actual size
-(⇧0) and zoom show it at its saved preview viewport instead (1000 × 720 when
-unspecified); **Fill** beside Fit in the pill, or Fill the window in the % menu,
-returns. Fit never goes past 100% and fits by kind: pages and documents get **Fit
-width**, their full width in view from the top, with the rest a scroll or pan away;
-images, PDFs and video get **Fit page**, all of it in view. The pill names the one that
-applies, and Back returns to the view before it. Images use their natural dimensions.
-The resource has no outer card, and pan stops at its bounds. Canvas zoom
-magnifies; Window and Type size reflow. The % menu also holds what the old View
+changes, and every Tinka and file version opens this way. Zoom on a filled page is the
+browser's ⌘+ / ⌘− (25%–500%): the page lays out at the window divided by the zoom and
+reflows, still filling the window and scrolling itself to every edge; ⇧0 returns it to
+100%. Fit (F or ⇧1) leaves Fill for the saved preview viewport (1000 × 720 when
+unspecified), and Back returns to the filled zoom; **Fill** beside Fit in the pill, or
+Fill the window in the % menu, returns at 100%. Fit never goes past 100% and fits by
+kind: pages and documents get **Fit width**, their full width in view from the top, with
+the rest a scroll or pan away; images, PDFs and video get **Fit page**, all of it in
+view. The pill names the one that applies, and Back returns to the view before it.
+Images use their natural dimensions. The resource has no outer card, and pan stops at
+its bounds. Zoom on the saved size or another fixed Window size magnifies; a magnified
+window scrolls its page, then pans the canvas, so its edges stay within reach. Window
+and Type size reflow. The % menu also holds what the old View
 panel did: Window (Saved size, Compact, Standard, Wide or a custom size dragged from the
 window's corner; a chosen size carries over while stepping) and Version, Light
 (Paper/Night), Type size and Open standalone.

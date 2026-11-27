@@ -4,21 +4,36 @@
 // Fit width for pages and documents (the window's width in sight, from its top; pan or
 // scroll for the rest) and Fit page for images, PDFs and video (the whole window in sight).
 // Back returns to the view before that fit.
-// Canvas zoom magnifies; it never reflows the content (Window and Type size do).
-// Fill (HTML's default) is the other view: the window is the whole stage, at 100%, so the
-// page lays out at the real available size as it does standalone. Fit or any zoom leaves it
-// for the saved-size surface.
+// Canvas zoom magnifies a fixed-size window; it never reflows it (Window and Type size do).
+// Fill (HTML's default) is the other view: the window is the whole stage, so the page lays
+// out at the real available size as it does standalone, and zoom there is the browser's own
+// ⌘+ / ⌘−: the page lays out at the stage's size divided by the zoom and is drawn at that
+// zoom from the top left, so it still covers exactly the stage, reflows (its media queries
+// see the smaller width), and scrolls natively to every edge. Fit leaves Fill for the
+// saved-size surface; Fill returns at 100%.
 import {clampZoom, sameView, wheelZoomFactor} from './canvas-zoom.js';
 
 // A fitted Tinka shows its window at its true size or smaller.
 export const READER_FIT_MAX_ZOOM = 1;
+// A filled page zooms over the browser's own page-zoom range (25%–500%): its layout size is the
+// stage divided by the zoom, so the range also bounds how large a page Tinka asks it to lay out.
+export const FILL_MIN_ZOOM = .25, FILL_MAX_ZOOM = 5;
+export const clampFillZoom = value => Math.max(FILL_MIN_ZOOM, Math.min(FILL_MAX_ZOOM, value));
 const reduced = () => matchMedia('(prefers-reduced-motion: reduce)').matches;
 
 // Whether wheel movement (dx, dy) over `target` would scroll something in Tinka's content:
 // an overflowing scroll box or a scrolling page, in `target`'s frame or any frame around it up
 // to `top`. Being at the end of a scroll does not count, so a document never pans the canvas.
+// With `further`, a scroller counts only while it can still move that way, so a magnified window
+// whose page is already at its top (or end) lets the canvas carry on, as nested scrollers chain.
 const SCROLLS = /^(auto|scroll|overlay)$/;
-function viewportScrolls(doc, dx, dy) {
+// Whether a scroller with these extents can move along (dx, dy): at all, or (further) from where it is.
+function canMove(dx, dy, {left, top, width, height, scrollWidth, scrollHeight}, further) {
+  const y = dy && scrollHeight > height + 1 && (!further || (dy > 0 ? top + height < scrollHeight - 1 : top > 0));
+  const x = dx && scrollWidth > width + 1 && (!further || (dx > 0 ? left + width < scrollWidth - 1 : left > 0));
+  return !!(x || y);
+}
+function viewportScrolls(doc, dx, dy, further) {
   const win = doc.defaultView, root = doc.documentElement, body = doc.body;
   if (!win || !root) return false;
   const rs = win.getComputedStyle(root), bs = body ? win.getComputedStyle(body) : null;
@@ -26,9 +41,10 @@ function viewportScrolls(doc, dx, dy) {
   const ox = rs.overflowX !== 'visible' ? rs.overflowX : bs?.overflowX || 'visible';
   const oy = rs.overflowY !== 'visible' ? rs.overflowY : bs?.overflowY || 'visible';
   const el = doc.scrollingElement || root, open = value => value !== 'hidden' && value !== 'clip';
-  return !!((dy && open(oy) && el.scrollHeight > win.innerHeight + 1) || (dx && open(ox) && el.scrollWidth > win.innerWidth + 1));
+  const extent = { left: el.scrollLeft, top: el.scrollTop, width: win.innerWidth, height: win.innerHeight, scrollWidth: el.scrollWidth, scrollHeight: el.scrollHeight };
+  return canMove(open(ox) ? dx : 0, open(oy) ? dy : 0, extent, further);
 }
-export function contentScrolls(target, dx, dy, top = window) {
+export function contentScrolls(target, dx, dy, top = window, { further = false } = {}) {
   let node = target?.nodeType === 1 ? target : target?.parentElement;
   try {
     while (node) {
@@ -38,9 +54,10 @@ export function contentScrolls(target, dx, dy, top = window) {
       for (let el = node; el && el !== doc.documentElement; el = el.parentElement) {
         if (el === doc.body && rootVisible) continue; // the body's overflow is the page's (below)
         const style = win.getComputedStyle(el);
-        if ((dy && SCROLLS.test(style.overflowY) && el.scrollHeight > el.clientHeight + 1) || (dx && SCROLLS.test(style.overflowX) && el.scrollWidth > el.clientWidth + 1)) return true;
+        const extent = { left: el.scrollLeft, top: el.scrollTop, width: el.clientWidth, height: el.clientHeight, scrollWidth: el.scrollWidth, scrollHeight: el.scrollHeight };
+        if (canMove(SCROLLS.test(style.overflowX) ? dx : 0, SCROLLS.test(style.overflowY) ? dy : 0, extent, further)) return true;
       }
-      if (viewportScrolls(doc, dx, dy)) return true;
+      if (viewportScrolls(doc, dx, dy, further)) return true;
       node = win.frameElement;
     }
   } catch { return true; } // a frame we cannot read keeps its own wheel
@@ -56,8 +73,8 @@ export function resourceSize(width, height) {
 }
 
 export class ReaderCanvas {
-  constructor(stage, plane, sheet, { onChange = () => {}, onBack = () => {}, reserveBottom = () => 0, reserveRight = () => 0, onLeaveFill = () => {} } = {}) {
-    Object.assign(this, { stage, plane, sheet, onChange, onBack, reserveBottom, reserveRight, onLeaveFill });
+  constructor(stage, plane, sheet, { onChange = () => {}, onBack = () => {}, reserveBottom = () => 0, reserveRight = () => 0, onLeaveFill = () => {}, onReturnFill = () => {} } = {}) {
+    Object.assign(this, { stage, plane, sheet, onChange, onBack, reserveBottom, reserveRight, onLeaveFill, onReturnFill });
     this.view = { zoom: 1, x: 0, y: 0 };
     this.fitted = true;
     this.fill = false;
@@ -88,11 +105,17 @@ export class ReaderCanvas {
   area() { return { width: this.stage.clientWidth, height: this.stage.clientHeight }; }
   // Fill: the window takes the whole stage (less a side panel floating over its right edge).
   setFill(on) { this.fill = !!on; this.dropBack(); }
-  fillSize() {
+  // The stage room a filled window covers on screen, whatever its zoom.
+  fillArea() {
     const { width, height } = this.area(), right = Math.max(0, Math.round(this.reserveRight() || 0));
     return { width: Math.max(240, Math.floor(width - right)), height: Math.max(200, Math.floor(height)) };
   }
-  // Fit and zoom act on the saved-size surface, so they leave Fill first.
+  // Its layout size: that room divided by the zoom, as ⌘+ / ⌘− give a page a smaller or larger viewport.
+  fillSize() {
+    const { width, height } = this.fillArea(), zoom = clampFillZoom(this.view?.zoom || 1);
+    return { width: Math.max(1, Math.round(width / zoom)), height: Math.max(1, Math.round(height / zoom)) };
+  }
+  // Fit acts on the saved-size surface, so it leaves Fill first.
   leaveFill() { if (!this.fill) return false; this.onLeaveFill(); this.fill = false; return true; }
   // Fit uses authored resource dimensions, or the responsive stage for documents.
   fitSize() {
@@ -120,8 +143,8 @@ export class ReaderCanvas {
   clamp({ zoom, x, y }) {
     const { width, height } = this.area();
     const w = this.sheet.offsetWidth * zoom, h = this.sheet.offsetHeight * zoom;
-    // A filled window stays at 100%, pinned to the stage's top left.
-    if (this.fill) return { zoom: 1, x: Math.min(0, Math.max(width - this.sheet.offsetWidth, x)), y: Math.min(0, Math.max(height - this.sheet.offsetHeight, y)) };
+    // A filled window is pinned to the stage's top left at any zoom; the page scrolls itself.
+    if (this.fill) return { zoom: clampFillZoom(zoom), x: 0, y: 0 };
     return { zoom, x: w <= width ? (width - w) / 2 : Math.min(0, Math.max(width - w, x)), y: h <= height ? (height - h) / 2 : Math.min(0, Math.max(height - h, y)) };
   }
   apply() {
@@ -142,11 +165,18 @@ export class ReaderCanvas {
   // Any view change of your own ends Back.
   dropBack() { if (this.backView) { this.backView = null; this.onBack(false); } }
   // The fitted view, without remembering where you were (opening, resizing, a new window size).
-  rest() { this.stopGlide(); this.fitted = true; this.syncFitSize(); this.view = this.fittedView(); this.apply(); }
+  // A filled page rests at 100% (its layout size follows the zoom, so set that first).
+  rest() {
+    this.stopGlide(); this.fitted = true;
+    if (this.fill) this.view = { zoom: 1, x: 0, y: 0 };
+    this.syncFitSize(); this.view = this.fittedView(); this.apply();
+  }
   isFitted() { return sameView(this.view, this.fittedView()); }
   fit() {
     this.stopGlide();
-    if (this.leaveFill()) return true;
+    // From Fill, Back returns to the filled page at the zoom it had.
+    const filled = this.fill && { fill: true, zoom: this.view.zoom };
+    if (this.leaveFill()) { this.backView = filled; this.onBack(true); return true; }
     const before = { ...this.view };
     this.syncFitSize();
     const target = this.fittedView();
@@ -163,6 +193,7 @@ export class ReaderCanvas {
     const to = this.backView;
     this.backView = null;
     this.onBack(false);
+    if (to.fill) { this.onReturnFill(); this.zoomTo(to.zoom); return true; }
     this.fitted = false;
     this.glideTo(to);
     return true;
@@ -179,9 +210,19 @@ export class ReaderCanvas {
     };
     this.glide = requestAnimationFrame(frame);
   }
-  // Zoom to `zoom` keeping the stage point (sx, sy) still.
+  // Zoom to `zoom` keeping the stage point (sx, sy) still. A filled page instead lays out
+  // again at the new zoom (⌘+ / ⌘−) and keeps its own scroll position.
   zoomTo(zoom, sx = this.stage.clientWidth / 2, sy = this.stage.clientHeight / 2) {
-    this.stopGlide(); this.leaveFill(); this.dropBack();
+    this.stopGlide(); this.dropBack();
+    if (this.fill) {
+      const z = clampFillZoom(zoom);
+      if (Math.abs(z - this.view.zoom) < 1e-4) return;
+      this.fitted = Math.abs(z - 1) < 1e-4;
+      this.view = { zoom: z, x: 0, y: 0 };
+      this.syncFitSize();
+      this.apply();
+      return;
+    }
     const { zoom: z0, x, y } = this.view, z = clampZoom(zoom);
     this.fitted = false;
     this.view = { zoom: z, x: sx - (sx - x) * z / z0, y: sy - (sy - y) * z / z0 };
@@ -200,7 +241,14 @@ export class ReaderCanvas {
     this.view = { ...this.view, x: this.view.x + dx, y: this.view.y + dy };
     this.apply();
   }
-  resize() { this.syncFitSize(); if (this.fitted || this.fill) this.rest(); else this.apply(); }
+  // Whether panning by (dx, dy) would move the view (the window overflows the stage that way).
+  canPan(dx, dy) {
+    if (this.fill) return false;
+    const to = this.clamp({ ...this.view, x: this.view.x + dx, y: this.view.y + dy }), now = this.clamp(this.view);
+    return Math.abs(to.x - now.x) >= .5 || Math.abs(to.y - now.y) >= .5;
+  }
+  // A filled page keeps its zoom while the stage changes; a fitted view fits again.
+  resize() { this.syncFitSize(); if (this.fill) this.apply(); else if (this.fitted) this.rest(); else this.apply(); }
   // Holding Space over the stage lets a drag anywhere pan, even when the sheet fills it.
   setSpacePan(on) { this.shield.hidden = !on; this.stage.classList.toggle('space-pan', !!on); }
   background(target) { return target === this.stage || target === this.plane || target === this.shield; }

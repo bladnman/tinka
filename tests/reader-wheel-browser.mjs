@@ -1,7 +1,8 @@
 // Headless check: in an opened Tinka, plain scrolling that the content has no use for (an
 // image, zoomed in until it fills the canvas) pans Tinka's canvas, as it does over the
 // background and the window's edge; Control-scroll still zooms; a long Markdown document and
-// a long HTML page still scroll themselves without moving the canvas. External fixtures only.
+// a long HTML page still scroll themselves without moving the canvas; a magnified saved-size page
+// scrolls itself, then the canvas carries on so its top and bottom stay in reach. External fixtures only.
 import assert from 'node:assert/strict';
 import {mkdtemp,mkdir,writeFile,rm} from 'node:fs/promises';
 import os from 'node:os';
@@ -84,6 +85,16 @@ try{
  ok(await scrolled('#no-such-element')>=250,'Wheel scrolls the long page');
  assert.deepEqual(await plane(),htmlPlane,'The page scrolling leaves the canvas still');checks++;
 
+ // (6) Its saved size magnified past the window: the page scrolls itself, then the canvas carries on to the window's top and bottom.
+ await page.locator('#reader-fit').click();await page.waitForTimeout(60);
+ for(let i=0;i<3;i++)await page.locator('#reader-zoom-plus').click();
+ await page.mouse.move(pageBox.x+pageBox.width/2,pageBox.y+pageBox.height/2);
+ const magnified=await plane();ok(magnified.zoom>1.9&&magnified.y<-100,`The magnified window's top is out of view: ${JSON.stringify(magnified)}`);
+ for(let i=0;i<12;i++)await wheel(0,-400);
+ ok(await scrolled('#no-such-element')===0&&(await plane()).y===0,`Scrolling up reaches the page's top, then the window's: ${JSON.stringify(await plane())}`);
+ for(let i=0;i<30;i++)await wheel(0,600);
+ const stageBox=await page.locator('#reader-stage').boundingBox(),bottom=await page.locator('#reader-window').boundingBox();
+ ok(Math.abs(bottom.y+bottom.height-(stageBox.y+stageBox.height))<=1,`Scrolling down reaches the window's bottom edge: ${bottom.y+bottom.height} vs ${stageBox.y+stageBox.height}`);
  assert.deepEqual(errors,[],'No page errors');checks++;
  console.log(`Reader wheel browser checks passed: ${checks}`);
 }finally{await browser?.close();if(server)await closeAppServer(server);await rm(root,{recursive:true,force:true});}

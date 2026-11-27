@@ -1,6 +1,7 @@
 // An opened HTML Tinka fills the window below the header by default, at 100%, so the page
-// lays out at the window's real size as Open standalone shows it. Fit, Actual size and zoom
-// give the saved-size surface; Fill returns in one click. Images and documents keep their
+// lays out at the window's real size as Open standalone shows it. Zoom there is the browser's
+// ⌘+ / ⌘−: the page lays out again at the window over the zoom, reflows and scrolls to every
+// edge. Fit gives the saved-size surface; Fill returns at 100% in one click. Images and documents keep their
 // view. Covers graph and legacy items, file versions, stepping, the Inspector, notes and a
 // few window sizes. External disposable fixtures only; screenshots go to the evidence folder.
 import assert from 'node:assert/strict';
@@ -88,12 +89,19 @@ try{
  eq(await pressed(),['false','false'],'Fill is off at the saved size');
  await page.screenshot({path:path.join(evidence,'reader-fit-1920.png')});
  await page.locator('#reader-fill').click();await filled('Fill returns in one click');
- // Actual size and zoom act on the saved-size surface too.
- await page.locator('#reader-stage').focus();await page.keyboard.press('Shift+Digit0');await frames();
- eq([await mode(),await size(),(await plane()).zoom],['fit',[1000,720],1],'Actual size (⇧0) shows the saved size at 100%');
- await page.locator('#reader-fill').click();await page.locator('#reader-stage').focus();await page.keyboard.press('=');await frames();
- eq([await mode(),(await plane()).zoom],['fit',1.25],'Zooming in from Fill zooms the saved-size surface');
- await page.locator('#reader-fill').click();await filled('Fill again');
+ // Zoom on the filled page is ⌘+ / ⌘−: it stays filled, lays out at the window over the zoom and covers the window.
+ await page.locator('#reader-stage').focus();await page.keyboard.press('=');await page.keyboard.press('=');await frames();
+ const zoomedSize=[Math.round(stage[0]/1.5625),Math.round(stage[1]/1.5625)];
+ eq([await mode(),await size(),await plane()],['fill',zoomedSize,{zoom:1.5625,x:0,y:0}],'Zooming in keeps Fill and lays the page out at the window over 156%');
+ eq(await laidOut(),zoomedSize,'The page itself sees the smaller viewport, so its responsive CSS applies');
+ eq(await page.locator('#reader-zoom-toggle').textContent(),'156%','The readout follows the zoom');
+ const covered=await page.locator('#reader-window').boundingBox();
+ ok(Math.abs(covered.width-stage[0])<=2&&Math.abs(covered.height-stage[1])<=2,`The zoomed page still covers the window from its top left: ${covered.width} × ${covered.height}`);
+ await page.screenshot({path:path.join(evidence,'reader-fill-zoomed-1920.png')});
+ await page.keyboard.press('Shift+Digit0');await filled('Actual size (⇧0) returns the filled page to 100%');
+ await page.keyboard.press('-');await frames();
+ eq([await mode(),await size()],['fill',[Math.round(stage[0]/.8),Math.round(stage[1]/.8)]],'Zooming out gives the page a wider layout, like ⌘−');
+ await page.locator('#reader-fill').click();await filled('Fill returns to 100%');
  // Fill the window, beside Fit this Tinka in the % menu, works too; Window keeps its four sizes.
  await page.locator('#reader-fit').click();await page.locator('#reader-zoom-toggle').click();
  eq(await page.locator('#size-menu [data-size]:visible').evaluateAll(b=>b.map(x=>x.dataset.size)),['fit','compact','standard','wide'],'Window keeps its 1.4 choices');

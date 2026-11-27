@@ -508,8 +508,11 @@ below the header and file-version strip at 100%, less an open Notes or comment p
 and, above 720 px wide, the Inspector floating over its right edge, so the page lays
 out at the real available size and scrolls natively, as its standalone link shows it.
 It follows window and panel changes, and each Tinka or file version opens in Fill
-again; a reload keeps the current view. Fit, Actual size and any zoom switch to the
-saved-size surface below; Fill (pill and % menu) returns. The % menu's Window
+again; a reload keeps the current view. Zoom on a filled page is the browser's ⌘+ / ⌘−,
+from 25% to 500%: the page lays out at the window divided by the zoom and reflows, still
+covering the window from its top left and scrolling natively to every edge; Actual size
+returns it to 100%. Fit switches to the saved-size surface below, and Back returns to the
+filled zoom; Fill (pill and % menu) returns at 100%. The % menu's Window
 **Saved size** shows that surface without zooming. A chosen Window size
 (Compact, Standard, Wide, Custom) carries over while stepping, as before. Fill is a
 browser view only: nothing is stored and no metadata changes.
@@ -528,7 +531,9 @@ card border or padding. The native header, conditional file-version strip,
 Inspector, notes and floating view controls remain available.
 
 Window Compact/Standard/Wide and custom corner resizing still reflow HTML.
-Canvas zoom magnifies the existing document without reloading it. Documents and
+Canvas zoom on the saved-size surface or another fixed Window size magnifies the
+existing document without reloading it. A magnified window scrolls its page, then pans
+the canvas once the page can go no further, so its top, bottom and sides stay in reach. Documents and
 nonvisual representations retain native scrolling and responsive stage sizing.
 An item/version switch refits; late image readiness preserves a view already
 adjusted by the person. Tinka reads dimensions only from its own media wrapper,

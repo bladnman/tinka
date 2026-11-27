@@ -631,6 +631,7 @@ const readerCanvas = new ReaderCanvas(readerStage, $('reader-plane'), $('reader-
     return Math.max(0, readerStage.getBoundingClientRect().right - readerInfo.getBoundingClientRect().left + 8);
   },
   onLeaveFill: () => setReaderSize('fit'),
+  onReturnFill: () => setReaderSize('fill'),
 });
 const readerResource = new ReaderResourceSurface($('active-reader'), {
   isActive: () => dialog.open,
@@ -706,7 +707,7 @@ function setReaderSize(size) {
   }
   viewer.title = ['fit', 'fill'].includes(readerView.size) ? 'Resource surface' : 'Drag the lower-right corner to resize';
   renderSizeControls();
-  // A new window size shows whole again; canvas zoom never reflows it.
+  // A new window size shows whole again (Fill at 100%); canvas zoom never reflows a fixed size.
   if (dialog.open) readerCanvas.rest();
 }
 
@@ -1228,7 +1229,9 @@ document.addEventListener('keyup', event => { if (event.key === ' ') readerCanva
 // Same-origin content (Tinka's own item, media and board files, and frames inside them)
 // forwards the step/up/down chords and ⌘/Ctrl-scroll or pinch; independent pages cannot.
 // Plain scrolling the content has no use for (an image, a page that fits) pans Tinka's canvas,
-// as it does over the background; anything that scrolls, or handles the wheel itself, keeps it.
+// as it does over the background; anything that scrolls, or handles the wheel itself, keeps it,
+// until it can go no further while a magnified window still overflows the canvas that way: then
+// the canvas carries on, so a zoomed window's top, bottom and sides stay within reach.
 const FORWARDED = Symbol('tinka-reader-forward');
 function framePoint(win, x, y) {
   try {
@@ -1261,7 +1264,8 @@ function forwardFrame(frame) {
   win.addEventListener('wheel', event => {
     if (event.ctrlKey || event.metaKey || event.defaultPrevented || readerBlocked()) return;
     const { dx, dy } = readerCanvas.wheelDelta(event);
-    if ((!dx && !dy) || contentScrolls(event.target, dx, dy, window)) return;
+    if (!dx && !dy) return;
+    if (contentScrolls(event.target, dx, dy, window) && !(readerCanvas.canPan(-dx, -dy) && !contentScrolls(event.target, dx, dy, window, { further: true }))) return;
     event.preventDefault();
     readerCanvas.panBy(-dx, -dy);
   }, { passive: false });
